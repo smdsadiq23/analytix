@@ -15,7 +15,7 @@ def after_install():
 
 def ensure_data_source():
     """
-    Ensure 'Default' Insights Data Source exists
+    Ensure 'Default' Insights Data Source v3 exists with required fields
     """
     data_source_name = "Default"
 
@@ -24,15 +24,32 @@ def ensure_data_source():
         return
 
     try:
+        # Get DB connection info from site config
+        site_config = frappe.conf
+        db_name = site_config.db_name
+        db_host = getattr(site_config, "db_host", "localhost")
+        db_port = getattr(site_config, "db_port", 3306)
+        db_user = getattr(site_config, "db_user", db_name)  # fallback to db_name
+
         ds = frappe.new_doc("Insights Data Source v3")
         ds.title = data_source_name
         ds.type = "Database"
         ds.database_type = "MariaDB"
-        ds.database_name = frappe.conf.db_name
+        ds.database_name = db_name
+        ds.host = db_host
+        ds.port = int(db_port)
+        ds.username = db_user
+
+        # Password is optional — only set if present
+        if hasattr(site_config, "db_password") and site_config.db_password:
+            ds.password = site_config.db_password
+
         ds.insert(ignore_permissions=True)
         frappe.db.commit()
         print(f"✅ Created Insights Data Source: {data_source_name}")
+
     except Exception as e:
+        # Fix: Convert exception to string before logging
         frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
         print(f"❌ Failed to create Data Source: {str(e)}")
 
