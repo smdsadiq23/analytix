@@ -116,15 +116,17 @@ def load_insights_objects():
 
 
 def import_insights_doc(doctype, name, doc_data, file_path):
-    """
-    Import or update a single Query or Dashboard
-    """
-    if frappe.db.exists(doctype, name):
-        doc = frappe.get_doc(doctype, name)
-        doc.update(doc_data)
-        doc.save(ignore_permissions=True)
-        print(f"🔄 Updated {doctype}: {name}")
-    else:
-        doc = frappe.get_doc(doc_data)
-        doc.insert(ignore_permissions=True)
-        print(f"➕ Created {doctype}: {name}")
+    try:
+        if frappe.db.exists(doctype, name):
+            doc = frappe.get_doc(doctype, name)
+            doc.update(doc_data)
+            doc.save(ignore_permissions=True)
+            print(f"🔄 Updated {doctype}: {name}")
+        else:
+            doc = frappe.get_doc(doc_data)
+            doc.insert(ignore_permissions=True)
+            print(f"➕ Created {doctype}: {name}")
+    except Exception as e:
+        # Safe logging: convert exception to string
+        frappe.log_error(e, f"AnalytiX: Import Failed - {name}")
+        print(f"❌ Failed to import {doctype} {name}: {str(e)}")

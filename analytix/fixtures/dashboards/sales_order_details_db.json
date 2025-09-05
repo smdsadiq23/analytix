@@ -1,10 +1,11 @@
 {
-  "doctype": "Dashboard",
+  "doctype": "Insights Dashboard v3",
   "name": "5ldmm7fios",
   "dashboard_name": "Sales Order Details",
   "charts": [
     {
       "chart_name": "65a3b37o9f",
+      "query": "1pk3o72hir",
       "width": "Full",
       "filters_json": "{}"
     }
