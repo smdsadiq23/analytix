@@ -10,6 +10,7 @@ def after_install():
     """
     print("🔁 Starting import of Insights objects...")
     ensure_data_source()
+    ensure_workbook()
     load_insights_objects()
     print("✅ Insights dashboards and queries imported successfully!")
 
@@ -69,6 +70,29 @@ def ensure_data_source():
         # Safe logging: convert exception to string
         frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
         print(f"❌ Failed to create Data Source: {str(e)}")
+
+
+def ensure_workbook():
+    """
+    Ensure the default 'Insights Workbook' exists with predictable name
+    """
+    workbook_name = "default_workbook"
+    if frappe.db.exists("Insights Workbook", workbook_name):
+        print(f"ℹ️ Insights Workbook '{workbook_name}' already exists.")
+        return
+
+    try:
+        wb = frappe.get_doc({
+            "doctype": "Insights Workbook",
+            "name": workbook_name,
+            "title": "Default Workbook"
+        })
+        wb.insert(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"✅ Created Insights Workbook: {workbook_name}")
+    except Exception as e:
+        frappe.log_error(e, "AnalytiX: Workbook Creation Failed")
+        print(f"❌ Failed to create Workbook: {str(e)}")
 
 
 def load_insights_objects():
