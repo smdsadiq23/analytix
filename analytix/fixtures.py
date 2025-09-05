@@ -15,26 +15,26 @@ def after_install():
 
 def ensure_data_source():
     """
-    Ensure the 'Default' Data Source exists
+    Ensure 'Default' Insights Data Source exists
     """
     data_source_name = "Default"
-    if not frappe.db.exists("Data Source", data_source_name):
-        try:
-            ds = frappe.get_doc({
-                "doctype": "Data Source",
-                "title": data_source_name,
-                "type": "Database",
-                "database_type": "MariaDB",
-                "database_name": frappe.conf.db_name,
-            })
-            ds.insert(ignore_permissions=True)
-            frappe.db.commit()
-            print(f"✅ Created Data Source: {data_source_name}")
-        except Exception as e:
-            frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
-            print(f"❌ Failed to create Data Source: {e}")
-    else:
-        print(f"ℹ️ Data Source '{data_source_name}' already exists.")
+
+    if frappe.db.exists("Insights Data Source v3", data_source_name):
+        print(f"ℹ️ Insights Data Source '{data_source_name}' already exists.")
+        return
+
+    try:
+        ds = frappe.new_doc("Insights Data Source v3")
+        ds.title = data_source_name
+        ds.type = "Database"
+        ds.database_type = "MariaDB"
+        ds.database_name = frappe.conf.db_name
+        ds.insert(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"✅ Created Insights Data Source: {data_source_name}")
+    except Exception as e:
+        frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
+        print(f"❌ Failed to create Data Source: {str(e)}")
 
 def load_insights_objects():
     """
