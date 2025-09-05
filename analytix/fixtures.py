@@ -76,7 +76,7 @@ def ensure_workbook():
     """
     Ensure the default 'Insights Workbook' exists with predictable name
     """
-    workbook_name = "default_workbook"
+    workbook_name = "1"
     if frappe.db.exists("Insights Workbook", workbook_name):
         print(f"ℹ️ Insights Workbook '{workbook_name}' already exists.")
         return
