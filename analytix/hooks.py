@@ -237,3 +237,8 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+# AnalytiX/analytix/hooks.py
+
+after_migrate = [
+    "analytix.fixtures.after_install"
+]
