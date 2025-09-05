@@ -13,9 +13,10 @@ def after_install():
     load_insights_objects()
     print("✅ Insights dashboards and queries imported successfully!")
 
+
 def ensure_data_source():
     """
-    Ensure 'Default' Insights Data Source v3 exists with required fields
+    Ensure 'Default' Insights Data Source v3 exists with all required fields
     """
     data_source_name = "Default"
 
@@ -24,34 +25,51 @@ def ensure_data_source():
         return
 
     try:
-        # Get DB connection info from site config
+        # Get DB config from site config
         site_config = frappe.conf
+
+        # Debug: Print what we're using
+        print("🔧 Using site config for Data Source:")
+        print(f"  db_name     = {site_config.db_name}")
+        print(f"  db_host     = {getattr(site_config, 'db_host', 'localhost')}")
+        print(f"  db_port     = {getattr(site_config, 'db_port', 3306)}")
+        print(f"  db_user     = {getattr(site_config, 'db_user', None)}")
+        print(f"  db_password = {'***' if hasattr(site_config, 'db_password') and site_config.db_password else 'None'}")
+
+        # Set fallbacks
         db_name = site_config.db_name
-        db_host = getattr(site_config, "db_host", "localhost")
-        db_port = getattr(site_config, "db_port", 3306)
-        db_user = getattr(site_config, "db_user", db_name)  # fallback to db_name
+        host = getattr(site_config, "db_host", "localhost")
+        port = int(getattr(site_config, "db_port", 3306))
+        username = getattr(site_config, "db_user", None)
+
+        # Critical: Fallback if db_user is missing
+        if not username:
+            print("⚠️ db_user not found in site_config, falling back to db_name")
+            username = db_name
 
         ds = frappe.new_doc("Insights Data Source v3")
         ds.title = data_source_name
         ds.type = "Database"
         ds.database_type = "MariaDB"
         ds.database_name = db_name
-        ds.host = db_host
-        ds.port = int(db_port)
-        ds.username = db_user
+        ds.host = host
+        ds.port = port
+        ds.username = username
 
-        # Password is optional — only set if present
+        # Add password if exists
         if hasattr(site_config, "db_password") and site_config.db_password:
-            ds.password = site_config.db_password
+            ds.password = str(site_config.db_password)  # Ensure it's a string
 
+        print(f"✅ Attempting to create Data Source with username: {username}")
         ds.insert(ignore_permissions=True)
         frappe.db.commit()
-        print(f"✅ Created Insights Data Source: {data_source_name}")
+        print(f"🎉 Successfully created Insights Data Source: {data_source_name}")
 
     except Exception as e:
-        # Fix: Convert exception to string before logging
+        # Safe logging: convert exception to string
         frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
         print(f"❌ Failed to create Data Source: {str(e)}")
+
 
 def load_insights_objects():
     """
@@ -95,6 +113,7 @@ def load_insights_objects():
             except Exception as e:
                 frappe.log_error(e, f"AnalytiX: Import Failed - {fname}")
                 print(f"❌ Failed to import {fname}: {e}")
+
 
 def import_insights_doc(doctype, name, doc_data, file_path):
     """
