@@ -10,17 +10,17 @@ def after_install():
     """
     print("🔁 Starting import of Insights objects...")
     ensure_data_source()
-    ensure_workbook()
     load_insights_objects()
     print("✅ Insights dashboards and queries imported successfully!")
 
 
 def ensure_data_source():
     """
-    Ensure 'Default' Insights Data Source v3 exists with all required fields
+    Ensure 'Default' Data Source exists with required fields
     """
     data_source_name = "Default"
 
+    # Skip if already exists
     if frappe.db.exists("Insights Data Source v3", data_source_name):
         print(f"ℹ️ Insights Data Source '{data_source_name}' already exists.")
         return
@@ -28,22 +28,12 @@ def ensure_data_source():
     try:
         # Get DB config from site config
         site_config = frappe.conf
-
-        # Debug: Print what we're using
-        print("🔧 Using site config for Data Source:")
-        print(f"  db_name     = {site_config.db_name}")
-        print(f"  db_host     = {getattr(site_config, 'db_host', 'localhost')}")
-        print(f"  db_port     = {getattr(site_config, 'db_port', 3306)}")
-        print(f"  db_user     = {getattr(site_config, 'db_user', None)}")
-        print(f"  db_password = {'***' if hasattr(site_config, 'db_password') and site_config.db_password else 'None'}")
-
-        # Set fallbacks
         db_name = site_config.db_name
-        host = getattr(site_config, "db_host", "localhost")
+        host = getattr(site_config, "db_host", "127.0.0.1")
         port = int(getattr(site_config, "db_port", 3306))
         username = getattr(site_config, "db_user", None)
 
-        # Critical: Fallback if db_user is missing
+        # Fallback to db_name if db_user not set
         if not username:
             print("⚠️ db_user not found in site_config, falling back to db_name")
             username = db_name
@@ -57,9 +47,8 @@ def ensure_data_source():
         ds.port = port
         ds.username = username
 
-        # Add password if exists
         if hasattr(site_config, "db_password") and site_config.db_password:
-            ds.password = str(site_config.db_password)  # Ensure it's a string
+            ds.password = str(site_config.db_password)
 
         print(f"✅ Attempting to create Data Source with username: {username}")
         ds.insert(ignore_permissions=True)
@@ -67,44 +56,20 @@ def ensure_data_source():
         print(f"🎉 Successfully created Insights Data Source: {data_source_name}")
 
     except Exception as e:
-        # Safe logging: convert exception to string
         frappe.log_error(e, "AnalytiX: Data Source Creation Failed")
         print(f"❌ Failed to create Data Source: {str(e)}")
 
 
-def ensure_workbook():
-    """
-    Ensure the default 'Insights Workbook' exists with predictable name
-    """
-    workbook_name = "1"
-    if frappe.db.exists("Insights Workbook", workbook_name):
-        print(f"ℹ️ Insights Workbook '{workbook_name}' already exists.")
-        return
-
-    try:
-        wb = frappe.get_doc({
-            "doctype": "Insights Workbook",
-            "name": workbook_name,
-            "title": "Default Workbook"
-        })
-        wb.insert(ignore_permissions=True)
-        frappe.db.commit()
-        print(f"✅ Created Insights Workbook: {workbook_name}")
-    except Exception as e:
-        frappe.log_error(e, "AnalytiX: Workbook Creation Failed")
-        print(f"❌ Failed to create Workbook: {str(e)}")
-
-
 def load_insights_objects():
     """
-    Load Queries and Dashboards from JSON files in /fixtures
+    Load Insights Workbooks (and auto-import queries, charts, dashboards)
     """
     app_path = frappe.get_app_path("AnalytiX")
     fixtures_path = os.path.join(app_path, "fixtures")
 
+    # Only import Workbooks — they contain everything
     imports = [
-        ("queries", "Query"),
-        ("dashboards", "Dashboard")
+        ("workbooks", "Insights Workbook")
     ]
 
     for folder, doctype in imports:
@@ -136,10 +101,13 @@ def load_insights_objects():
 
             except Exception as e:
                 frappe.log_error(e, f"AnalytiX: Import Failed - {fname}")
-                print(f"❌ Failed to import {fname}: {e}")
+                print(f"❌ Failed to import {fname}: {str(e)}")
 
 
 def import_insights_doc(doctype, name, doc_data, file_path):
+    """
+    Import or update a single Insights document
+    """
     try:
         if frappe.db.exists(doctype, name):
             doc = frappe.get_doc(doctype, name)
@@ -151,6 +119,6 @@ def import_insights_doc(doctype, name, doc_data, file_path):
             doc.insert(ignore_permissions=True)
             print(f"➕ Created {doctype}: {name}")
     except Exception as e:
-        # Safe logging: convert exception to string
+        # Safe: convert exception to string
         frappe.log_error(e, f"AnalytiX: Import Failed - {name}")
         print(f"❌ Failed to import {doctype} {name}: {str(e)}")
