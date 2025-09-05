@@ -239,6 +239,29 @@ app_license = "mit"
 
 # AnalytiX/analytix/hooks.py
 
-after_migrate = [
-    "analytix.fixtures.after_install"
-]
+# after_migrate = [
+#     "analytix.fixtures.after_install"
+# ]
+
+
+# fixtures = [
+#     # Workbooks
+#     {"dt": "Insights Workbook", "filters": [["name", "in", [
+#         "1"
+#     ]]]},
+#     # Queries
+#     {"dt": "Insights Query", "filters": [["name", "in", [
+#         "Sales Order"
+#     ]]]},
+#     # Charts (Insights)
+#     {"dt": "Insights Chart", "filters": [["name", "in", [
+#         "Sales Order"
+#     ]]]},
+#     # Dashboards (Insights)
+#     {"dt": "Insights Dashboard", "filters": [["name", "in", [
+#         "Sales Order Details"
+#     ]]]},
+#     # Optional: if your Insights screens reference Desk cards/charts
+#     # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
+#     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
+# ]
