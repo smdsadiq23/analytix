@@ -6,7 +6,7 @@
   "docstatus": 0,
   "doctype": "Insights Workbook",
   "modified": "2025-09-05 11:58:01.255660",
-  "name": 1,
+  "name": 2,
   "queries": "[\n {\n  \"is_builder_query\": 0,\n  \"is_native_query\": 1,\n  \"is_script_query\": 0,\n  \"name\": \"1pk3o72hir\",\n  \"title\": \"Sales Order\\u00a0\"\n }\n]",
   "read_only": false,
   "title": "Sales Order WB"
