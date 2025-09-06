@@ -8,10 +8,9 @@ def after_install():
     """
     Called after app install or bench migrate
     """
-    print("🔁 Starting import of Insights objects...")
+    print("🔁 Creating Default Data Source...")
     ensure_data_source()
-    load_insights_objects()
-    print("✅ Insights dashboards and queries imported successfully!")
+    # load_insights_objects()
 
 
 def ensure_data_source():

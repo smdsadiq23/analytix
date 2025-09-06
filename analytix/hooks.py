@@ -239,6 +239,10 @@ app_license = "mit"
 
 # AnalytiX/analytix/hooks.py
 
+# after_migrate = [
+#     "analytix.fixtures.after_install"
+# ]
+
 
 # fixtures = [
 #     # Workbooks
