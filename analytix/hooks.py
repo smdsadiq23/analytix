@@ -265,3 +265,18 @@ app_license = "mit"
 #     # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
 #     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
 # ]
+
+
+fixtures = [
+    # Workbooks
+    {"dt": "Insights Workbook"},
+    # Queries
+    {"dt": "Insights Query v3"},
+    # Charts (Insights)
+    {"dt": "Insights Chart v3"},
+    # Dashboards (Insights)
+    {"dt": "Insights Dashboard v3"},
+    # Optional: if your Insights screens reference Desk cards/charts
+    # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
+    # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
+]

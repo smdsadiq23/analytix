@@ -1,0 +1,19 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Insights Query v3",
+  "is_builder_query": 0,
+  "is_native_query": 1,
+  "is_script_query": 0,
+  "linked_queries": "[]",
+  "modified": "2025-09-05 12:01:14.443065",
+  "name": "1pk3o72hir",
+  "old_name": null,
+  "operations": "[\n {\n  \"data_source\": \"Site DB\",\n  \"raw_sql\": \"SELECT\\n    so.customer AS `Buyer`,\\n    sod.item_code AS `Style`,\\n    so.name AS `OCN`,\\n    cc.PCD AS `PCD`,\\n    so.delivery_date AS `Delivery Date`,\\n    sod.qty AS `Order Quantity`,\\n    COALESCE(cci.`Cut Quantity`, 0) AS `Cut Quantity`,\\n    (sod.qty - COALESCE(cci.`Cut Quantity`, 0)) AS `Cut Balance against Order Qty`\\nFROM `tabSales Order` so\\nJOIN `tabSales Order Item` sod\\n  ON sod.parent = so.name\\nLEFT JOIN (\\n    SELECT\\n        sales_order,\\n        MAX(DATE(modified)) AS PCD\\n    FROM `tabCan Cut`\\n    GROUP BY sales_order\\n) cc\\n  ON cc.sales_order = so.name\\nLEFT JOIN (\\n    SELECT\\n        sales_order,\\n        SUM(confirmed_quantity) AS `Cut Quantity`\\n    FROM `tabCut Confirmation Item`\\n    GROUP BY sales_order\\n) cci\\n  ON cci.sales_order = so.name\\nWHERE so.docstatus = 1\\nORDER BY so.delivery_date ASC\\n\",\n  \"type\": \"sql\"\n }\n]",
+  "read_only": false,
+  "title": "Sales Order ",
+  "use_live_connection": 1,
+  "variables": [],
+  "workbook": "1"
+ }
+]
