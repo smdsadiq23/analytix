@@ -239,29 +239,25 @@ app_license = "mit"
 
 # AnalytiX/analytix/hooks.py
 
-# after_migrate = [
-#     "analytix.fixtures.after_install"
+
+# fixtures = [
+#     # Workbooks
+#     {"dt": "Insights Workbook", "filters": [["title", "in", [
+#         "Sales Order WB"
+#     ]]]},
+#     # Queries
+#     {"dt": "Insights Query v3", "filters": [["title", "in", [
+#         "Sales Order"
+#     ]]]},
+#     # Charts (Insights)
+#     {"dt": "Insights Chart v3", "filters": [["name", "in", [
+#         "65a3b37o9f"
+#     ]]]},
+#     # Dashboards (Insights)
+#     {"dt": "Insights Dashboard v3", "filters": [["title", "in", [
+#         "Sales Order Details"
+#     ]]]},
+#     # Optional: if your Insights screens reference Desk cards/charts
+#     # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
+#     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
 # ]
-
-
-fixtures = [
-    # Workbooks
-    {"dt": "Insights Workbook", "filters": [["title", "in", [
-        "Sales Order WB"
-    ]]]},
-    # Queries
-    {"dt": "Insights Query v3", "filters": [["title", "in", [
-        "Sales Order"
-    ]]]},
-    # Charts (Insights)
-    {"dt": "Insights Chart v3", "filters": [["name", "in", [
-        "65a3b37o9f"
-    ]]]},
-    # Dashboards (Insights)
-    {"dt": "Insights Dashboard v3", "filters": [["title", "in", [
-        "Sales Order Details"
-    ]]]},
-    # Optional: if your Insights screens reference Desk cards/charts
-    # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
-    # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
-]
