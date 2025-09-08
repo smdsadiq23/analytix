@@ -1,0 +1,23 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Insights Dashboard v3",
+  "is_public": 0,
+  "is_shared_with_organization": false,
+  "items": "[\n {\n  \"chart\": \"ta1nb7mui3\",\n  \"layout\": {\n   \"h\": 15,\n   \"i\": \"k7sxugtb\",\n   \"moved\": false,\n   \"w\": 20,\n   \"x\": 0,\n   \"y\": 0\n  },\n  \"type\": \"chart\"\n }\n]",
+  "linked_charts": [
+   {
+    "chart": "ta1nb7mui3"
+   }
+  ],
+  "modified": "2025-09-06 14:06:54.194480",
+  "name": "tmn6kh6ugd",
+  "old_name": null,
+  "people_with_access": [],
+  "preview_image": null,
+  "read_only": false,
+  "share_link": null,
+  "title": "Sales Order Dashboard",
+  "workbook": "4"
+ }
+]
