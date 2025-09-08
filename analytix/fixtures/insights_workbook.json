@@ -1,13 +1,13 @@
 [
  {
-  "charts": "[\n {\n  \"chart_type\": \"Table\",\n  \"name\": \"1jgount0fa\",\n  \"query\": \"15grilttvq\",\n  \"title\": \"Sales Order Cht\"\n }\n]",
-  "dashboards": "[\n {\n  \"name\": \"26hbmq878r\",\n  \"title\": \"Sales Order DB\"\n }\n]",
+  "charts": "[\n {\n  \"chart_type\": \"Table\",\n  \"name\": \"1jgount0fa\",\n  \"query\": \"15grilttvq\",\n  \"title\": \"Cutting Balance Chart\"\n }\n]",
+  "dashboards": "[\n {\n  \"name\": \"26hbmq878r\",\n  \"title\": \"Cutting Balance Report\"\n }\n]",
   "data_backup": null,
   "docstatus": 0,
   "doctype": "Insights Workbook",
-  "modified": "2025-09-08 16:54:14.626132",
+  "modified": "2025-09-08 17:36:51.098155",
   "name": 1,
-  "queries": "[\n {\n  \"is_builder_query\": 0,\n  \"is_native_query\": 1,\n  \"is_script_query\": 0,\n  \"name\": \"15grilttvq\",\n  \"title\": \"Sales Order Qry\"\n }\n]",
+  "queries": "[\n {\n  \"is_builder_query\": 0,\n  \"is_native_query\": 1,\n  \"is_script_query\": 0,\n  \"name\": \"15grilttvq\",\n  \"title\": \"Cutting Balance Query\"\n }\n]",
   "read_only": false,
   "title": "Sales Order Work Book"
  }
