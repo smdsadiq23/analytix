@@ -267,16 +267,16 @@ app_license = "mit"
 # ]
 
 
-fixtures = [
-    # Workbooks
-    {"dt": "Insights Workbook"},
-    # Queries
-    {"dt": "Insights Query v3"},
-    # Charts (Insights)
-    {"dt": "Insights Chart v3"},
-    # Dashboards (Insights)
-    {"dt": "Insights Dashboard v3"},
-    # Optional: if your Insights screens reference Desk cards/charts
-    # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
-    # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
-]
+# fixtures = [
+#     # Workbooks
+#     # {"dt": "Insights Workbook"}, Export only once and delete the json file from Fixtures after first deployment
+#     # Queries
+#     {"dt": "Insights Query v3"},
+#     # Charts (Insights)
+#     {"dt": "Insights Chart v3"},
+#     # Dashboards (Insights)
+#     {"dt": "Insights Dashboard v3"},
+#     # Optional: if your Insights screens reference Desk cards/charts
+#     # {"dt": "Number Card", "filters": [["name", "in", ["Open SO", "Backorders"]]]},
+#     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
+# ]
