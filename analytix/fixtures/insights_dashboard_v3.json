@@ -1,0 +1,23 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Insights Dashboard v3",
+  "is_public": 0,
+  "is_shared_with_organization": false,
+  "items": "[\n {\n  \"chart\": \"1jgount0fa\",\n  \"layout\": {\n   \"h\": 15,\n   \"i\": \"jv2d04uy\",\n   \"moved\": false,\n   \"w\": 20,\n   \"x\": 0,\n   \"y\": 0\n  },\n  \"type\": \"chart\"\n }\n]",
+  "linked_charts": [
+   {
+    "chart": "1jgount0fa"
+   }
+  ],
+  "modified": "2025-09-08 11:44:25.318388",
+  "name": "26hbmq878r",
+  "old_name": null,
+  "people_with_access": [],
+  "preview_image": null,
+  "read_only": false,
+  "share_link": null,
+  "title": "Sales Order DB",
+  "workbook": "6"
+ }
+]

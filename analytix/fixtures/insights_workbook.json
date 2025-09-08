@@ -1,0 +1,14 @@
+[
+ {
+  "charts": "[\n {\n  \"chart_type\": \"Table\",\n  \"name\": \"1jgount0fa\",\n  \"query\": \"15grilttvq\",\n  \"title\": \"Sales Order Cht\"\n }\n]",
+  "dashboards": "[\n {\n  \"name\": \"26hbmq878r\",\n  \"title\": \"Sales Order DB\"\n }\n]",
+  "data_backup": null,
+  "docstatus": 0,
+  "doctype": "Insights Workbook",
+  "modified": "2025-09-08 11:43:53.653756",
+  "name": 6,
+  "queries": "[\n {\n  \"is_builder_query\": 0,\n  \"is_native_query\": 1,\n  \"is_script_query\": 0,\n  \"name\": \"15grilttvq\",\n  \"title\": \"Sales Order Qry\"\n }\n]",
+  "read_only": false,
+  "title": "Sales Order Work Book"
+ }
+]
