@@ -5,8 +5,8 @@
   "data_backup": null,
   "docstatus": 0,
   "doctype": "Insights Workbook",
-  "modified": "2025-09-08 11:43:53.653756",
-  "name": 6,
+  "modified": "2025-09-08 16:54:14.626132",
+  "name": 1,
   "queries": "[\n {\n  \"is_builder_query\": 0,\n  \"is_native_query\": 1,\n  \"is_script_query\": 0,\n  \"name\": \"15grilttvq\",\n  \"title\": \"Sales Order Qry\"\n }\n]",
   "read_only": false,
   "title": "Sales Order Work Book"
