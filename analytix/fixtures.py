@@ -1,4 +1,5 @@
 # AnalytiX/analytix/fixtures.py
+# Used only for Frappe Insights
 
 import frappe
 
