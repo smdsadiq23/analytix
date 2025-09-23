@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (multi-select, stable refresh, wrapped tokens)
+// Viewer: Output vs Target (multi-select fixed, robust normalization, wrapped pills)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -89,11 +89,29 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
     .kpi-clear-btn:hover{ background:var(--gray-100) }
 
-    /* MultiSelectList: wrap tokens & avoid overflow */
+    /* Robust MultiSelectList wrapping across Frappe variants */
     .kpi-ms .control-input, .kpi-ms .control-input-wrapper { display:flex; flex-wrap:wrap; align-items:center; }
-    .kpi-ms .awesomplete { flex: 1 1 160px; min-width:160px; }
-    .kpi-ms .amp-token { margin: 2px 6px 2px 0; max-width:100%; }
-    .kpi-ms .amp-token span { display:inline-block; max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .kpi-ms .awesomplete { flex: 1 1 180px; min-width:180px; }
+
+    /* Common token selectors */
+    .kpi-ms .amp-token,
+    .kpi-ms .awesomplete .token,
+    .kpi-ms .selected-pill,
+    .kpi-ms .selected-item {
+      margin: 2px 6px 2px 0; max-width:100%;
+    }
+
+    /* Inner text nodes—truncate long labels */
+    .kpi-ms .amp-token span,
+    .kpi-ms .awesomplete .token span,
+    .kpi-ms .selected-pill span,
+    .kpi-ms .selected-item span,
+    .kpi-ms .amp-token .label,
+    .kpi-ms .selected-pill .label {
+      display:inline-block; max-width:260px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      vertical-align:bottom;
+    }
   </style>`).appendTo(document.head);
 
   msCell.$wrapper.addClass("kpi-ms");
@@ -156,11 +174,21 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- Normalize & gather filters ----------
   function normalizeMS(val) {
+    // Accept: CSV string, array of strings, array of {value|label|name|id}
     if (!val) return [];
+    if (typeof val === "string") {
+      return val.split(",").map(s => s && s.trim()).filter(Boolean);
+    }
     if (!Array.isArray(val)) return [];
-    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label)) || ""))
-              .filter(Boolean);
+    return val.map(x => {
+      if (typeof x === "string") return x;
+      if (x && typeof x === "object") {
+        return x.value || x.label || x.name || x.id || "";
+      }
+      return "";
+    }).filter(Boolean);
   }
+
   function getFilters() {
     const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
     const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
@@ -170,8 +198,9 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       operation_csv:     ops.join(","),
     };
   }
+
   const keyOf = (f) => [f.date || "", f.physical_cell_csv || "", f.operation_csv || ""].join("|");
-  let lastKey = ""; // prevents reloads on focus/click with no real change
+  let lastKey = "";
 
   function debounce(fn, wait = 250) {
     let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); };
@@ -182,7 +211,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     const filters = getFilters();
     const key = keyOf(filters);
     if (!filters.date) { frappe.msgprint("Please select a Date."); return; }
-    if (key === lastKey) return; // NO-OP if nothing changed
+    if (key === lastKey) return;
     lastKey = key;
 
     try {
@@ -242,23 +271,23 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   const runDebounced = debounce(run, 250);
 
-  // ---------- Auto-run bindings (no refresh on mere focus/typing) ----------
-  // Date: change only
+  // ---------- Auto-run bindings ----------
   fDate.$input && fDate.$input.on("change", runDebounced);
 
-  // MultiSelectList: selection/pill remove/programmatic changes; NOT plain typing
   function bindMultiSelect(ms) {
     if (!ms) return;
+    // fire only when a real selection/pill happens
     ms.$input && ms.$input.on("awesomplete-selectcomplete change", runDebounced);
-    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", runDebounced);
+    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove,.selected-pill .remove", runDebounced);
 
-    // observe tokens for programmatic set_value
+    // observe token changes (covers programmatic set_value and pill layout changes)
     const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
     if (host) {
       const obs = new MutationObserver(() => runDebounced());
       obs.observe(host, { childList: true, subtree: true });
       ms._obs = obs;
     }
+    // control-level on_change, if present
     if (typeof ms.on_change === "function") {
       const prev = ms.on_change.bind(ms);
       ms.on_change = (...a) => { try { prev(...a); } catch {} runDebounced(); };
