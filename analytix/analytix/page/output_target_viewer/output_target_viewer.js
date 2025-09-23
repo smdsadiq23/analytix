@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (with multi-select, safe company filter, and robust bindings)
+// Viewer: Output vs Target (multi-select, stable refresh, wrapped tokens)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -11,22 +11,18 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- CONFIG ----------
   const DOCTYPES = {
-    physical_cell: "Physical Cell", // change if needed
+    physical_cell: "Physical Cell",
     operation: "Operation",
   };
-  const APPLY_COMPANY_FILTER = true; // only if the DocType actually has "company"
-  const COLORS = {
-    output: "#96BE37", // bar
-    target: "#ECAD4B", // line
-  };
+  const APPLY_COMPANY_FILTER = true; // only if DocType has `company`
+  const COLORS = { output: "#96BE37", target: "#ECAD4B" };
 
-  // ---------- Meta detector (doctypes that actually have "company") ----------
+  // ---------- Meta detector (DocTypes that actually have "company") ----------
   const DT_META = {
     physical_cell: { doctype: DOCTYPES.physical_cell, hasCompany: false },
     operation:     { doctype: DOCTYPES.operation,     hasCompany: false },
   };
-
-  async function detectCompanyFields() {
+  (async () => {
     for (const key of Object.keys(DT_META)) {
       const dt = DT_META[key].doctype;
       try {
@@ -36,8 +32,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         DT_META[key].hasCompany = false;
       }
     }
-  }
-  detectCompanyFields(); // async; get_data checks flags when invoked
+  })();
 
   // ---------- Controls ----------
   const fDate = page.add_field({
@@ -48,35 +43,29 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     reqd: 1,
   });
 
-  // MultiSelectList — Physical Cell
   const msCell = page.add_field({
     fieldtype: "MultiSelectList",
     fieldname: "physical_cell_list",
     label: "Physical Cell",
-    reqd: 0,
-    get_data: async function (txt) {
-      const hasCompany = DT_META.physical_cell.hasCompany;
+    get_data: async (txt) => {
       const filters = {};
-      if (APPLY_COMPANY_FILTER && hasCompany) {
-        const company = frappe.defaults.get_default("Company");
-        if (company) filters.company = company;
+      if (APPLY_COMPANY_FILTER && DT_META.physical_cell.hasCompany) {
+        const c = frappe.defaults.get_default("Company");
+        if (c) filters.company = c;
       }
       return frappe.db.get_link_options(DOCTYPES.physical_cell, txt, filters);
     },
   });
 
-  // MultiSelectList — Operation
   const msOp = page.add_field({
     fieldtype: "MultiSelectList",
     fieldname: "operation_list",
     label: "Operation",
-    reqd: 0,
-    get_data: async function (txt) {
-      const hasCompany = DT_META.operation.hasCompany;
+    get_data: async (txt) => {
       const filters = {};
-      if (APPLY_COMPANY_FILTER && hasCompany) {
-        const company = frappe.defaults.get_default("Company");
-        if (company) filters.company = company;
+      if (APPLY_COMPANY_FILTER && DT_META.operation.hasCompany) {
+        const c = frappe.defaults.get_default("Company");
+        if (c) filters.company = c;
       }
       return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
     },
@@ -89,7 +78,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     </div>
   `).appendTo($root);
 
-  // ---- Clear-all buttons (Date + MultiSelects) ----
+  // ---- Clear buttons + token wrapping CSS ----
   $(`<style>
     .kpi-clear-parent{ position:relative }
     .kpi-clear-pad input{ padding-right:22px }
@@ -99,7 +88,16 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       color:var(--gray-600); cursor:pointer; border-radius:6px; z-index:2;
     }
     .kpi-clear-btn:hover{ background:var(--gray-100) }
+
+    /* MultiSelectList: wrap tokens & avoid overflow */
+    .kpi-ms .control-input, .kpi-ms .control-input-wrapper { display:flex; flex-wrap:wrap; align-items:center; }
+    .kpi-ms .awesomplete { flex: 1 1 160px; min-width:160px; }
+    .kpi-ms .amp-token { margin: 2px 6px 2px 0; max-width:100%; }
+    .kpi-ms .amp-token span { display:inline-block; max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   </style>`).appendTo(document.head);
+
+  msCell.$wrapper.addClass("kpi-ms");
+  msOp.$wrapper.addClass("kpi-ms");
 
   function addClearAll(control, fieldname, isMulti=false){
     const $host = control.$wrapper.find(".control-input, .control-input-wrapper").first().length
@@ -113,18 +111,13 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         .appendTo($host)
         .on("click", (e)=>{
           e.preventDefault(); e.stopPropagation();
-
           if (isMulti) {
-            // MultiSelectList: clear to []
             try { control.set_value && control.set_value([]); } catch {}
           } else {
-            // Date/other: clear using ALL paths to cover version differences
             try { control.set_value && control.set_value(""); } catch {}
             try { control.set_input && control.set_input(""); } catch {}
             try { control.$input && control.$input.val(""); } catch {}
           }
-
-          // fire change so debounced refresh runs
           control.$input && control.$input.trigger("input").trigger("change");
           toggle();
         });
@@ -137,15 +130,14 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       } catch { return false; }
     };
     const toggle = ()=> $btn.toggle(hasVal());
-
     control.$input && control.$input.on("input change blur awesomplete-selectcomplete", toggle);
-    setTimeout(toggle, 0); // ensure initial state after DOM settles
+    setTimeout(toggle, 0);
   }
   addClearAll(fDate,  "date", false);
   addClearAll(msCell, "physical_cell_list", true);
   addClearAll(msOp,   "operation_list", true);
 
-  // ---------- Prefill from URL (?physical_cell=A,B&operation=X,Y) ----------
+  // ---------- Prefill from URL ----------
   const qp = frappe.utils.get_query_params();
   if (qp.date) fDate.set_value(qp.date);
   if (qp.physical_cell) msCell.set_value(qp.physical_cell.split(",").filter(Boolean));
@@ -162,16 +154,13 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
-  // ---------- Normalize MultiSelect values ----------
+  // ---------- Normalize & gather filters ----------
   function normalizeMS(val) {
     if (!val) return [];
     if (!Array.isArray(val)) return [];
-    return val
-      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label)) || ""))
-      .filter(Boolean);
+    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label)) || ""))
+              .filter(Boolean);
   }
-
-  // ---------- Collect filters (send CSV for multi-selects) ----------
   function getFilters() {
     const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
     const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
@@ -181,6 +170,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       operation_csv:     ops.join(","),
     };
   }
+  const keyOf = (f) => [f.date || "", f.physical_cell_csv || "", f.operation_csv || ""].join("|");
+  let lastKey = ""; // prevents reloads on focus/click with no real change
 
   function debounce(fn, wait = 250) {
     let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); };
@@ -189,10 +180,12 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   // ---------- Fetch + chart ----------
   async function run() {
     const filters = getFilters();
+    const key = keyOf(filters);
     if (!filters.date) { frappe.msgprint("Please select a Date."); return; }
+    if (key === lastKey) return; // NO-OP if nothing changed
+    lastKey = key;
 
     try {
-      // console.log("filters =>", filters); // DEBUG if needed
       const resp = await frappe.call({
         method: "frappe.desk.query_report.run",
         args: { report_name: "Output vs Target", filters },
@@ -213,24 +206,11 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         data: {
           labels,
           datasets: [
-            {
-              type: "bar",
-              label: "Output (Qty)",
-              data: output,
-              backgroundColor: COLORS.output,
-              borderColor: COLORS.output,
-              borderWidth: 1
-            },
-            {
-              type: "line",
-              label: "Target (Qty)",
-              data: target,
-              borderColor: COLORS.target,
-              backgroundColor: COLORS.target,
-              borderWidth: 2,
-              pointRadius: 2,
-              tension: 0.25
-            }
+            { type: "bar",  label: "Output (Qty)", data: output,
+              backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
+            { type: "line", label: "Target (Qty)", data: target,
+              borderColor: COLORS.target, backgroundColor: COLORS.target,
+              borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ]
         },
         options: {
@@ -243,9 +223,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
               callbacks: {
                 label: (ctx) => {
                   const v = Number(ctx.parsed.y ?? 0);
-                  const txt = Number.isFinite(v)
-                    ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
-                    : "0";
+                  const txt = Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0";
                   return `${ctx.dataset.label}: ${txt}`;
                 }
               }
@@ -264,29 +242,23 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   const runDebounced = debounce(run, 250);
 
-  // ---------- Auto-run on filter change ----------
-  // Date
+  // ---------- Auto-run bindings (no refresh on mere focus/typing) ----------
+  // Date: change only
   fDate.$input && fDate.$input.on("change", runDebounced);
 
-  // MultiSelectList bindings (typing/selection/pill remove/programmatic)
+  // MultiSelectList: selection/pill remove/programmatic changes; NOT plain typing
   function bindMultiSelect(ms) {
     if (!ms) return;
-
-    // user typing / selecting from dropdown
-    ms.$input && ms.$input.on("input change awesomplete-selectcomplete", runDebounced);
-
-    // token (pill) remove clicks
+    ms.$input && ms.$input.on("awesomplete-selectcomplete change", runDebounced);
     $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", runDebounced);
 
-    // observe DOM changes to tokens (captures set_value([]|array) programmatically)
+    // observe tokens for programmatic set_value
     const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
     if (host) {
       const obs = new MutationObserver(() => runDebounced());
       obs.observe(host, { childList: true, subtree: true });
       ms._obs = obs;
     }
-
-    // wire on_change if available
     if (typeof ms.on_change === "function") {
       const prev = ms.on_change.bind(ms);
       ms.on_change = (...a) => { try { prev(...a); } catch {} runDebounced(); };
@@ -294,11 +266,10 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       ms.on_change = runDebounced;
     }
   }
-
   bindMultiSelect(msCell);
   bindMultiSelect(msOp);
 
-  // ---------- Open Report with same filters (CSV in URL) ----------
+  // ---------- Open Report with same filters ----------
   $tools.on("click", '[data-action="open-report"]', function (e) {
     e.preventDefault(); e.stopPropagation();
     const f = getFilters();
