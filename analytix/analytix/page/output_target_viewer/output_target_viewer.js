@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (stable refresh + no overflow)
+// Viewer: Output vs Target (stable refresh + no overflow + fixed date clear)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -74,53 +74,89 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     </div>
   `).appendTo($root);
 
-  // ---------- Clear buttons + bullet-proof wrapping CSS ----------
-  $(`<style id="kpi-ms-css">
-    .kpi-clear-parent{ position:relative }
-    .kpi-clear-pad input{ padding-right:22px }
-    .kpi-clear-btn{
-      position:absolute; right:6px; top:50%; transform:translateY(-50%);
-      border:0; background:transparent; line-height:1; padding:0 6px;
-      color:var(--gray-600); cursor:pointer; border-radius:6px; z-index:2;
-    }
-    .kpi-clear-btn:hover{ background:var(--gray-100) }
+  // ===== Overflow fix for MultiSelects (scoped) =====
+  $("#kpi-ms-overflow-fix").remove();
+  msCell.$wrapper.addClass("kpi-ms");
+  msOp.$wrapper.addClass("kpi-ms");
+  $(`<style id="kpi-ms-overflow-fix">
+    .page-form .frappe-control { min-width: 0; }
 
-    /* Wrap content inside Multiselect controls and keep input from overflowing */
-    .kpi-ms .control-input, .kpi-ms .control-input-wrapper {
-      display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+    .kpi-ms .form-control.input-xs {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
+
+    .kpi-ms .control-input,
+    .kpi-ms .control-input-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      overflow: hidden;
+    }
+
     .kpi-ms input.input-with-feedback {
-      flex: 1 1 180px; min-width:160px; max-width:100%;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      min-width: 140px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    /* Cover common token variants across Frappe versions */
-    .kpi-ms .amp-token,
-    .kpi-ms .awesomplete .token,
-    .kpi-ms .selected-pill,
-    .kpi-ms .selected-item {
-      margin:2px 4px 2px 0; max-width:100%;
+    .kpi-ms .status-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
+
     .kpi-ms .amp-token span,
-    .kpi-ms .awesomplete .token span,
     .kpi-ms .selected-pill span,
     .kpi-ms .selected-item span,
+    .kpi-ms .awesomplete .token span,
     .kpi-ms .amp-token .label,
     .kpi-ms .selected-pill .label {
-      display:inline-block; max-width:260px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      vertical-align:bottom;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
     }
   </style>`).appendTo(document.head);
 
-  msCell.$wrapper.addClass("kpi-ms");
-  msOp.$wrapper.addClass("kpi-ms");
+  // ===== Date field clear button anchoring (scoped) =====
+  $("#kpi-date-clear-fix").remove();
+  $(`<style id="kpi-date-clear-fix">
+    .frappe-control[data-fieldname="date"] .control-input,
+    .frappe-control[data-fieldname="date"] .control-input-wrapper {
+      position: relative; /* anchor for absolute clear button */
+    }
+    .frappe-control[data-fieldname="date"] input.input-with-feedback {
+      padding-right: 26px !important; /* room for × */
+    }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      line-height: 1;
+      padding: 0 6px;
+      color: var(--gray-600);
+      border-radius: 6px;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn:hover {
+      background: var(--gray-100);
+    }
+  </style>`).appendTo(document.head);
 
   function addClearAll(control, fieldname, isMulti=false){
     const $host = control.$wrapper.find(".control-input, .control-input-wrapper").first().length
       ? control.$wrapper.find(".control-input, .control-input-wrapper").first()
       : control.$wrapper;
-    $host.addClass("kpi-clear-parent kpi-clear-pad");
 
     let $btn = $host.find(`.kpi-clear-btn[data-for="${fieldname}"]`);
     if (!$btn.length) {
@@ -128,15 +164,16 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         .appendTo($host)
         .on("click", (e)=>{
           e.preventDefault(); e.stopPropagation();
-          if (isMulti) { try { control.set_value([]); } catch {} }
-          else {
+          if (isMulti) {
+            try { control.set_value([]); } catch {}
+          } else {
             try { control.set_value(""); } catch {}
             try { control.set_input(""); } catch {}
             try { control.$input && control.$input.val(""); } catch {}
           }
           control.$input && control.$input.trigger("input").trigger("change");
           toggle();
-          runDebounced(); // reflect immediately
+          runDebounced();
         });
     }
 
@@ -173,7 +210,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- Normalize & gather filters ----------
   function normalizeMS(val) {
-    // Accept CSV string, array of strings, array of {value|label|name|id}
     if (!val) return [];
     if (typeof val === "string") {
       return val.split(",").map(s => s && s.trim()).filter(Boolean);
@@ -265,10 +301,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const runDebounced = debounce(run, 200);
 
   // ---------- Bind only to *real* changes ----------
-  // Date: change only
   fDate.$input && fDate.$input.on("change", runDebounced);
 
-  // Multiselects: selection & pill remove only (no plain typing / focus)
   function bindMultiSelect(ms) {
     if (!ms || !ms.$wrapper) return;
     ms.$input && ms.$input.on("awesomplete-selectcomplete", runDebounced);
