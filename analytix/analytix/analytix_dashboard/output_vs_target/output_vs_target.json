@@ -1,0 +1,21 @@
+{
+ "cards": [],
+ "charts": [
+  {
+   "chart": "Output vs Target",
+   "width": "Full"
+  }
+ ],
+ "creation": "2025-09-23 10:03:47.300033",
+ "dashboard_name": "Output vs Target",
+ "docstatus": 0,
+ "doctype": "Dashboard",
+ "idx": 0,
+ "is_default": 0,
+ "is_standard": 1,
+ "modified": "2025-09-23 10:06:11.039515",
+ "modified_by": "Administrator",
+ "module": "AnalytiX",
+ "name": "Output vs Target",
+ "owner": "Administrator"
+}
