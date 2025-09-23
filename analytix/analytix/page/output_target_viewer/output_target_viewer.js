@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (stable refresh + no overflow + fixed date clear)
+// Viewer: Output vs Target (stable refresh + no overflow)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -153,10 +153,12 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
   </style>`).appendTo(document.head);
 
+
   function addClearAll(control, fieldname, isMulti=false){
     const $host = control.$wrapper.find(".control-input, .control-input-wrapper").first().length
       ? control.$wrapper.find(".control-input, .control-input-wrapper").first()
       : control.$wrapper;
+    $host.addClass("kpi-clear-parent kpi-clear-pad");
 
     let $btn = $host.find(`.kpi-clear-btn[data-for="${fieldname}"]`);
     if (!$btn.length) {
@@ -164,16 +166,15 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         .appendTo($host)
         .on("click", (e)=>{
           e.preventDefault(); e.stopPropagation();
-          if (isMulti) {
-            try { control.set_value([]); } catch {}
-          } else {
+          if (isMulti) { try { control.set_value([]); } catch {} }
+          else {
             try { control.set_value(""); } catch {}
             try { control.set_input(""); } catch {}
             try { control.$input && control.$input.val(""); } catch {}
           }
           control.$input && control.$input.trigger("input").trigger("change");
           toggle();
-          runDebounced();
+          runDebounced(); // reflect immediately
         });
     }
 
@@ -210,6 +211,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- Normalize & gather filters ----------
   function normalizeMS(val) {
+    // Accept CSV string, array of strings, array of {value|label|name|id}
     if (!val) return [];
     if (typeof val === "string") {
       return val.split(",").map(s => s && s.trim()).filter(Boolean);
@@ -301,8 +303,10 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const runDebounced = debounce(run, 200);
 
   // ---------- Bind only to *real* changes ----------
+  // Date: change only
   fDate.$input && fDate.$input.on("change", runDebounced);
 
+  // Multiselects: selection & pill remove only (no plain typing / focus)
   function bindMultiSelect(ms) {
     if (!ms || !ms.$wrapper) return;
     ms.$input && ms.$input.on("awesomplete-selectcomplete", runDebounced);
