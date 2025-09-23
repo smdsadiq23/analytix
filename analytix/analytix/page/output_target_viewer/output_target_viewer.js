@@ -124,16 +124,17 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 							borderColor: COLORS.output,
 							borderWidth: 1,
 						},
-						{
-							type: "line",
-							label: "Target (Qty)",
-							data: target,
-							borderColor: COLORS.target,
-							backgroundColor: COLORS.target,
-							borderWidth: 2,
-							pointRadius: 2,
-							tension: 0.25,
-						},
+                        {
+                        type: "line",
+                        label: "Target (Qty)",
+                        data: target,
+                        borderColor: COLORS.target,
+                        backgroundColor: COLORS.target,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        tension: 0.25,
+                        yAxisID: "y1"        // ← bind to secondary axis
+                        },
 					],
 				},
 				options: {
@@ -144,10 +145,13 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 						title: { display: true, text: "Output vs Target (Hourly)" },
 						tooltip: {
 							callbacks: {
-								label: (ctx) =>
-									`${ctx.dataset.label}: ${frappe.format(ctx.parsed.y, {
-										fieldtype: "Float",
-									})}`,
+								label: (ctx) => {
+									const v = Number(ctx.parsed.y ?? 0);
+									const txt = Number.isFinite(v)
+										? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+										: "0";
+									return `${ctx.dataset.label}: ${txt}`;
+								},
 							},
 						},
 					},
@@ -156,7 +160,17 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 							title: { display: true, text: "Time (HH:00)" },
 							ticks: { autoSkip: true, maxTicksLimit: 24 },
 						},
-						y: { title: { display: true, text: "Quantity" }, beginAtZero: true },
+						y: {
+							title: { display: true, text: "Output Qty" },
+							beginAtZero: true,
+						},
+						y1: {
+							// secondary axis (right)
+							position: "right",
+							title: { display: true, text: "Target Qty" },
+							beginAtZero: true,
+							grid: { drawOnChartArea: false }, // keep grids from overlapping
+						},
 					},
 				},
 			});
