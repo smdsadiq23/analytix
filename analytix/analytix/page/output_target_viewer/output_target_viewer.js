@@ -89,17 +89,85 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     </div>
   `).appendTo($root);
 
-  // ---- Clear-all buttons (Date + MultiSelects) ----
-  $(`<style>
-    .kpi-clear-parent{ position:relative }
-    .kpi-clear-pad input{ padding-right:22px }
-    .kpi-clear-btn{
-      position:absolute; right:6px; top:50%; transform:translateY(-50%);
-      border:0; background:transparent; line-height:1; padding:0 6px;
-      color:var(--gray-600); cursor:pointer; border-radius:6px; z-index:2;
+  // ===== Overflow fix for MultiSelects (scoped) =====
+  $("#kpi-ms-overflow-fix").remove();
+  msCell.$wrapper.addClass("kpi-ms");
+  msOp.$wrapper.addClass("kpi-ms");
+  $(`<style id="kpi-ms-overflow-fix">
+    .page-form .frappe-control { min-width: 0; }
+
+    .kpi-ms .form-control.input-xs {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .kpi-clear-btn:hover{ background:var(--gray-100) }
+
+    .kpi-ms .control-input,
+    .kpi-ms .control-input-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      overflow: hidden;
+    }
+
+    .kpi-ms input.input-with-feedback {
+      min-width: 140px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kpi-ms .status-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .kpi-ms .amp-token span,
+    .kpi-ms .selected-pill span,
+    .kpi-ms .selected-item span,
+    .kpi-ms .awesomplete .token span,
+    .kpi-ms .amp-token .label,
+    .kpi-ms .selected-pill .label {
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
+    }
   </style>`).appendTo(document.head);
+
+  // ===== Date field clear button anchoring (scoped) =====
+  $("#kpi-date-clear-fix").remove();
+  $(`<style id="kpi-date-clear-fix">
+    .frappe-control[data-fieldname="date"] .control-input,
+    .frappe-control[data-fieldname="date"] .control-input-wrapper {
+      position: relative; /* anchor for absolute clear button */
+    }
+    .frappe-control[data-fieldname="date"] input.input-with-feedback {
+      padding-right: 26px !important; /* room for × */
+    }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      line-height: 1;
+      padding: 0 6px;
+      color: var(--gray-600);
+      border-radius: 6px;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn:hover {
+      background: var(--gray-100);
+    }
+  </style>`).appendTo(document.head);
+
 
   function addClearAll(control, fieldname, isMulti=false){
     const $host = control.$wrapper.find(".control-input, .control-input-wrapper").first().length
