@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (with multi-select & safe company filter)
+// Viewer: Output vs Target (with multi-select, safe company filter, and robust bindings)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -14,7 +14,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     physical_cell: "Physical Cell", // change if needed
     operation: "Operation",
   };
-  const APPLY_COMPANY_FILTER = true; // will only apply if doctype actually has "company" field
+  const APPLY_COMPANY_FILTER = true; // only if the DocType actually has "company"
   const COLORS = {
     output: "#96BE37", // bar
     target: "#ECAD4B", // line
@@ -37,8 +37,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       }
     }
   }
-  // kick it off (no need to await here; get_data checks flags at call time)
-  detectCompanyFields();
+  detectCompanyFields(); // async; get_data checks flags when invoked
 
   // ---------- Controls ----------
   const fDate = page.add_field({
@@ -56,7 +55,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     label: "Physical Cell",
     reqd: 0,
     get_data: async function (txt) {
-      // apply company filter only if the doctype has a "company" field
       const hasCompany = DT_META.physical_cell.hasCompany;
       const filters = {};
       if (APPLY_COMPANY_FILTER && hasCompany) {
@@ -91,7 +89,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     </div>
   `).appendTo($root);
 
-  // ---- Clear-all buttons for each control (Date + MultiSelects) ----
+  // ---- Clear-all buttons (Date + MultiSelects) ----
   $(`<style>
     .kpi-clear-parent{ position:relative }
     .kpi-clear-pad input{ padding-right:22px }
@@ -115,12 +113,19 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         .appendTo($host)
         .on("click", (e)=>{
           e.preventDefault(); e.stopPropagation();
+
           if (isMulti) {
-            control.set_value && control.set_value([]);
+            // MultiSelectList: clear to []
+            try { control.set_value && control.set_value([]); } catch {}
           } else {
-            control.set_value && control.set_value("");
+            // Date/other: clear using ALL paths to cover version differences
+            try { control.set_value && control.set_value(""); } catch {}
+            try { control.set_input && control.set_input(""); } catch {}
+            try { control.$input && control.$input.val(""); } catch {}
           }
-          control.$input && control.$input.trigger("input").trigger("change"); // refresh
+
+          // fire change so debounced refresh runs
+          control.$input && control.$input.trigger("input").trigger("change");
           toggle();
         });
     }
@@ -133,8 +138,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     };
     const toggle = ()=> $btn.toggle(hasVal());
 
-    control.$input && control.$input.on("input change awesomplete-selectcomplete", toggle);
-    toggle();
+    control.$input && control.$input.on("input change blur awesomplete-selectcomplete", toggle);
+    setTimeout(toggle, 0); // ensure initial state after DOM settles
   }
   addClearAll(fDate,  "date", false);
   addClearAll(msCell, "physical_cell_list", true);
@@ -157,14 +162,23 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
+  // ---------- Normalize MultiSelect values ----------
+  function normalizeMS(val) {
+    if (!val) return [];
+    if (!Array.isArray(val)) return [];
+    return val
+      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label)) || ""))
+      .filter(Boolean);
+  }
+
   // ---------- Collect filters (send CSV for multi-selects) ----------
   function getFilters() {
-    const cells = msCell.get_value ? msCell.get_value() : [];
-    const ops   = msOp.get_value ? msOp.get_value() : [];
+    const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
+    const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
     return {
       date: fDate.get_value(),
-      physical_cell_csv: (cells || []).join(","),
-      operation_csv:     (ops   || []).join(","),
+      physical_cell_csv: cells.join(","),
+      operation_csv:     ops.join(","),
     };
   }
 
@@ -178,6 +192,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     if (!filters.date) { frappe.msgprint("Please select a Date."); return; }
 
     try {
+      // console.log("filters =>", filters); // DEBUG if needed
       const resp = await frappe.call({
         method: "frappe.desk.query_report.run",
         args: { report_name: "Output vs Target", filters },
@@ -250,13 +265,38 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const runDebounced = debounce(run, 250);
 
   // ---------- Auto-run on filter change ----------
+  // Date
   fDate.$input && fDate.$input.on("change", runDebounced);
-  [msCell, msOp].forEach(ms => {
-    if (!ms || !ms.$input) return;
-    ms.$input.on("input change awesomplete-selectcomplete", runDebounced);
-    // also catch pill removes
-    $(ms.$wrapper).on("click", ".amp-token-remove", runDebounced);
-  });
+
+  // MultiSelectList bindings (typing/selection/pill remove/programmatic)
+  function bindMultiSelect(ms) {
+    if (!ms) return;
+
+    // user typing / selecting from dropdown
+    ms.$input && ms.$input.on("input change awesomplete-selectcomplete", runDebounced);
+
+    // token (pill) remove clicks
+    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", runDebounced);
+
+    // observe DOM changes to tokens (captures set_value([]|array) programmatically)
+    const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
+    if (host) {
+      const obs = new MutationObserver(() => runDebounced());
+      obs.observe(host, { childList: true, subtree: true });
+      ms._obs = obs;
+    }
+
+    // wire on_change if available
+    if (typeof ms.on_change === "function") {
+      const prev = ms.on_change.bind(ms);
+      ms.on_change = (...a) => { try { prev(...a); } catch {} runDebounced(); };
+    } else {
+      ms.on_change = runDebounced;
+    }
+  }
+
+  bindMultiSelect(msCell);
+  bindMultiSelect(msOp);
 
   // ---------- Open Report with same filters (CSV in URL) ----------
   $tools.on("click", '[data-action="open-report"]', function (e) {
