@@ -12,6 +12,10 @@ def execute(filters=None):
     - Output = SUM(pi.quantity) per hour
     - Target = 0 (placeholder)
     - Returns only columns and rows (no chart)
+    Supports:
+      - physical_cell_csv: "CellA,CellB,..."
+      - operation_csv:     "Op1,Op2,..."
+      - Backward compatible with single 'physical_cell' / 'operation'
     """
     filters = filters or {}
     if not filters.get("date"):
@@ -19,11 +23,12 @@ def execute(filters=None):
 
     day = frappe.utils.getdate(filters["date"])
     start_dt = datetime.combine(day, datetime.min.time())
-    end_dt   = start_dt + timedelta(days=1)
+    end_dt = start_dt + timedelta(days=1)
 
-    # company scoping
+    # ---- Company scoping ----
     company = resolve_company(explicit=filters.get("company"))
 
+    # ---- Base conditions ----
     conds = [
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Activated', 'Passed')",
@@ -31,8 +36,10 @@ def execute(filters=None):
         "isl.logged_time < %(end_dt)s",
     ]
     params = {"start_dt": start_dt, "end_dt": end_dt}
+
     add_company_condition(conds, params, table_alias="tor", company=company)
 
+    # ---- Filters: single value (back-compat) ----
     if filters.get("physical_cell"):
         conds.append("isl.physical_cell = %(physical_cell)s")
         params["physical_cell"] = filters["physical_cell"]
@@ -41,8 +48,23 @@ def execute(filters=None):
         conds.append("isl.operation = %(operation)s")
         params["operation"] = filters["operation"]
 
+    # ---- Filters: multi-select CSV (from the custom page) ----
+    # Accept either *_csv or the old keys if page still sends them
+    pc_csv = (filters.get("physical_cell_csv") or "").strip().strip(",")
+    op_csv = (filters.get("operation_csv") or "").strip().strip(",")
+
+    # If CSV is present, prefer it over the single-value filter
+    if pc_csv:
+        conds.append("FIND_IN_SET(isl.physical_cell, %(pc_csv)s)")
+        params["pc_csv"] = pc_csv
+
+    if op_csv:
+        conds.append("FIND_IN_SET(isl.operation, %(op_csv)s)")
+        params["op_csv"] = op_csv
+
     where_clause = " AND ".join(conds)
 
+    # ---- Query ----
     rows = frappe.db.sql(
         f"""
         SELECT
@@ -67,13 +89,14 @@ def execute(filters=None):
         as_dict=True,
     )
 
+    # ---- Columns / Summary ----
     columns = [
-        {"label": "Date",             "fieldname": "date",         "fieldtype": "Date",  "width": 100},
-        {"label": "Hour (HH:00)",     "fieldname": "hour_label",   "fieldtype": "Data",  "width": 100},
-        {"label": "Physical Cell",    "fieldname": "physical_cell","fieldtype": "Data",  "width": 140},
-        {"label": "Operation",        "fieldname": "operation",    "fieldtype": "Link",  "options": "Operation", "width": 160},
-        {"label": "Output (Qty)",     "fieldname": "output",       "fieldtype": "Float", "width": 130},
-        {"label": "Target (Qty)",     "fieldname": "target",       "fieldtype": "Float", "width": 90},
+        {"label": "Date",             "fieldname": "date",          "fieldtype": "Date",  "width": 100},
+        {"label": "Hour (HH:00)",     "fieldname": "hour_label",    "fieldtype": "Data",  "width": 100},
+        {"label": "Physical Cell",    "fieldname": "physical_cell", "fieldtype": "Data",  "width": 140},
+        {"label": "Operation",        "fieldname": "operation",     "fieldtype": "Link",  "options": "Operation", "width": 160},
+        {"label": "Output (Qty)",     "fieldname": "output",        "fieldtype": "Float", "width": 130},
+        {"label": "Target (Qty)",     "fieldname": "target",        "fieldtype": "Float", "width": 90},
     ]
 
     total_output = sum((r.get("output") or 0) for r in rows)
@@ -82,5 +105,5 @@ def execute(filters=None):
         {"label": "Target (Daily)",     "value": 0,            "indicator": "blue"},
     ]
 
-    # no chart/message
+    # No chart/message
     return columns, rows, None, None, summary
