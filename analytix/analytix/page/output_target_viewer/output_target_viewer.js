@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (multi-select fixed, robust normalization, wrapped pills)
+// Viewer: Output vs Target (stable refresh + no overflow)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -10,10 +10,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const $root = $(wrapper).find(".layout-main-section");
 
   // ---------- CONFIG ----------
-  const DOCTYPES = {
-    physical_cell: "Physical Cell",
-    operation: "Operation",
-  };
+  const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
   const APPLY_COMPANY_FILTER = true; // only if DocType has `company`
   const COLORS = { output: "#96BE37", target: "#ECAD4B" };
 
@@ -24,10 +21,9 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   };
   (async () => {
     for (const key of Object.keys(DT_META)) {
-      const dt = DT_META[key].doctype;
       try {
-        await frappe.model.with_doctype(dt);
-        DT_META[key].hasCompany = !!frappe.meta.get_docfield(dt, "company", null);
+        await frappe.model.with_doctype(DT_META[key].doctype);
+        DT_META[key].hasCompany = !!frappe.meta.get_docfield(DT_META[key].doctype, "company", null);
       } catch {
         DT_META[key].hasCompany = false;
       }
@@ -71,15 +67,15 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     },
   });
 
-  // Optional: "Open Report" link
+  // ---------- Tools ----------
   const $tools = $(`
     <div class="d-flex align-items-center" style="gap:8px; margin:8px 0 12px;">
       <a class="btn btn-default btn-sm" data-action="open-report" href="javascript:void(0)">Open Report</a>
     </div>
   `).appendTo($root);
 
-  // ---- Clear buttons + token wrapping CSS ----
-  $(`<style>
+  // ---------- Clear buttons + bullet-proof wrapping CSS ----------
+  $(`<style id="kpi-ms-css">
     .kpi-clear-parent{ position:relative }
     .kpi-clear-pad input{ padding-right:22px }
     .kpi-clear-btn{
@@ -89,19 +85,22 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
     .kpi-clear-btn:hover{ background:var(--gray-100) }
 
-    /* Robust MultiSelectList wrapping across Frappe variants */
-    .kpi-ms .control-input, .kpi-ms .control-input-wrapper { display:flex; flex-wrap:wrap; align-items:center; }
-    .kpi-ms .awesomplete { flex: 1 1 180px; min-width:180px; }
+    /* Wrap content inside Multiselect controls and keep input from overflowing */
+    .kpi-ms .control-input, .kpi-ms .control-input-wrapper {
+      display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+    }
+    .kpi-ms input.input-with-feedback {
+      flex: 1 1 180px; min-width:160px; max-width:100%;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
 
-    /* Common token selectors */
+    /* Cover common token variants across Frappe versions */
     .kpi-ms .amp-token,
     .kpi-ms .awesomplete .token,
     .kpi-ms .selected-pill,
     .kpi-ms .selected-item {
-      margin: 2px 6px 2px 0; max-width:100%;
+      margin:2px 4px 2px 0; max-width:100%;
     }
-
-    /* Inner text nodes—truncate long labels */
     .kpi-ms .amp-token span,
     .kpi-ms .awesomplete .token span,
     .kpi-ms .selected-pill span,
@@ -129,15 +128,15 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         .appendTo($host)
         .on("click", (e)=>{
           e.preventDefault(); e.stopPropagation();
-          if (isMulti) {
-            try { control.set_value && control.set_value([]); } catch {}
-          } else {
-            try { control.set_value && control.set_value(""); } catch {}
-            try { control.set_input && control.set_input(""); } catch {}
+          if (isMulti) { try { control.set_value([]); } catch {} }
+          else {
+            try { control.set_value(""); } catch {}
+            try { control.set_input(""); } catch {}
             try { control.$input && control.$input.val(""); } catch {}
           }
           control.$input && control.$input.trigger("input").trigger("change");
           toggle();
+          runDebounced(); // reflect immediately
         });
     }
 
@@ -148,7 +147,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       } catch { return false; }
     };
     const toggle = ()=> $btn.toggle(hasVal());
-    control.$input && control.$input.on("input change blur awesomplete-selectcomplete", toggle);
+    control.$input && control.$input.on("input blur awesomplete-selectcomplete", toggle);
     setTimeout(toggle, 0);
   }
   addClearAll(fDate,  "date", false);
@@ -174,7 +173,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- Normalize & gather filters ----------
   function normalizeMS(val) {
-    // Accept: CSV string, array of strings, array of {value|label|name|id}
+    // Accept CSV string, array of strings, array of {value|label|name|id}
     if (!val) return [];
     if (typeof val === "string") {
       return val.split(",").map(s => s && s.trim()).filter(Boolean);
@@ -182,29 +181,23 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     if (!Array.isArray(val)) return [];
     return val.map(x => {
       if (typeof x === "string") return x;
-      if (x && typeof x === "object") {
-        return x.value || x.label || x.name || x.id || "";
-      }
+      if (x && typeof x === "object") return x.value || x.label || x.name || x.id || "";
       return "";
     }).filter(Boolean);
   }
-
   function getFilters() {
-    const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
-    const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
+    const cells = normalizeMS(msCell.get_value && msCell.get_value());
+    const ops   = normalizeMS(msOp.get_value   && msOp.get_value());
     return {
       date: fDate.get_value(),
-      physical_cell_csv: cells.join(","),
-      operation_csv:     ops.join(","),
+      physical_cell_csv: (cells || []).join(","),
+      operation_csv:     (ops   || []).join(","),
     };
   }
-
   const keyOf = (f) => [f.date || "", f.physical_cell_csv || "", f.operation_csv || ""].join("|");
   let lastKey = "";
 
-  function debounce(fn, wait = 250) {
-    let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); };
-  }
+  function debounce(fn, wait = 250) { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
 
   // ---------- Fetch + chart ----------
   async function run() {
@@ -269,36 +262,22 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
   }
 
-  const runDebounced = debounce(run, 250);
+  const runDebounced = debounce(run, 200);
 
-  // ---------- Auto-run bindings ----------
+  // ---------- Bind only to *real* changes ----------
+  // Date: change only
   fDate.$input && fDate.$input.on("change", runDebounced);
 
+  // Multiselects: selection & pill remove only (no plain typing / focus)
   function bindMultiSelect(ms) {
-    if (!ms) return;
-    // fire only when a real selection/pill happens
-    ms.$input && ms.$input.on("awesomplete-selectcomplete change", runDebounced);
-    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove,.selected-pill .remove", runDebounced);
-
-    // observe token changes (covers programmatic set_value and pill layout changes)
-    const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
-    if (host) {
-      const obs = new MutationObserver(() => runDebounced());
-      obs.observe(host, { childList: true, subtree: true });
-      ms._obs = obs;
-    }
-    // control-level on_change, if present
-    if (typeof ms.on_change === "function") {
-      const prev = ms.on_change.bind(ms);
-      ms.on_change = (...a) => { try { prev(...a); } catch {} runDebounced(); };
-    } else {
-      ms.on_change = runDebounced;
-    }
+    if (!ms || !ms.$wrapper) return;
+    ms.$input && ms.$input.on("awesomplete-selectcomplete", runDebounced);
+    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove", runDebounced);
   }
   bindMultiSelect(msCell);
   bindMultiSelect(msOp);
 
-  // ---------- Open Report with same filters ----------
+  // ---------- Open Report ----------
   $tools.on("click", '[data-action="open-report"]', function (e) {
     e.preventDefault(); e.stopPropagation();
     const f = getFilters();
@@ -307,9 +286,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       physical_cell: f.physical_cell_csv || "",
       operation: f.operation_csv || ""
     });
-    const url = frappe.urllib.get_full_url(
-      `/app/query-report/${encodeURIComponent("Output vs Target")}?${params}`
-    );
+    const url = frappe.urllib.get_full_url(`/app/query-report/${encodeURIComponent("Output vs Target")}?${params}`);
     window.open(url, "_blank", "noopener");
   });
 
