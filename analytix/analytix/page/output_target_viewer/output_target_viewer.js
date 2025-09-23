@@ -133,7 +133,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
                         borderWidth: 2,
                         pointRadius: 2,
                         tension: 0.25,
-                        yAxisID: "y1"        // ← bind to secondary axis
+                        //yAxisID: "y1"        // ← bind to secondary axis
                         },
 					],
 				},
@@ -155,23 +155,31 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 							},
 						},
 					},
+
 					scales: {
 						x: {
 							title: { display: true, text: "Time (HH:00)" },
 							ticks: { autoSkip: true, maxTicksLimit: 24 },
 						},
-						y: {
-							title: { display: true, text: "Output Qty" },
-							beginAtZero: true,
-						},
-						y1: {
-							// secondary axis (right)
-							position: "right",
-							title: { display: true, text: "Target Qty" },
-							beginAtZero: true,
-							grid: { drawOnChartArea: false }, // keep grids from overlapping
-						},
-					},
+						y: { title: { display: true, text: "Quantity" }, beginAtZero: true },
+					},                    
+					// scales: {
+					// 	x: {
+					// 		title: { display: true, text: "Time (HH:00)" },
+					// 		ticks: { autoSkip: true, maxTicksLimit: 24 },
+					// 	},
+					// 	y: {
+					// 		title: { display: true, text: "Output Qty" },
+					// 		beginAtZero: true,
+					// 	},
+					// 	y1: {
+					// 		// secondary axis (right)
+					// 		position: "right",
+					// 		title: { display: true, text: "Target Qty" },
+					// 		beginAtZero: true,
+					// 		grid: { drawOnChartArea: false }, // keep grids from overlapping
+					// 	},
+					// },
 				},
 			});
 		} catch (e) {
