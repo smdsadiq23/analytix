@@ -9,40 +9,28 @@ from analytix.utils.company import resolve_company, add_company_condition
 def execute(filters=None):
     """
     Output vs Target (Hourly)
-    - Output = SUM(pi.quantity) per hour (not COUNT of scans)
+    - Output = SUM(pi.quantity) per hour
     - Target = 0 (placeholder)
     - Returns only columns and rows (no chart)
-
-    Filters expected:
-      - date (required)
-      - physical_cell (optional)
-      - operation (optional)
-      - company (optional; respected for SysMgrs or when helper returns it)
     """
     filters = filters or {}
-
     if not filters.get("date"):
         frappe.throw("Please select a Date.")
 
     day = frappe.utils.getdate(filters["date"])
     start_dt = datetime.combine(day, datetime.min.time())
-    end_dt = start_dt + timedelta(days=1)
+    end_dt   = start_dt + timedelta(days=1)
 
-    # ---- Company scoping (one-liner via helper) ----
-    # resolve_company() order:
-    #   explicit -> user default -> Global Defaults -> (SysMgr unrestricted) -> else error
+    # company scoping
     company = resolve_company(explicit=filters.get("company"))
 
-    # WHERE clause
     conds = [
         "isl.log_status = 'Completed'",
-        "isl.status IN ('Counted', 'Activated', 'Pass')",
+        "isl.status IN ('Counted', 'Activated', 'Passed')",
         "isl.logged_time >= %(start_dt)s",
         "isl.logged_time < %(end_dt)s",
     ]
     params = {"start_dt": start_dt, "end_dt": end_dt}
-
-    # add `tor.company = %(company)s` if company is truthy
     add_company_condition(conds, params, table_alias="tor", company=company)
 
     if filters.get("physical_cell"):
@@ -60,7 +48,8 @@ def execute(filters=None):
         SELECT
             DATE(isl.logged_time) AS date,
             HOUR(isl.logged_time) AS hour_num,
-            LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0') AS hour_label,
+            /* HH:00 label for x-axis */
+            CONCAT(LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':00') AS hour_label,
             isl.physical_cell,
             isl.operation,
             COALESCE(SUM(COALESCE(pi.quantity, 0)), 0) AS output,
@@ -79,12 +68,12 @@ def execute(filters=None):
     )
 
     columns = [
-        {"label": "Date",            "fieldname": "date",         "fieldtype": "Date",  "width": 100},
-        {"label": "Hour",            "fieldname": "hour_label",   "fieldtype": "Data",  "width": 80},
-        {"label": "Physical Cell",   "fieldname": "physical_cell","fieldtype": "Data",  "width": 140},
-        {"label": "Operation",       "fieldname": "operation",    "fieldtype": "Link",  "options": "Operation", "width": 160},
-        {"label": "Output (Qty)",    "fieldname": "output",       "fieldtype": "Float", "width": 130},
-        {"label": "Target",          "fieldname": "target",       "fieldtype": "Float", "width": 90},
+        {"label": "Date",             "fieldname": "date",         "fieldtype": "Date",  "width": 100},
+        {"label": "Hour (HH:00)",     "fieldname": "hour_label",   "fieldtype": "Data",  "width": 100},
+        {"label": "Physical Cell",    "fieldname": "physical_cell","fieldtype": "Data",  "width": 140},
+        {"label": "Operation",        "fieldname": "operation",    "fieldtype": "Link",  "options": "Operation", "width": 160},
+        {"label": "Output (Qty)",     "fieldname": "output",       "fieldtype": "Float", "width": 130},
+        {"label": "Target (Qty)",     "fieldname": "target",       "fieldtype": "Float", "width": 90},
     ]
 
     total_output = sum((r.get("output") or 0) for r in rows)
@@ -93,5 +82,5 @@ def execute(filters=None):
         {"label": "Target (Daily)",     "value": 0,            "indicator": "blue"},
     ]
 
-    # Return WITHOUT chart/message
+    # no chart/message
     return columns, rows, None, None, summary
