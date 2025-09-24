@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (hourly + daily, 2-col layout)
+// Viewer: Output vs Target (hourly + daily, robust filters & date range)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -189,28 +189,52 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
-  function normalizeMS(val) {
-    if (!val) return [];
-    if (!Array.isArray(val)) return [];
-    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-             .filter(Boolean);
+  // Robust read of MultiSelect values (API + DOM fallback)
+  function getMSValues(ms) {
+    // 1) control API
+    try {
+      let v = ms && ms.get_value ? ms.get_value() : null;
+      if (typeof v === "string") v = v.split(",").map(s => s.trim()).filter(Boolean);
+      if (Array.isArray(v)) {
+        return v
+          .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
+          .filter(Boolean);
+      }
+    } catch { /* no-op */ }
+    // 2) DOM pills fallback
+    try {
+      const pills = $(ms.$wrapper).find(
+        ".amp-token .label, .selected-pill .label, .selected-item .label, .awesomplete .token .label"
+      ).map((i, el) => $(el).text().trim()).get();
+      return pills.filter(Boolean);
+    } catch { /* no-op */ }
+    return [];
   }
 
   function getSharedCsvFilters() {
-    const cells = normalizeMS(msCell.get_value && msCell.get_value());
-    const ops   = normalizeMS(msOp.get_value   && msOp.get_value());
+    const cells = getMSValues(msCell);
+    const ops   = getMSValues(msOp);
     return {
       physical_cell_csv: (cells || []).join(","),
       operation_csv:     (ops   || []).join(","),
     };
   }
 
-  function* dateRange(from, to) {
-    const d0 = frappe.datetime.str_to_obj(from);
-    const d1 = frappe.datetime.str_to_obj(to);
-    for (let d = d0; d <= d1; d = frappe.datetime.add_days(d, 1)) {
-      yield frappe.datetime.obj_to_str(d).split(" ")[0];
+  // Safe date enumerator (no Frappe mutation quirks)
+  function enumerateDates(from, to) {
+    const out = [];
+    if (!from || !to) return out;
+    const start = new Date(from + "T00:00:00");
+    const end   = new Date(to   + "T00:00:00");
+    if (isNaN(start) || isNaN(end)) return out;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      // format YYYY-MM-DD
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      out.push(`${day}-${m}-${y}`);
     }
+    return out;
   }
 
   function debounce(fn, wait = 250){ let t; return (...a)=>{clearTimeout(t); t=setTimeout(()=>fn(...a), wait);} }
@@ -289,7 +313,9 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     const shared = getSharedCsvFilters();
 
     try {
-      const dates = Array.from(dateRange(from_date, to_date));
+      const dates = enumerateDates(from_date, to_date); // ← robust enumerator
+      if (!dates.length) return;
+
       const calls = dates.map(d =>
         frappe.call({
           method: "frappe.desk.query_report.run",
@@ -306,7 +332,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         const rows = ((resp || {}).message || {}).result || [];
         const totalOut = rows.reduce((s, r) => s + Number(r.output || 0), 0);
         const totalTgt = rows.reduce((s, r) => s + Number(r.target || 0), 0);
-        labels.push(dates[idx]);
+        labels.push(dates[idx]);   // every date in the range
         output.push(totalOut);
         target.push(totalTgt);
       });
@@ -361,16 +387,23 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   // Hourly triggers
   fDate.$input && fDate.$input.on("change", runHourlyDebounced);
 
-  // Filters shared by both charts
+  // Filters shared by both charts — strong bindings + DOM observe
   function bindMultiSelect(ms) {
     if (!ms) return;
+
+    // user typing / selecting from dropdown
     ms.$input && ms.$input.on("input change awesomplete-selectcomplete", () => {
       runHourlyDebounced(); runDailyDebounced();
     });
-    $(ms.$wrapper).on("click",
-      ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove",
-      () => { runHourlyDebounced(); runDailyDebounced(); });
 
+    // pill remove clicks
+    $(ms.$wrapper).on(
+      "click",
+      ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove",
+      () => { runHourlyDebounced(); runDailyDebounced(); }
+    );
+
+    // observe token container changes (programmatic set_value etc.)
     const host = ms.$wrapper.find(".control-input-wrapper, .control-input").get(0);
     if (host && !ms._kpiObs) {
       ms._kpiObs = new MutationObserver(() => { runHourlyDebounced(); runDailyDebounced(); });
