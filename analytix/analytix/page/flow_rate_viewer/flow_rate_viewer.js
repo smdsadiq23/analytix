@@ -189,7 +189,7 @@ frappe.pages["flow-rate-viewer"].on_page_load = function (wrapper) {
       },
       options: {
         responsive: true,
-        maintainAspectRatio: false, // CHANGED: gives more width so 144 ticks fit better
+        maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },
@@ -245,6 +245,7 @@ frappe.pages["flow-rate-viewer"].on_page_load = function (wrapper) {
       },
       options: {
         responsive: true,
+		maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },

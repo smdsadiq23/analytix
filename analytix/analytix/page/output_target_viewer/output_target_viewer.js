@@ -289,6 +289,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 				},
 				options: {
 					responsive: true,
+					maintainAspectRatio: false,
 					interaction: { mode: "index", intersect: false },
 					plugins: {
 						legend: {
@@ -392,6 +393,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 				},
 				options: {
 					responsive: true,
+					maintainAspectRatio: false,
 					interaction: { mode: "index", intersect: false },
 					plugins: {
 						legend: {
