@@ -189,36 +189,83 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
-  // Robust read of MultiSelect values (API + DOM fallback)
-  function getMSValues(ms) {
-    // 1) control API
-    try {
-      let v = ms && ms.get_value ? ms.get_value() : null;
-      if (typeof v === "string") v = v.split(",").map(s => s.trim()).filter(Boolean);
-      if (Array.isArray(v)) {
-        return v
-          .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-          .filter(Boolean);
-      }
-    } catch { /* no-op */ }
-    // 2) DOM pills fallback
-    try {
-      const pills = $(ms.$wrapper).find(
-        ".amp-token .label, .selected-pill .label, .selected-item .label, .awesomplete .token .label"
-      ).map((i, el) => $(el).text().trim()).get();
-      return pills.filter(Boolean);
-    } catch { /* no-op */ }
-    return [];
+
+// Robust read of MultiSelect values (always return NAMEs)
+// 1) Prefer control API -> array of {value,label} or array of names, or CSV
+// 2) DOM fallback -> read data-value / data-name / data-id on tokens
+// 3) LAST resort -> visible text (label) only if nothing else is available
+function getMSValues(ms) {
+  // 1) Control API
+  try {
+    let v = ms && typeof ms.get_value === "function" ? ms.get_value() : null;
+
+    // Some builds return CSV string
+    if (typeof v === "string") {
+      return v.split(",").map(s => s.trim()).filter(Boolean);
+    }
+
+    // Some return array of strings or array of objects
+    if (Array.isArray(v)) {
+      return v
+        .map(it => {
+          if (typeof it === "string") return it;
+          if (it && typeof it === "object") {
+            // Prefer .value (DocType name), then .name/id, then label
+            return it.value || it.name || it.id || it.label || "";
+          }
+          return "";
+        })
+        .filter(Boolean);
+    }
+  } catch {
+    // ignore
   }
 
-  function getSharedCsvFilters() {
-    const cells = getMSValues(msCell);
-    const ops   = getMSValues(msOp);
-    return {
-      physical_cell_csv: (cells || []).join(","),
-      operation_csv:     (ops   || []).join(","),
-    };
+  // 2) DOM fallback: try to read token attributes first
+  try {
+    const $tokens = $(ms.$wrapper).find(
+      ".amp-token, .selected-pill, .selected-item, .awesomplete .token"
+    );
+    const vals = $tokens
+      .map((i, el) => {
+        const $el = $(el);
+        return (
+          $el.attr("data-value") ||
+          $el.attr("data-name") ||
+          $el.attr("data-id") ||
+          "" // (fallback to text in step 3)
+        );
+      })
+      .get()
+      .filter(Boolean);
+    if (vals.length) return [...new Set(vals)];
+  } catch {
+    // ignore
   }
+
+  // 3) FINAL fallback: labels (may not match DocType names!)
+  try {
+    const labels = $(ms.$wrapper)
+      .find(".amp-token .label, .selected-pill .label, .selected-item .label, .awesomplete .token .label")
+      .map((i, el) => $(el).text().trim())
+      .get()
+      .filter(Boolean);
+    if (labels.length) return [...new Set(labels)];
+  } catch {
+    // ignore
+  }
+
+  return [];
+}
+
+function getSharedCsvFilters() {
+  const cells = getMSValues(msCell);
+  const ops   = getMSValues(msOp);
+  return {
+    physical_cell_csv: cells.join(","),  // backend expects CSV
+    operation_csv:     ops.join(","),
+  };
+}
 
   // Safe date enumerator (no Frappe mutation quirks)
   function enumerateDates(from, to) {
