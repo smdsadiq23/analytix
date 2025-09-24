@@ -26,8 +26,7 @@
    "fieldname": "dashboard",
    "fieldtype": "Link",
    "label": "Dashboard",
-   "options": "Dashboard",
-   "reqd": 1
+   "options": "Dashboard"
   },
   {
    "fieldname": "description",
@@ -68,7 +67,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-23 17:07:13.433949",
+ "modified": "2025-09-24 18:25:47.170967",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Analytix Dashboard",
