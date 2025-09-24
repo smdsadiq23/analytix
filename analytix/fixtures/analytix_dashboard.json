@@ -12,5 +12,19 @@
   "route_override": "/app/output-target-viewer",
   "sort_order": 0,
   "title": "Output vs Target"
+ },
+ {
+  "dashboard": null,
+  "description": "Hourly and Ten Minute Flow Rate ",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Productivity",
+  "modified": "2025-09-24 19:16:53.736593",
+  "name": "7bigf8fr66",
+  "route_override": "/app/flow-rate-viewer",
+  "sort_order": 1,
+  "title": "Flow Rate"
  }
 ]

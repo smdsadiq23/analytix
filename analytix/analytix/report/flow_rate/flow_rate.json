@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-09-24 18:22:54.833947",
+ "modified": "2025-09-24 19:22:17.625203",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Flow Rate",
@@ -19,6 +19,10 @@
  "ref_doctype": "Item Scan Log",
  "report_name": "Flow Rate",
  "report_type": "Script Report",
- "roles": [],
+ "roles": [
+  {
+   "role": "KPI Viewers"
+  }
+ ],
  "timeout": 0
 }

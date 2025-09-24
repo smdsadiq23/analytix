@@ -259,7 +259,6 @@ app_license = "mit"
 # ]
 
 fixtures = [
-    # {"dt": "Page", "filters": [["name", "in", ["kpi-hub"]]]},
     {"dt": "Analytix Dashboard"},
     {
         "doctype": "Role",

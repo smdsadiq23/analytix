@@ -84,11 +84,8 @@ def execute(filters: dict | None = None):
             HOUR(isl.logged_time)             AS h,
             FLOOR(MINUTE(isl.logged_time)/10) AS bin10,
             CONCAT(
-                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':',
-                LPAD(CAST(FLOOR(MINUTE(isl.logged_time)/10)*10 AS CHAR), 2, '0'),
-                ' - ',
-                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':',
-                LPAD(CAST(LEAST(FLOOR(MINUTE(isl.logged_time)/10)*10 + 9, 59) AS CHAR), 2, '0')
+            LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':',
+            LPAD(CAST(FLOOR(MINUTE(isl.logged_time)/10)*10 AS CHAR), 2, '0')
             ) AS label,
             COALESCE(SUM(COALESCE(pi.quantity, 0)), 0) AS output
         FROM `tabItem Scan Log` isl
@@ -108,7 +105,7 @@ def execute(filters: dict | None = None):
         {
             "level": "ten_min",
             "bucket_num": h * 6 + b,
-            "label": f"{str(h).zfill(2)}:{str(b*10).zfill(2)} - {str(h).zfill(2)}:{str(min(b*10+9,59)).zfill(2)}",
+            "label": f"{str(h).zfill(2)}:{str(b*10).zfill(2)}",
             "output": 0.0,
             "target": 0.0,
         }
