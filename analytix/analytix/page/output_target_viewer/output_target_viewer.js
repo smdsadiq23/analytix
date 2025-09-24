@@ -250,7 +250,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
             { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: COLORS.target,
+              borderColor: COLORS.target, backgroundColor: "transparent",
               borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ]
         },
@@ -331,7 +331,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
             { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: COLORS.target,
+              borderColor: COLORS.target, backgroundColor: "transparent",
               borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ]
         },
