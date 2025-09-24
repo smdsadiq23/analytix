@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (hourly + daily)
+// Viewer: Output vs Target (hourly + daily, 2-col layout)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -11,10 +11,10 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   // ---------- CONFIG ----------
   const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
-  const APPLY_COMPANY_FILTER = true; // only if DocType actually has `company`
+  const APPLY_COMPANY_FILTER = true; // only if DocType has `company`
   const COLORS = { output: "#96BE37", target: "#ECAD4B" };
   const REPORT_NAME = "Output vs Target";
-  const MAX_RANGE_DAYS = 45; // safety cap for daily chart calls
+  const MAX_RANGE_DAYS = 45;
 
   // ---------- Meta: detect "company" in doctypes ----------
   const DT_META = {
@@ -32,7 +32,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
   })();
 
-  // ---------- Controls (shared filters) ----------
+  // ---------- Controls ----------
   const fDate = page.add_field({
     fieldtype: "Date",
     fieldname: "date",
@@ -69,21 +69,21 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     },
   });
 
-  // ---------- Date range just for chart #2 ----------
+  // Date range for Daily chart
   const fFrom = page.add_field({
     fieldtype: "Date",
     fieldname: "from_date",
-    label: "From Date",
-    default: frappe.datetime.month_start(), // default to current month start
+    label: "From Date (Daily)",
+    default: frappe.datetime.month_start(),
   });
   const fTo = page.add_field({
     fieldtype: "Date",
     fieldname: "to_date",
-    label: "To Date",
+    label: "To Date (Daily)",
     default: frappe.datetime.get_today(),
   });
 
-  // ===== Overflow fix for MultiSelects (scoped) =====
+  // ===== Styles (overflow fix + date clear + 2-col grid) =====
   $("#kpi-ms-overflow-fix").remove();
   msCell.$wrapper.addClass("kpi-ms");
   msOp.$wrapper.addClass("kpi-ms");
@@ -91,15 +91,14 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     .page-form .frappe-control { min-width: 0; }
 
     .kpi-ms .form-control.input-xs {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .kpi-ms .control-input, .kpi-ms .control-input-wrapper {
       display: flex; flex-wrap: wrap; gap: 4px; overflow: hidden;
     }
     .kpi-ms input.input-with-feedback {
-      min-width: 140px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 140px; max-width: 100%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .kpi-ms .status-text {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
@@ -119,47 +118,67 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       border-radius:6px;cursor:pointer;z-index:2;
     }
     .frappe-control[data-fieldname="date"] .kpi-clear-btn:hover{ background: var(--gray-100); }
+
+    /* Two-column chart grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+      margin-top: 12px;
+    }
+    @media (max-width: 1100px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+    .kpi-card {
+      border: 1px solid var(--border-color, #e5e7eb);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--surface, #fff);
+    }
+    .kpi-card h6 {
+      margin: 0 0 6px 0; color: var(--text-muted, #6b7280); font-weight: 600;
+    }
+    .kpi-card canvas { width: 100%; height: 420px; max-height: 420px; }
   </style>`).appendTo(document.head);
 
-  // Add clear buttons
-  function addClear(control, fieldname, isMulti=false){
-    const $host = control.$wrapper.find(".control-input, .control-input-wrapper").first().length
-      ? control.$wrapper.find(".control-input, .control-input-wrapper").first()
-      : control.$wrapper;
-    let $btn = $host.find(`.kpi-clear-btn[data-for="${fieldname}"]`);
-    if (!$btn.length) {
-      $btn = $(`<button type="button" class="kpi-clear-btn" data-for="${fieldname}" title="Clear">×</button>`)
+  // Add clear button for Date
+  (function addDateClear() {
+    const $host = fDate.$wrapper.find(".control-input, .control-input-wrapper").first().length
+      ? fDate.$wrapper.find(".control-input, .control-input-wrapper").first()
+      : fDate.$wrapper;
+    if (!$host.find('.kpi-clear-btn[data-for="date"]').length) {
+      $(`<button type="button" class="kpi-clear-btn" data-for="date" title="Clear">×</button>`)
         .appendTo($host)
-        .on("click", (e)=>{
+        .on("click", (e) => {
           e.preventDefault(); e.stopPropagation();
-          if (isMulti) { try { control.set_value([]); } catch {} }
-          else { try { control.set_value(""); } catch {}; try { control.set_input && control.set_input(""); } catch {}; control.$input && control.$input.val(""); }
-          control.$input && control.$input.trigger("input").trigger("change");
+          try { fDate.set_value(""); } catch {}
+          try { fDate.set_input && fDate.set_input(""); } catch {}
+          fDate.$input && fDate.$input.val("").trigger("input").trigger("change");
         });
     }
-  }
-  addClear(fDate, "date", false);
+  })();
 
   // ---------- Prefill ----------
   const qp = frappe.utils.get_query_params();
   if (qp.date) fDate.set_value(qp.date);
 
-  // ---------- Layout for charts (SIDE-BY-SIDE) ----------
-  const $chartsRow = $(`
-    <div class="row" style="margin-top: 20px;">
-      <div class="col-md-6">
-        <div class="h6 text-muted" style="margin-bottom:4px;">Hourly — selected day</div>
-        <canvas id="chartHourly" style="max-height:420px; width:100%;"></canvas>
+  // ---------- Charts layout (two columns) ----------
+  const $grid = $(
+    `<div class="kpi-grid">
+      <div class="kpi-card">
+        <h6>Hourly — selected day</h6>
+        <canvas id="chartHourly"></canvas>
       </div>
-      <div class="col-md-6">
-        <div class="h6 text-muted" style="margin-bottom:4px;">Daily — between From/To dates</div>
-        <canvas id="chartDaily" style="max-height:420px; width:100%;"></canvas>
+      <div class="kpi-card">
+        <h6>Daily — between From/To dates</h6>
+        <canvas id="chartDaily"></canvas>
       </div>
-    </div>
-  `).appendTo($root);
+    </div>`
+  ).appendTo($root);
 
-  const $canvas1 = $chartsRow.find("#chartHourly");
-  const $canvas2 = $chartsRow.find("#chartDaily");
+  const $canvas1 = $grid.find("#chartHourly");
+  const $canvas2 = $grid.find("#chartDaily");
 
   // ---------- Utils ----------
   function loadChartJs() {
@@ -186,13 +205,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     };
   }
 
-  function fmtDate(d) {
-    // d is "YYYY-MM-DD"
-    return d;
-  }
-
   function* dateRange(from, to) {
-    // from/to "YYYY-MM-DD"
     const d0 = frappe.datetime.str_to_obj(from);
     const d1 = frappe.datetime.str_to_obj(to);
     for (let d = d0; d <= d1; d = frappe.datetime.add_days(d, 1)) {
@@ -237,7 +250,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },
@@ -266,9 +278,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   async function renderDaily() {
     const from_date = fFrom.get_value();
     const to_date   = fTo.get_value();
-    if (!from_date || !to_date) { /* optional: message */ return; }
+    if (!from_date || !to_date) return;
 
-    // validate range size
     const days = frappe.datetime.get_day_diff(to_date, from_date) + 1;
     if (days > MAX_RANGE_DAYS) {
       frappe.msgprint(`Please select a date range ≤ ${MAX_RANGE_DAYS} days.`);
@@ -278,7 +289,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     const shared = getSharedCsvFilters();
 
     try {
-      // Call the SAME report per-day and aggregate totals (no backend change needed)
       const dates = Array.from(dateRange(from_date, to_date));
       const calls = dates.map(d =>
         frappe.call({
@@ -288,16 +298,15 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       );
       const results = await Promise.all(calls);
 
-      // For each day, sum the "output" from hourly rows
       const labels = [];
       const output = [];
-      const target = []; // still zero unless you add target logic
+      const target = [];
 
       results.forEach((resp, idx) => {
         const rows = ((resp || {}).message || {}).result || [];
         const totalOut = rows.reduce((s, r) => s + Number(r.output || 0), 0);
         const totalTgt = rows.reduce((s, r) => s + Number(r.target || 0), 0);
-        labels.push(fmtDate(dates[idx]));
+        labels.push(dates[idx]);
         output.push(totalOut);
         target.push(totalTgt);
       });
@@ -320,7 +329,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },
@@ -350,13 +358,19 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const runHourlyDebounced = debounce(renderHourly, 250);
   const runDailyDebounced  = debounce(renderDaily, 300);
 
-  // Hourly chart triggers
+  // Hourly triggers
   fDate.$input && fDate.$input.on("change", runHourlyDebounced);
 
+  // Filters shared by both charts
   function bindMultiSelect(ms) {
     if (!ms) return;
-    ms.$input && ms.$input.on("input change awesomplete-selectcomplete", () => { runHourlyDebounced(); runDailyDebounced(); });
-    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove", () => { runHourlyDebounced(); runDailyDebounced(); });
+    ms.$input && ms.$input.on("input change awesomplete-selectcomplete", () => {
+      runHourlyDebounced(); runDailyDebounced();
+    });
+    $(ms.$wrapper).on("click",
+      ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove",
+      () => { runHourlyDebounced(); runDailyDebounced(); });
+
     const host = ms.$wrapper.find(".control-input-wrapper, .control-input").get(0);
     if (host && !ms._kpiObs) {
       ms._kpiObs = new MutationObserver(() => { runHourlyDebounced(); runDailyDebounced(); });
@@ -366,7 +380,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   bindMultiSelect(msCell);
   bindMultiSelect(msOp);
 
-  // Daily chart triggers (range)
+  // Daily range triggers
   fFrom.$input && fFrom.$input.on("change", runDailyDebounced);
   fTo.$input   && fTo.$input.on("change", runDailyDebounced);
 
