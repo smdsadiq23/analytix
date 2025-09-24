@@ -1,4 +1,4 @@
-// Viewer: Output vs Target (hourly + daily, robust filters & date range)
+// Viewer: Output vs Target (2 charts; preserves earlier working filter logic)
 // Route: /app/output-target-viewer
 
 frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
@@ -10,13 +10,16 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   const $root = $(wrapper).find(".layout-main-section");
 
   // ---------- CONFIG ----------
-  const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
-  const APPLY_COMPANY_FILTER = true; // only if DocType has `company`
+  const DOCTYPES = {
+    physical_cell: "Physical Cell",
+    operation: "Operation",
+  };
+  const APPLY_COMPANY_FILTER = true; // only if DocType actually has "company"
   const COLORS = { output: "#96BE37", target: "#ECAD4B" };
   const REPORT_NAME = "Output vs Target";
   const MAX_RANGE_DAYS = 45;
 
-  // ---------- Meta: detect "company" in doctypes ----------
+  // ---------- Meta detector (doctypes that actually have "company") ----------
   const DT_META = {
     physical_cell: { doctype: DOCTYPES.physical_cell, hasCompany: false },
     operation:     { doctype: DOCTYPES.operation,     hasCompany: false },
@@ -41,36 +44,37 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     reqd: 1,
   });
 
-const msCell = page.add_field({
-  fieldtype: "MultiSelectList",
-  fieldname: "physical_cell_list",
-  label: "Physical Cell",
-  only_select: 1,                    // ← ensure choices come from get_data (names)
-  get_data: async (txt) => {
-    const filters = {};
-    if (APPLY_COMPANY_FILTER && DT_META.physical_cell.hasCompany) {
-      const c = frappe.defaults.get_default("Company");
-      if (c) filters.company = c;
-    }
-    return frappe.db.get_link_options(DOCTYPES.physical_cell, txt, filters);
-  },
-});
+  const msCell = page.add_field({
+    fieldtype: "MultiSelectList",
+    fieldname: "physical_cell_list",
+    label: "Physical Cell",
+    reqd: 0,
+    get_data: async function (txt) {
+      const hasCompany = DT_META.physical_cell.hasCompany;
+      const filters = {};
+      if (APPLY_COMPANY_FILTER && hasCompany) {
+        const company = frappe.defaults.get_default("Company");
+        if (company) filters.company = company;
+      }
+      return frappe.db.get_link_options(DOCTYPES.physical_cell, txt, filters);
+    },
+  });
 
-const msOp = page.add_field({
-  fieldtype: "MultiSelectList",
-  fieldname: "operation_list",
-  label: "Operation",
-  only_select: 1,                    // ← same here
-  get_data: async (txt) => {
-    const filters = {};
-    if (APPLY_COMPANY_FILTER && DT_META.operation.hasCompany) {
-      const c = frappe.defaults.get_default("Company");
-      if (c) filters.company = c;
-    }
-    return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
-  },
-});
-
+  const msOp = page.add_field({
+    fieldtype: "MultiSelectList",
+    fieldname: "operation_list",
+    label: "Operation",
+    reqd: 0,
+    get_data: async function (txt) {
+      const hasCompany = DT_META.operation.hasCompany;
+      const filters = {};
+      if (APPLY_COMPANY_FILTER && hasCompany) {
+        const company = frappe.defaults.get_default("Company");
+        if (company) filters.company = company;
+      }
+      return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
+    },
+  });
 
   // Date range for Daily chart
   const fFrom = page.add_field({
@@ -86,7 +90,7 @@ const msOp = page.add_field({
     default: frappe.datetime.get_today(),
   });
 
-  // ===== Styles (overflow fix + date clear + 2-col grid) =====
+  // ===== Overflow fix + date clear + 2-col grid =====
   $("#kpi-ms-overflow-fix").remove();
   msCell.$wrapper.addClass("kpi-ms");
   msOp.$wrapper.addClass("kpi-ms");
@@ -114,38 +118,26 @@ const msOp = page.add_field({
     /* Date clear button pin */
     .frappe-control[data-fieldname="date"] .control-input,
     .frappe-control[data-fieldname="date"] .control-input-wrapper { position: relative; }
-    .frappe-control[data-fieldname="date"] input.input-with-feedback { padding-right: 26px !important; }
+    .frappe-control[data-fieldname="date"] input.input-with-feedback {
+      padding-right: 26px !important;
+    }
     .frappe-control[data-fieldname="date"] .kpi-clear-btn{
-      position:absolute;right:8px;top:50%;transform:translateY(-50%);
-      border:0;background:transparent;line-height:1;padding:0 6px;color:var(--gray-600);
-      border-radius:6px;cursor:pointer;z-index:2;
+      position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      border:0; background:transparent; line-height:1; padding:0 6px; color:var(--gray-600);
+      border-radius:6px; cursor:pointer; z-index:2;
     }
     .frappe-control[data-fieldname="date"] .kpi-clear-btn:hover{ background: var(--gray-100); }
 
     /* Two-column chart grid */
     .kpi-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      align-items: start;
-      margin-top: 12px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 12px;
     }
-    @media (max-width: 1100px) {
-      .kpi-grid { grid-template-columns: 1fr; }
-    }
-    .kpi-card {
-      border: 1px solid var(--border-color, #e5e7eb);
-      border-radius: 8px;
-      padding: 12px;
-      background: var(--surface, #fff);
-    }
-    .kpi-card h6 {
-      margin: 0 0 6px 0; color: var(--text-muted, #6b7280); font-weight: 600;
-    }
+    @media (max-width: 1100px) { .kpi-grid { grid-template-columns: 1fr; } }
+    .kpi-card { border: 1px solid var(--border-color,#e5e7eb); border-radius: 8px; padding: 12px; background: #fff; }
+    .kpi-card h6 { margin: 0 0 6px 0; color: var(--text-muted,#6b7280); font-weight: 600; }
     .kpi-card canvas { width: 100%; height: 420px; max-height: 420px; }
   </style>`).appendTo(document.head);
 
-  // Add clear button for Date
   (function addDateClear() {
     const $host = fDate.$wrapper.find(".control-input, .control-input-wrapper").first().length
       ? fDate.$wrapper.find(".control-input, .control-input-wrapper").first()
@@ -166,7 +158,7 @@ const msOp = page.add_field({
   const qp = frappe.utils.get_query_params();
   if (qp.date) fDate.set_value(qp.date);
 
-  // ---------- Charts layout (two columns) ----------
+  // ---------- Charts layout ----------
   const $grid = $(
     `<div class="kpi-grid">
       <div class="kpi-card">
@@ -192,38 +184,26 @@ const msOp = page.add_field({
     });
   }
 
-  // Robust read of MultiSelect values (API + DOM fallback)
-  function getMSValues(ms) {
-    // 1) control API
-    try {
-      let v = ms && ms.get_value ? ms.get_value() : null;
-      if (typeof v === "string") v = v.split(",").map(s => s.trim()).filter(Boolean);
-      if (Array.isArray(v)) {
-        return v
-          .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-          .filter(Boolean);
-      }
-    } catch { /* no-op */ }
-    // 2) DOM pills fallback
-    try {
-      const pills = $(ms.$wrapper).find(
-        ".amp-token .label, .selected-pill .label, .selected-item .label, .awesomplete .token .label"
-      ).map((i, el) => $(el).text().trim()).get();
-      return pills.filter(Boolean);
-    } catch { /* no-op */ }
-    return [];
+  // === IMPORTANT: Use the SAME normalizeMS that worked earlier ===
+  function normalizeMS(val) {
+    if (!val) return [];
+    if (!Array.isArray(val)) return [];
+    return val
+      .map((x) => (typeof x === "string" ? x : (x && (x.value || x.label)) || ""))
+      .filter(Boolean);
   }
 
+  // Collect filters EXACTLY like before (CSV)
   function getSharedCsvFilters() {
-    const cells = getMSValues(msCell);
-    const ops   = getMSValues(msOp);
+    const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
+    const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
     return {
-      physical_cell_csv: (cells || []).join(","),
-      operation_csv:     (ops   || []).join(","),
+      physical_cell_csv: cells.join(","),
+      operation_csv:     ops.join(","),
     };
   }
 
-  // Safe date enumerator (no Frappe mutation quirks)
+  // robust date enumerator for the daily chart
   function enumerateDates(from, to) {
     const out = [];
     if (!from || !to) return out;
@@ -231,16 +211,15 @@ const msOp = page.add_field({
     const end   = new Date(to   + "T00:00:00");
     if (isNaN(start) || isNaN(end)) return out;
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      // format YYYY-MM-DD
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
       const day = String(d.getDate()).padStart(2, "0");
-      out.push(`${day}-${m}-${y}`);
+      out.push(`${y}-${m}-${day}`);
     }
     return out;
   }
 
-  function debounce(fn, wait = 250){ let t; return (...a)=>{clearTimeout(t); t=setTimeout(()=>fn(...a), wait);} }
+  function debounce(fn, wait = 250) { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
 
   // ---------- Chart renderers ----------
   async function renderHourly() {
@@ -316,7 +295,7 @@ const msOp = page.add_field({
     const shared = getSharedCsvFilters();
 
     try {
-      const dates = enumerateDates(from_date, to_date); // ← robust enumerator
+      const dates = enumerateDates(from_date, to_date);
       if (!dates.length) return;
 
       const calls = dates.map(d =>
@@ -335,7 +314,7 @@ const msOp = page.add_field({
         const rows = ((resp || {}).message || {}).result || [];
         const totalOut = rows.reduce((s, r) => s + Number(r.output || 0), 0);
         const totalTgt = rows.reduce((s, r) => s + Number(r.target || 0), 0);
-        labels.push(dates[idx]);   // every date in the range
+        labels.push(dates[idx]);
         output.push(totalOut);
         target.push(totalTgt);
       });
@@ -383,14 +362,12 @@ const msOp = page.add_field({
     }
   }
 
-  // ---------- Bindings ----------
   const runHourlyDebounced = debounce(renderHourly, 250);
   const runDailyDebounced  = debounce(renderDaily, 300);
 
-  // Hourly triggers
+  // ---------- Bindings (same pattern you had earlier) ----------
   fDate.$input && fDate.$input.on("change", runHourlyDebounced);
 
-  // Filters shared by both charts — strong bindings + DOM observe
   function bindMultiSelect(ms) {
     if (!ms) return;
 
@@ -399,18 +376,28 @@ const msOp = page.add_field({
       runHourlyDebounced(); runDailyDebounced();
     });
 
-    // pill remove clicks
-    $(ms.$wrapper).on(
-      "click",
-      ".amp-token-remove,.awesomplete .remove,.selected-pill .remove,.selected-item .remove",
-      () => { runHourlyDebounced(); runDailyDebounced(); }
-    );
+    // token remove clicks
+    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", () => {
+      runHourlyDebounced(); runDailyDebounced();
+    });
 
-    // observe token container changes (programmatic set_value etc.)
-    const host = ms.$wrapper.find(".control-input-wrapper, .control-input").get(0);
-    if (host && !ms._kpiObs) {
-      ms._kpiObs = new MutationObserver(() => { runHourlyDebounced(); runDailyDebounced(); });
-      ms._kpiObs.observe(host, { childList: true, subtree: true });
+    // observe DOM changes to tokens (captures programmatic set_value)
+    const host =
+      ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
+    if (host) {
+      const obs = new MutationObserver(() => {
+        runHourlyDebounced(); runDailyDebounced();
+      });
+      obs.observe(host, { childList: true, subtree: true });
+      ms._obs = obs;
+    }
+
+    // on_change hook if present
+    if (typeof ms.on_change === "function") {
+      const prev = ms.on_change.bind(ms);
+      ms.on_change = (...a) => { try { prev(...a); } catch {} runHourlyDebounced(); runDailyDebounced(); };
+    } else {
+      ms.on_change = () => { runHourlyDebounced(); runDailyDebounced(); };
     }
   }
   bindMultiSelect(msCell);
