@@ -41,33 +41,36 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     reqd: 1,
   });
 
-  const msCell = page.add_field({
-    fieldtype: "MultiSelectList",
-    fieldname: "physical_cell_list",
-    label: "Physical Cell",
-    get_data: async (txt) => {
-      const filters = {};
-      if (APPLY_COMPANY_FILTER && DT_META.physical_cell.hasCompany) {
-        const c = frappe.defaults.get_default("Company");
-        if (c) filters.company = c;
-      }
-      return frappe.db.get_link_options(DOCTYPES.physical_cell, txt, filters);
-    },
-  });
+const msCell = page.add_field({
+  fieldtype: "MultiSelectList",
+  fieldname: "physical_cell_list",
+  label: "Physical Cell",
+  only_select: 1,                    // ← ensure choices come from get_data (names)
+  get_data: async (txt) => {
+    const filters = {};
+    if (APPLY_COMPANY_FILTER && DT_META.physical_cell.hasCompany) {
+      const c = frappe.defaults.get_default("Company");
+      if (c) filters.company = c;
+    }
+    return frappe.db.get_link_options(DOCTYPES.physical_cell, txt, filters);
+  },
+});
 
-  const msOp = page.add_field({
-    fieldtype: "MultiSelectList",
-    fieldname: "operation_list",
-    label: "Operation",
-    get_data: async (txt) => {
-      const filters = {};
-      if (APPLY_COMPANY_FILTER && DT_META.operation.hasCompany) {
-        const c = frappe.defaults.get_default("Company");
-        if (c) filters.company = c;
-      }
-      return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
-    },
-  });
+const msOp = page.add_field({
+  fieldtype: "MultiSelectList",
+  fieldname: "operation_list",
+  label: "Operation",
+  only_select: 1,                    // ← same here
+  get_data: async (txt) => {
+    const filters = {};
+    if (APPLY_COMPANY_FILTER && DT_META.operation.hasCompany) {
+      const c = frappe.defaults.get_default("Company");
+      if (c) filters.company = c;
+    }
+    return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
+  },
+});
+
 
   // Date range for Daily chart
   const fFrom = page.add_field({
@@ -189,15 +192,34 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
-  // ✅ FIXED: Simple, reliable filter extraction
+  // Robust read of MultiSelect values (API + DOM fallback)
+  function getMSValues(ms) {
+    // 1) control API
+    try {
+      let v = ms && ms.get_value ? ms.get_value() : null;
+      if (typeof v === "string") v = v.split(",").map(s => s.trim()).filter(Boolean);
+      if (Array.isArray(v)) {
+        return v
+          .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
+          .filter(Boolean);
+      }
+    } catch { /* no-op */ }
+    // 2) DOM pills fallback
+    try {
+      const pills = $(ms.$wrapper).find(
+        ".amp-token .label, .selected-pill .label, .selected-item .label, .awesomplete .token .label"
+      ).map((i, el) => $(el).text().trim()).get();
+      return pills.filter(Boolean);
+    } catch { /* no-op */ }
+    return [];
+  }
+
   function getSharedCsvFilters() {
-    const cells = msCell.get_value ? msCell.get_value() : [];
-    const ops   = msOp.get_value   ? msOp.get_value()   : [];
-    const cleanCells = (Array.isArray(cells) ? cells : []).filter(Boolean).map(String);
-    const cleanOps   = (Array.isArray(ops)   ? ops   : []).filter(Boolean).map(String);
+    const cells = getMSValues(msCell);
+    const ops   = getMSValues(msOp);
     return {
-      physical_cell_csv: cleanCells.join(","),
-      operation_csv:     cleanOps.join(","),
+      physical_cell_csv: (cells || []).join(","),
+      operation_csv:     (ops   || []).join(","),
     };
   }
 
@@ -213,7 +235,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
       const day = String(d.getDate()).padStart(2, "0");
-      out.push(`${y}-${m}-${day}`);
+      out.push(`${day}-${m}-${y}`);
     }
     return out;
   }
@@ -249,8 +271,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
             { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: "transparent",
-              borderWidth: 2, pointRadius: 2, tension: 0.25, fill: false },
+              borderColor: COLORS.target, backgroundColor: COLORS.target,
+              borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ]
         },
         options: {
@@ -294,7 +316,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     const shared = getSharedCsvFilters();
 
     try {
-      const dates = enumerateDates(from_date, to_date);
+      const dates = enumerateDates(from_date, to_date); // ← robust enumerator
       if (!dates.length) return;
 
       const calls = dates.map(d =>
@@ -313,7 +335,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
         const rows = ((resp || {}).message || {}).result || [];
         const totalOut = rows.reduce((s, r) => s + Number(r.output || 0), 0);
         const totalTgt = rows.reduce((s, r) => s + Number(r.target || 0), 0);
-        labels.push(dates[idx]);
+        labels.push(dates[idx]);   // every date in the range
         output.push(totalOut);
         target.push(totalTgt);
       });
@@ -330,8 +352,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
             { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: "transparent",
-              borderWidth: 2, pointRadius: 2, tension: 0.25, fill: false },
+              borderColor: COLORS.target, backgroundColor: COLORS.target,
+              borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ]
         },
         options: {
