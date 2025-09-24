@@ -219,7 +219,12 @@ def execute(filters: dict | None = None):
         SELECT
             DATE(isl.logged_time) AS date,
             HOUR(isl.logged_time) AS h,
-            CONCAT(LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':00') AS label,
+            CONCAT(
+                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
+                ':00 - ',
+                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
+                ':59'
+            ) AS hour_label,
             COALESCE(SUM(COALESCE(pi.quantity, 0)), 0) AS output
         FROM `tabItem Scan Log` isl
         LEFT JOIN `tabProduction Item`  pi ON isl.production_item = pi.name
@@ -238,7 +243,7 @@ def execute(filters: dict | None = None):
         {
             "level": "hour",
             "bucket_num": h,
-            "label": f"{str(h).zfill(2)}:00",
+            "label": f"{str(h).zfill(2)}:00 - {str(h).zfill(2)}:59",
             "output": 0.0,
             "target": 0.0,
         }
