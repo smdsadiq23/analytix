@@ -70,8 +70,13 @@ def execute(filters=None):
         SELECT
             DATE(isl.logged_time) AS date,
             HOUR(isl.logged_time) AS hour_num,
-            /* HH:00 label for x-axis */
-            CONCAT(LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'), ':00') AS hour_label,
+            -- "HH:00 - HH:59" label for x-axis
+            CONCAT(
+                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
+                ':00 - ',
+                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
+                ':59'
+            ) AS hour_label,
             isl.physical_cell,
             isl.operation,
             COALESCE(SUM(COALESCE(pi.quantity, 0)), 0) AS output,
@@ -91,12 +96,12 @@ def execute(filters=None):
 
     # ---- Columns / Summary ----
     columns = [
-        {"label": "Date",             "fieldname": "date",          "fieldtype": "Date",  "width": 100},
-        {"label": "Hour (HH:00)",     "fieldname": "hour_label",    "fieldtype": "Data",  "width": 100},
-        {"label": "Physical Cell",    "fieldname": "physical_cell", "fieldtype": "Data",  "width": 140},
-        {"label": "Operation",        "fieldname": "operation",     "fieldtype": "Link",  "options": "Operation", "width": 160},
-        {"label": "Output (Qty)",     "fieldname": "output",        "fieldtype": "Float", "width": 130},
-        {"label": "Target (Qty)",     "fieldname": "target",        "fieldtype": "Float", "width": 90},
+        {"label": "Date",                   "fieldname": "date",            "fieldtype": "Date",    "width": 100},
+        {"label": "Hour (HH:MM - HH:MM)",   "fieldname": "hour_label",      "fieldtype": "Data",    "width": 160},
+        {"label": "Physical Cell",          "fieldname": "physical_cell",   "fieldtype": "Data",    "width": 140},
+        {"label": "Operation",              "fieldname": "operation",       "fieldtype": "Link",    "options": "Operation", "width": 160},
+        {"label": "Output (Qty)",           "fieldname": "output",          "fieldtype": "Float",   "width": 130},
+        {"label": "Target (Qty)",           "fieldname": "target",          "fieldtype": "Float",   "width": 90},
     ]
 
     total_output = sum((r.get("output") or 0) for r in rows)
