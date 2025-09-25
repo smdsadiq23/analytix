@@ -99,17 +99,27 @@ def execute(filters: dict | None = None):
     if selected_cells:
         bounds_row = frappe.db.sql(
             """
-            SELECT MIN(pc.start_time) AS min_start, MAX(pc.end_time) AS max_end
+            SELECT MIN(pc.start_time) AS min_start,
+                MAX(pc.end_time) AS max_end
             FROM `tabPhysical Cell` pc
             WHERE pc.name IN %(cells)s
+            AND pc.name <> %(excluded)s
             """,
-            {"cells": tuple(selected_cells)},
+            {
+                "cells": tuple(selected_cells),
+                "excluded": "QR/Barcode Cut Bundle Activation",
+            },
             as_dict=True,
         )
     else:
         bounds_row = frappe.db.sql(
-            """SELECT MIN(pc.start_time) AS min_start, MAX(pc.end_time) AS max_end
-               FROM `tabPhysical Cell` pc""",
+            """
+            SELECT MIN(pc.start_time) AS min_start,
+                MAX(pc.end_time) AS max_end
+            FROM `tabPhysical Cell` pc
+            WHERE pc.name <> %(excluded)s
+            """,
+            {"excluded": "QR/Barcode Cut Bundle Activation"},
             as_dict=True,
         )
 
