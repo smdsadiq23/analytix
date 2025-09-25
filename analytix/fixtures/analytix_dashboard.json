@@ -1,13 +1,13 @@
 [
  {
-  "dashboard": "Output vs Target",
+  "dashboard": "",
   "description": "Hourly Output vs Target",
   "docstatus": 0,
   "doctype": "Analytix Dashboard",
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Productivity",
-  "modified": "2025-09-23 17:07:28.128317",
+  "modified": "2025-09-25 18:49:13.059372",
   "name": "q900uk5ug8",
   "route_override": "/app/output-target-viewer",
   "sort_order": 0,
