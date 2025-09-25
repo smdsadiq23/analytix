@@ -7,8 +7,25 @@ frappe.pages["flow-rate-viewer"].on_page_load = function (wrapper) {
     title: "Flow Rate",
     single_column: true,
   });
+
   const $root = $(wrapper).find(".layout-main-section");
 
+  // 👇 Add manual breadcrumb bar
+  const $breadcrumb = $(`
+    <div class="breadcrumb-bar" style="
+      padding: 8px 16px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+      margin-bottom: 16px;
+    ">
+      <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
+      <span style="margin: 0 8px;">></span>
+      <span style="color: #6b7280;">Flow Rate</span>
+    </div>
+  `).prependTo($root);
+
+  
   // ---------- CONFIG ----------
   const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
   const APPLY_COMPANY_FILTER = true; // only if DocType has "company"
@@ -88,12 +105,37 @@ frappe.pages["flow-rate-viewer"].on_page_load = function (wrapper) {
     .kpi-ms .awesomplete .token span, .kpi-ms .amp-token .label, .kpi-ms .selected-pill .label {
       max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;
     }
+    .frappe-control[data-fieldname="date"] .control-input,
+    .frappe-control[data-fieldname="date"] .control-input-wrapper { position: relative; }
+    .frappe-control[data-fieldname="date"] input.input-with-feedback { padding-right: 26px !important; }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn{
+      position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      border:0; background:transparent; line-height:1; padding:0 6px; color:var(--gray-600);
+      border-radius:6px; cursor:pointer; z-index:2;
+    }
+    .frappe-control[data-fieldname="date"] .kpi-clear-btn:hover{ background: var(--gray-100); }      
     .kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; margin-top:12px; }
     @media (max-width:1100px){ .kpi-grid { grid-template-columns:1fr; } }
     .kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; }
     .kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
     .kpi-card canvas { width:100%; height:420px; max-height:420px; }
   </style>`).appendTo(document.head);
+
+  (function addDateClear() {
+    const $host = fDate.$wrapper.find(".control-input, .control-input-wrapper").first().length
+      ? fDate.$wrapper.find(".control-input, .control-input-wrapper").first()
+      : fDate.$wrapper;
+    if (!$host.find('.kpi-clear-btn[data-for="date"]').length) {
+      $(`<button type="button" class="kpi-clear-btn" data-for="date" title="Clear">×</button>`)
+        .appendTo($host)
+        .on("click", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          try { fDate.set_value(""); } catch {}
+          try { fDate.set_input && fDate.set_input(""); } catch {}
+          fDate.$input && fDate.$input.val("").trigger("input").trigger("change");
+        });
+    }
+  })();
 
   // ---------- Prefill from query params ----------
   const qp = frappe.utils.get_query_params();

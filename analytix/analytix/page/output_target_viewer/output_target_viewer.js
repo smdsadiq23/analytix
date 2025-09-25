@@ -7,7 +7,24 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     title: "Output vs Target",
     single_column: true,
   });
+
   const $root = $(wrapper).find(".layout-main-section");
+
+  // 👇 Add manual breadcrumb bar
+  const $breadcrumb = $(`
+    <div class="breadcrumb-bar" style="
+      padding: 8px 16px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+      margin-bottom: 16px;
+    ">
+      <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
+      <span style="margin: 0 8px;">></span>
+      <span style="color: #6b7280;">Output vs Target</span>
+    </div>
+  `).prependTo($root);
+
 
   // ---------- CONFIG ----------
   const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
