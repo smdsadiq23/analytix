@@ -10,66 +10,66 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	// ===== STYLES =====
 	$("#kpi-ms-overflow-fix").remove();
 	$(`<style id="kpi-ms-overflow-fix">
-  .page-form .frappe-control { min-width: 0; }
-  .kpi-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
-  .kpi-tab { padding: 12px 24px; cursor: pointer; font-weight: 600; color: #6b7280; border: none; background: transparent; }
-  .kpi-tab.active { background: #84cc16; color: white; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+	.page-form .frappe-control { min-width: 0; }
+	.kpi-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
+	.kpi-tab { padding: 12px 24px; cursor: pointer; font-weight: 600; color: #6b7280; border: none; background: transparent; }
+	.kpi-tab.active { background: #84cc16; color: white; border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
-  /* Sections */
-  .kpi-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
-  .kpi-section h5 { margin: 0 0 16px 0; color: #333; font-size: 16px; }
+	/* Sections */
+	.kpi-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
+	.kpi-section h5 { margin: 0 0 16px 0; color: #333; font-size: 16px; }
 
-  /* Filters */
-  .kpi-filter-row { display: flex; gap: 16px; margin-bottom: 16px; align-items: center; }
-  .kpi-filter-row .frappe-control { min-width: 200px; }
-  .frappe-control[data-fieldname="so_date_range"],
-  .frappe-control[data-fieldname="wo_date_range"] { min-width: 280px !important; }
+	/* Filters */
+	.kpi-filter-row { display: flex; gap: 16px; margin-bottom: 16px; align-items: center; }
+	.kpi-filter-row .frappe-control { min-width: 200px; }
+	.frappe-control[data-fieldname="so_date_range"],
+	.frappe-control[data-fieldname="wo_date_range"] { min-width: 280px !important; }
 
-  /* Cards */
-  .kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
-  .kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
-  .kpi-card canvas { width:100%; height:420px; max-height:420px; }
-  .kpi-table { width:100%; border-collapse: collapse; margin-top:12px; }
-  .kpi-table th, .kpi-table td { padding:8px; border:1px solid #e5e7eb; text-align:left; }
-  .kpi-table th { background:#f9fafb; font-weight:600; }
-  .kpi-details-table { width:100%; border-collapse: collapse; margin-top:12px; }
-  .kpi-details-table td { padding:8px; border:1px solid #e5e7eb; vertical-align: top; }
-  .kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
+	/* Cards */
+	.kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
+	.kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
+	.kpi-card canvas { width:100%; height:420px; max-height:420px; }
+	.kpi-table { width:100%; border-collapse: collapse; margin-top:12px; }
+	.kpi-table th, .kpi-table td { padding:8px; border:1px solid #e5e7eb; text-align:left; }
+	.kpi-table th { background:#f9fafb; font-weight:600; }
+	.kpi-details-table { width:100%; border-collapse: collapse; margin-top:12px; }
+	.kpi-details-table td { padding:8px; border:1px solid #e5e7eb; vertical-align: top; }
+	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
 
-  /* Clear Button - Apply to all */
-  .frappe-control .control-input-wrapper { position: relative; }
-  .frappe-control input.input-with-feedback,
-  .frappe-control .awesomplete input {
-    padding-right: 26px !important;
-  }
-  .frappe-control .kpi-clear-btn {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: 0;
-    font-weight: bold;
-    font-size: 16px;
-    cursor: pointer;
-    color: var(--gray-600);
-    z-index: 10;
-  }
-  .frappe-control .kpi-clear-btn:hover {
-    background: var(--gray-100);
-  }
+	/* Clear Button — only for Link fields (Operation, SO, WO) */
+	.frappe-control[data-fieldtype="Link"] .control-input-wrapper { position: relative; }
+	.frappe-control[data-fieldtype="Link"] input.input-with-feedback,
+	.frappe-control[data-fieldtype="Link"] .awesomplete input {
+	padding-right: 26px !important;
+	}
+	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	background: transparent;
+	border: 0;
+	font-weight: bold;
+	font-size: 16px;
+	cursor: pointer;
+	color: var(--gray-600);
+	z-index: 10;
+	}
+	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn:hover {
+	background: var(--gray-100);
+	}
 
-  /* Colors */
-  .completed { background: #96BE37; color: white; }
-  .pending { background: #ECAD4B; color: black; }
-  .rejected { background: #EF4444; color: white; }
+	/* Colors */
+	.completed { background: #96BE37; color: white; }
+	.pending { background: #ECAD4B; color: black; }
+	.rejected { background: #EF4444; color: white; }
 
-  /* Responsive */
-  @media (max-width: 1100px) {
-    .kpi-filter-row { flex-direction: column; align-items: stretch; }
-    .kpi-dashboard-grid { grid-template-columns: 1fr; }
-  }
-</style>`).appendTo(document.head);
+	/* Responsive */
+	@media (max-width: 1100px) {
+		.kpi-filter-row { flex-direction: column; align-items: stretch; }
+		.kpi-dashboard-grid { grid-template-columns: 1fr; }
+	}
+	</style>`).appendTo(document.head);
 
 	// ========== CREATE FILTERS ==========
 	let fSODateRange, fSOOperation, fSOSO;
@@ -166,19 +166,23 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		});
 
 		// Append to DOM
-		$("#so-summary-filters").append($('<div>').append(fSODateRange.$wrapper));
-		$("#so-summary-filters").append($('<div>').append(fSOOperation.$wrapper));
-		$("#so-detail-filters").append($('<div>').append(fSOSO.$wrapper));
+		$("#so-summary-filters").append($("<div>").append(fSODateRange.$wrapper));
+		$("#so-summary-filters").append($("<div>").append(fSOOperation.$wrapper));
+		$("#so-detail-filters").append($("<div>").append(fSOSO.$wrapper));
 
-		$("#wo-summary-filters").append($('<div>').append(fWODateRange.$wrapper));
-		$("#wo-summary-filters").append($('<div>').append(fWOOperation.$wrapper));
-		$("#wo-detail-filters").append($('<div>').append(fWOWO.$wrapper));
+		$("#wo-summary-filters").append($("<div>").append(fWODateRange.$wrapper));
+		$("#wo-summary-filters").append($("<div>").append(fWOOperation.$wrapper));
+		$("#wo-detail-filters").append($("<div>").append(fWOWO.$wrapper));
 
 		// Hide all initially
-		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach(f => f.$wrapper.hide());
+		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) =>
+			f.$wrapper.hide()
+		);
 
 		// Add clear buttons
-		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach(addClearButton);
+		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach(
+			addClearButton
+		);
 	}
 
 	// ========== RENDER LAYOUT ==========
@@ -315,7 +319,9 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	// ========== SHOW/HIDE FILTERS ==========
 	function updateTabFilters(tab) {
 		// Hide all
-		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach(f => f.$wrapper.hide());
+		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) =>
+			f.$wrapper.hide()
+		);
 
 		if (tab === "so") {
 			fSODateRange.$wrapper.show();
@@ -538,9 +544,9 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 				data: {
 					labels: labels,
 					datasets: [
-						{ label: "Completed",  completed, backgroundColor: "#96BE37" },
-						{ label: "Pending",  pending, backgroundColor: "#ECAD4B" },
-						{ label: "Rejected",  rejected, backgroundColor: "#EF4444" },
+						{ label: "Completed", completed, backgroundColor: "#96BE37" },
+						{ label: "Pending", pending, backgroundColor: "#ECAD4B" },
+						{ label: "Rejected", rejected, backgroundColor: "#EF4444" },
 					],
 				},
 				options: {

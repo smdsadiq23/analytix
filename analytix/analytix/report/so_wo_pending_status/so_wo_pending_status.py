@@ -121,9 +121,9 @@ def get_detail_so(so_name, operation=None):
 
     conds = ["so.name = %(so_name)s", "so.docstatus = 1"]
     params = {"so_name": so_name}
-    if operation:
-        conds.append("isl.operation = %(op)s")
-        params["op"] = operation
+    # if operation:
+    #     conds.append("isl.operation = %(op)s")
+    #     params["op"] = operation
 
     # Get SO details
     so_details = frappe.db.sql(f"""
@@ -196,9 +196,9 @@ def get_detail_wo(wo_name, operation=None):
 
     conds = ["wo.name = %(wo_name)s", "wo.docstatus = 1"]
     params = {"wo_name": wo_name}
-    if operation:
-        conds.append("isl.operation = %(op)s")
-        params["op"] = operation
+    # if operation:
+    #     conds.append("isl.operation = %(op)s")
+    #     params["op"] = operation
 
     # Get WO details
     wo_details = frappe.db.sql(f"""
