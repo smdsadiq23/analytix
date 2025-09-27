@@ -490,7 +490,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		];
 
 		fieldsToShow.forEach((key) => {
-			const label = key == 'so_quantity'? 'Quantity' : frappe.unscrub(key);
+			const label = key == 'so_quantity'? 'SO Quantity' : frappe.unscrub(key);
 			const value = detailData[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
@@ -572,7 +572,13 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		];
 
 		fieldsToShow.forEach((key) => {
-			const label = key == 'wo_quantity'? 'Quantity' : frappe.unscrub(key);
+			let label = frappe.unscrub(key);
+			if(key == 'wo_quantity'){
+				label = 'WO Quantity'
+			}
+			else if(key == "wo_allocated_qty"){
+				label = 'WO Allocated Quantity'
+			}							
 			const value = detailData[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
