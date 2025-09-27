@@ -5,11 +5,16 @@ import frappe
 
 def execute(filters=None):
     filters = filters or {}
+    summary_so = get_summary_so(filters)
+    summary_wo = get_summary_wo(filters)
+    detail_so = get_detail_so(filters.get("sales_order"))
+    detail_wo = get_detail_wo(filters.get("work_order"))
+
     return [], [], None, None, [
-        {"name": "summary_so", "data": get_summary_so(filters)},
-        {"name": "summary_wo", "data": get_summary_wo(filters)},
-        {"name": "detail_so", "data": get_detail_so(filters.get("sales_order"), filters.get("operation"))},
-        {"name": "detail_wo", "data": get_detail_wo(filters.get("work_order"), filters.get("operation"))}
+        {"name": "summary_so", "data": summary_so or []},
+        {"name": "summary_wo", "data": summary_wo or []},
+        {"name": "detail_so", "data": detail_so or {}},
+        {"name": "detail_wo", "data": detail_wo or {}}
     ]
 
 
@@ -115,15 +120,12 @@ def get_summary_wo(filters):
     return data
 
 
-def get_detail_so(so_name, operation=None):
+def get_detail_so(so_name):
     if not so_name:
         return {}
 
     conds = ["so.name = %(so_name)s", "so.docstatus = 1"]
     params = {"so_name": so_name}
-    # if operation:
-    #     conds.append("isl.operation = %(op)s")
-    #     params["op"] = operation
 
     # Get SO details
     so_details = frappe.db.sql(f"""
@@ -150,9 +152,11 @@ def get_detail_so(so_name, operation=None):
     """, params, as_dict=True)
 
     if not so_details:
-        return {}
+        frappe.msgprint("No Sales Order details found")
+        return {} 
+    
 
-    # Get metrics by operation and size
+	# Get metrics by operation and size
     metrics_by_op = frappe.db.sql(f"""
         SELECT 
             isl.operation,
@@ -183,6 +187,9 @@ def get_detail_so(so_name, operation=None):
 
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
+        
+    if not metrics_by_op:
+        frappe.msgprint("No operation metrics found for SO")
 
     return {
         "details": so_details[0],
@@ -190,15 +197,12 @@ def get_detail_so(so_name, operation=None):
     }
 
 
-def get_detail_wo(wo_name, operation=None):
+def get_detail_wo(wo_name):
     if not wo_name:
         return {}
 
     conds = ["wo.name = %(wo_name)s", "wo.docstatus = 1"]
     params = {"wo_name": wo_name}
-    # if operation:
-    #     conds.append("isl.operation = %(op)s")
-    #     params["op"] = operation
 
     # Get WO details
     wo_details = frappe.db.sql(f"""
