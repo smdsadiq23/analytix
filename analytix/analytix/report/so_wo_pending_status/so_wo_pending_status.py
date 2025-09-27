@@ -19,12 +19,16 @@ def execute(filters=None):
 
 
 def get_summary_so(filters):
-    conds = ["so.docstatus = 1", "itm.custom_select_master = 'Finished Goods'"]
+    conds = [
+		"so.docstatus = 1",
+		"itm.custom_select_master = 'Finished Goods'",
+		"tbc.parentfield = 'component_bundle_configurations'"
+	]
     params = {}
 
     if filters.get("date_range"):
         start, end = filters["date_range"]
-        conds.append("soi.custom_ex_fty_date BETWEEN %(start)s AND %(end)s")
+        conds.append("date(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
 
     if filters.get("operation"):
@@ -67,12 +71,16 @@ def get_summary_so(filters):
 
 
 def get_summary_wo(filters):
-    conds = ["wo.docstatus = 1"]
+    conds = [
+		"wo.docstatus = 1",
+		"itm.custom_select_master = 'Finished Goods'",
+		"tbc.parentfield = 'component_bundle_configurations'"
+	]
     params = {}
 
     if filters.get("date_range"):
         start, end = filters["date_range"]
-        conds.append("soi.custom_ex_fty_date BETWEEN %(start)s AND %(end)s")
+        conds.append("date(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
 
     if filters.get("operation"):
@@ -132,7 +140,7 @@ def get_detail_so(so_name):
         SELECT 
             so.name AS so_number,
             so.total_qty AS so_quantity,
-            soi.custom_ex_fty_date AS ex_factory_date,
+            date(soi.custom_ex_fty_date) AS ex_factory_date,
             itm.brand AS fty_client,
             itm.item_name AS product_family,
             itm.name AS fty_prod_id,
@@ -143,7 +151,6 @@ def get_detail_so(so_name):
         INNER JOIN (
             SELECT parent, custom_ex_fty_date, item_code
             FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
             GROUP BY parent, custom_ex_fty_date, item_code
         ) soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
@@ -155,7 +162,6 @@ def get_detail_so(so_name):
         frappe.msgprint("No Sales Order details found")
         return {} 
     
-
 	# Get metrics by operation and size
     metrics_by_op = frappe.db.sql(f"""
         SELECT 
@@ -170,17 +176,17 @@ def get_detail_so(so_name):
                 THEN pi.quantity ELSE 0 END), 0) AS rejected_units
         FROM `tabSales Order` so
         INNER JOIN (
-            SELECT parent, custom_ex_fty_date, custom_size, qty
+            SELECT parent, item_code, custom_ex_fty_date, custom_size, qty
             FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
-            GROUP BY parent, custom_ex_fty_date, custom_size
+            GROUP BY parent, item_code, custom_ex_fty_date, custom_size
         ) soi ON soi.parent = so.name
+		INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.sales_order = so.name AND tbc.size = soi.custom_size
         LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         LEFT JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed'
-        WHERE {' AND '.join(conds)}
+        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
         GROUP BY isl.operation, soi.custom_size
         ORDER BY isl.operation, soi.custom_size
     """, params, as_dict=True)
@@ -209,7 +215,7 @@ def get_detail_wo(wo_name):
         SELECT 
             wo.name AS wo_number,
             wo.qty AS wo_quantity,
-            soi.custom_ex_fty_date AS ex_factory_date,
+            date(soi.custom_ex_fty_date) AS ex_factory_date,
             itm.brand AS fty_client,
             itm.item_name AS product_family,
             itm.name AS fty_prod_id,
@@ -220,7 +226,6 @@ def get_detail_wo(wo_name):
         INNER JOIN (
             SELECT parent AS work_order, sales_order
             FROM `tabWork Order Sales Orders`
-            WHERE sales_order IS NOT NULL
             GROUP BY parent
         ) woso ON woso.work_order = wo.name
         INNER JOIN (
@@ -235,6 +240,7 @@ def get_detail_wo(wo_name):
     """, params, as_dict=True)
 
     if not wo_details:
+        frappe.msgprint("No Work Order details found")
         return {}
 
     # Get metrics by operation and size
@@ -264,21 +270,24 @@ def get_detail_wo(wo_name):
         LEFT JOIN (
             SELECT parent, custom_ex_fty_date
             FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
             GROUP BY parent
         ) soi ON soi.parent = woso.sales_order
+        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.work_order = wo.name AND tbc.size = woli.size
         LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         LEFT JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed'
-        WHERE {' AND '.join(conds)}
+        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
         GROUP BY isl.operation, woli.size
         ORDER BY isl.operation, woli.size
     """, params, as_dict=True)
 
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
+        
+    if not metrics_by_op:
+        frappe.msgprint("No operation metrics found for WO")        
 
     return {
         "details": wo_details[0],

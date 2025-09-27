@@ -116,13 +116,23 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	let fWODateRange, fWOOperation, fWOWO;
 
 	function createFilters() {
+		// Helper to get start and end of current year
+		const getYearRange = () => {
+			const currentYear = new Date().getFullYear();
+			const startOfYear = `${currentYear}-01-01`;
+			const endOfYear = `${currentYear}-12-31`;
+			return [startOfYear, endOfYear];
+		};		
+
+		const defaultYearRange = getYearRange();
+
 		// SO Tab Filters
 		fSODateRange = page.add_field({
 			fieldtype: "DateRange",
 			fieldname: "so_date_range",
 			label: "Ex-Fty Date Range",
 			reqd: 1,
-			default: [frappe.datetime.get_today(), frappe.datetime.get_today()],
+			default: defaultYearRange,
 		});
 
 		fSOOperation = page.add_field({
@@ -137,6 +147,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 			fieldname: "sales_order",
 			label: "Sales Order",
 			options: "Sales Order",
+			filters: { docstatus: 1 }
 		});
 
 		// WO Tab Filters
@@ -145,7 +156,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 			fieldname: "wo_date_range",
 			label: "Ex-Fty Date Range",
 			reqd: 1,
-			default: [frappe.datetime.get_today(), frappe.datetime.get_today()],
+			default: defaultYearRange,
 		});
 
 		fWOOperation = page.add_field({
@@ -160,6 +171,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 			fieldname: "work_order",
 			label: "Work Order",
 			options: "Work Order",
+			filters: { docstatus: 1 }
 		});
 
 		// Append to DOM
@@ -459,7 +471,6 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		// Render SO Details Table
 		const $detTbody = $root.find("#so-details-table tbody").empty();
 		const fieldsToShow = [
-			"so_number",
 			"so_quantity",
 			"ex_factory_date",
 			"fty_client",
@@ -471,7 +482,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		];
 
 		fieldsToShow.forEach((key) => {
-			const label = frappe.unscrub(key);
+			const label = key == 'so_quantity'? 'Quantity' : frappe.unscrub(key);
 			const value = detailData[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
@@ -539,8 +550,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 
 		// 2. Render WO Details Table
 		const $detTbody = $root.find("#wo-details-table tbody").empty();
-		const fieldsToShow = [
-			"wo_number",
+		const fieldsToShow = [			
 			"wo_quantity",
 			"ex_factory_date",
 			"fty_client",
@@ -552,7 +562,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		];
 
 		fieldsToShow.forEach((key) => {
-			const label = frappe.unscrub(key);
+			const label = key == 'wo_quantity'? 'Quantity' : frappe.unscrub(key);
 			const value = detailData[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
