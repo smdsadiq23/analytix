@@ -140,22 +140,18 @@ def get_detail_so(so_name):
         SELECT 
             so.name AS so_number,
             so.total_qty AS so_quantity,
-            date(soi.custom_ex_fty_date) AS ex_factory_date,
-            itm.brand AS fty_client,
-            itm.item_name AS product_family,
-            itm.name AS fty_prod_id,
-            itm.name AS style,
-            itm.custom_colour_code AS color,
-            itm.custom_material_composition AS material
+            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) SEPARATOR ' | ') AS ex_factory_date,
+            GROUP_CONCAT(DISTINCT itm.brand SEPARATOR ' | ') AS fty_client,
+            GROUP_CONCAT(DISTINCT itm.item_name SEPARATOR ' | ') AS product_family,
+            GROUP_CONCAT(DISTINCT itm.name SEPARATOR ' | ') AS fty_prod_id,
+            GROUP_CONCAT(DISTINCT itm.name SEPARATOR ' | ') AS style,
+            GROUP_CONCAT(DISTINCT itm.custom_colour_code SEPARATOR ' | ') AS color,
+            GROUP_CONCAT(DISTINCT itm.custom_material_composition SEPARATOR ' | ') AS material
         FROM `tabSales Order` so
-        INNER JOIN (
-            SELECT parent, custom_ex_fty_date, item_code
-            FROM `tabSales Order Item`
-            GROUP BY parent, custom_ex_fty_date, item_code
-        ) soi ON soi.parent = so.name
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
-        WHERE {' AND '.join(conds)}
-        LIMIT 1
+        WHERE { ' AND '.join(conds) }
+        GROUP BY so.name, so.total_qty
     """, params, as_dict=True)
 
     if not so_details:
