@@ -159,7 +159,7 @@ def get_detail_so(so_name):
     """, params, as_dict=True)
 
     if not so_details:
-        frappe.msgprint("No Sales Order details found")
+        frappe.msgprint("No Sales Order details found or not an FG Item")
         return {} 
     
 	# Get metrics by operation and size
@@ -195,7 +195,7 @@ def get_detail_so(so_name):
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
         
     if not metrics_by_op:
-        frappe.msgprint("No operation metrics found for SO")
+        frappe.msgprint("No operation metrics found")
 
     return {
         "details": so_details[0],
@@ -240,7 +240,7 @@ def get_detail_wo(wo_name):
     """, params, as_dict=True)
 
     if not wo_details:
-        frappe.msgprint("No Work Order details found")
+        frappe.msgprint("No Work Order details found or not an FG Item")
         return {}
 
     # Get metrics by operation and size
