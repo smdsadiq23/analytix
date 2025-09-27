@@ -231,7 +231,6 @@ def get_detail_wo(wo_name):
         INNER JOIN (
             SELECT parent, custom_ex_fty_date, item_code
             FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
             GROUP BY parent, custom_ex_fty_date, item_code
         ) soi ON soi.parent = woso.sales_order AND soi.item_code = wo.production_item
         INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
