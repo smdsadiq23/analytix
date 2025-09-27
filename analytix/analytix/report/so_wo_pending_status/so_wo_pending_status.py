@@ -190,8 +190,8 @@ def get_detail_so(so_name):
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
         
-    if not metrics_by_op:
-        frappe.msgprint("No operation metrics found")
+    # if not metrics_by_op:
+    #     frappe.msgprint("No operation metrics found")
 
     return {
         "details": so_details[0],
@@ -208,30 +208,32 @@ def get_detail_wo(wo_name):
 
     # Get WO details
     wo_details = frappe.db.sql(f"""
-        SELECT 
-            wo.name AS wo_number,
-            wo.qty AS wo_quantity,
-            date(soi.custom_ex_fty_date) AS ex_factory_date,
-            itm.brand AS fty_client,
-            itm.item_name AS product_family,
-            itm.name AS fty_prod_id,
-            itm.name AS style,
-            itm.custom_colour_code AS color,
-            itm.custom_material_composition AS material
-        FROM `tabWork Order` wo
-        INNER JOIN (
-            SELECT parent AS work_order, sales_order
-            FROM `tabWork Order Sales Orders`
-            GROUP BY parent
-        ) woso ON woso.work_order = wo.name
-        INNER JOIN (
-            SELECT parent, custom_ex_fty_date, item_code
-            FROM `tabSales Order Item`
-            GROUP BY parent, custom_ex_fty_date, item_code
-        ) soi ON soi.parent = woso.sales_order AND soi.item_code = wo.production_item
-        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
-        WHERE {' AND '.join(conds)}
-        LIMIT 1
+		SELECT 
+			wo.name AS wo_number,
+			wo.qty AS wo_quantity,        
+			GROUP_CONCAT(DISTINCT woli.sales_order ORDER BY woli.sales_order SEPARATOR ' | ') AS sales_order,
+			GROUP_CONCAT(DISTINCT CONVERT(woli.wo_allocated_qty, SIGNED) ORDER BY woli.sales_order SEPARATOR ' | ') AS wo_allocated_qty,
+			GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY woli.sales_order SEPARATOR ' | ') AS ex_factory_date,
+			GROUP_CONCAT(DISTINCT itm.brand ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_client,
+			GROUP_CONCAT(DISTINCT itm.item_name ORDER BY woli.sales_order SEPARATOR ' | ') AS product_family,
+			GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_prod_id,
+			GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS style,
+			GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY woli.sales_order SEPARATOR ' | ') AS color,
+			GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY woli.sales_order SEPARATOR ' | ') AS material
+		FROM `tabWork Order` wo
+		INNER JOIN (
+			SELECT parent AS work_order, sales_order, SUM(work_order_allocated_qty) as 'wo_allocated_qty'
+			FROM `tabWork Order Line Item`
+			GROUP BY parent, sales_order
+		) woli ON woli.work_order = wo.name
+		INNER JOIN (
+			SELECT parent, custom_ex_fty_date, item_code
+			FROM `tabSales Order Item`
+			GROUP BY parent, custom_ex_fty_date, item_code
+		) soi ON soi.parent = woli.sales_order AND soi.item_code = wo.production_item
+		INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
+		WHERE {' AND '.join(conds)}
+		GROUP BY wo.name, wo.qty
     """, params, as_dict=True)
 
     if not wo_details:
@@ -281,8 +283,8 @@ def get_detail_wo(wo_name):
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
         
-    if not metrics_by_op:
-        frappe.msgprint("No operation metrics found for WO")        
+    # if not metrics_by_op:
+    #     frappe.msgprint("No operation metrics found for WO")        
 
     return {
         "details": wo_details[0],

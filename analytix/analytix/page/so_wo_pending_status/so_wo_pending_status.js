@@ -560,6 +560,8 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		const $detTbody = $root.find("#wo-details-table tbody").empty();
 		const fieldsToShow = [			
 			"wo_quantity",
+			"sales_order",
+			"wo_allocated_qty",
 			"ex_factory_date",
 			"fty_client",
 			"product_family",
