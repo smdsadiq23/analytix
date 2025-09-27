@@ -198,15 +198,23 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	}
 
 	function bindFilterEvents() {
-		// SO Filters
-		fSODateRange.$input && fSODateRange.$input.on("change", debouncedLoad);
-		fSOOperation.$input && fSOOperation.$input.on("blur", debouncedLoad); // use blur for Link fields
-		fSOSO.$input && fSOSO.$input.on("blur", debouncedLoad);
+	// Helper to bind all relevant events
+	function bindField(field) {
+		if (!field.$input) return;
+		// For Link fields: watch input, change, and Awesomplete select
+		field.$input.on("input change awesomplete-selectcomplete", debouncedLoad);
+		// For DateRange: already uses change
+	}
 
-		// WO Filters
-		fWODateRange.$input && fWODateRange.$input.on("change", debouncedLoad);
-		fWOOperation.$input && fWOOperation.$input.on("blur", debouncedLoad);
-		fWOWO.$input && fWOWO.$input.on("blur", debouncedLoad);
+	// Bind all filters
+	bindField(fSOOperation);
+	bindField(fSOSO);
+	bindField(fWOOperation);
+	bindField(fWOWO);
+
+	// DateRange uses 'change'
+	fSODateRange.$input?.on("change", debouncedLoad);
+	fWODateRange.$input?.on("change", debouncedLoad);
 	}
 
 	// ========== RENDER LAYOUT ==========

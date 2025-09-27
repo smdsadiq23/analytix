@@ -270,7 +270,7 @@ def get_detail_wo(wo_name):
         LEFT JOIN (
             SELECT parent, custom_ex_fty_date
             FROM `tabSales Order Item`
-            GROUP BY parent
+            GROUP BY parent	
         ) soi ON soi.parent = woso.sales_order
         INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.work_order = wo.name AND tbc.size = woli.size
