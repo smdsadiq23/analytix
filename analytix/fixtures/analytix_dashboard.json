@@ -26,5 +26,19 @@
   "route_override": "/app/flow-rate-viewer",
   "sort_order": 1,
   "title": "Flow Rate"
+ },
+ {
+  "dashboard": null,
+  "description": "Completion and Pending by Sales Order and Work Order and by Operations",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Order Management",
+  "modified": "2025-09-27 11:32:53.277230",
+  "name": "r44por0iok",
+  "route_override": "/app/so-wo-pending-status",
+  "sort_order": 0,
+  "title": "SO WO Pending Status"
  }
 ]
