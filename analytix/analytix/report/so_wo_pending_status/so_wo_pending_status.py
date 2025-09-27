@@ -140,13 +140,13 @@ def get_detail_so(so_name):
         SELECT 
             so.name AS so_number,
             so.total_qty AS so_quantity,
-            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) SEPARATOR ' | ') AS ex_factory_date,
-            GROUP_CONCAT(DISTINCT itm.brand SEPARATOR ' | ') AS fty_client,
-            GROUP_CONCAT(DISTINCT itm.item_name SEPARATOR ' | ') AS product_family,
-            GROUP_CONCAT(DISTINCT itm.name SEPARATOR ' | ') AS fty_prod_id,
-            GROUP_CONCAT(DISTINCT itm.name SEPARATOR ' | ') AS style,
-            GROUP_CONCAT(DISTINCT itm.custom_colour_code SEPARATOR ' | ') AS color,
-            GROUP_CONCAT(DISTINCT itm.custom_material_composition SEPARATOR ' | ') AS material
+            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY soi.item_code SEPARATOR ' | ') AS ex_factory_date,
+            GROUP_CONCAT(DISTINCT itm.brand ORDER BY itm.item_name SEPARATOR ' | ') AS fty_client,
+            GROUP_CONCAT(DISTINCT itm.item_name ORDER BY itm.item_name SEPARATOR ' | ') AS product_family,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY itm.item_name SEPARATOR ' | ') AS fty_prod_id,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY itm.item_name SEPARATOR ' | ') AS style,
+            GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY itm.item_name SEPARATOR ' | ') AS color,
+            GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY itm.item_name SEPARATOR ' | ') AS material
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
