@@ -36,7 +36,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	.kpi-details-table td { padding:8px; border:1px solid #e5e7eb; vertical-align: top; }
 	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
 
-	/* Clear Button for Link fields (Operation, SO, WO) — matches Flow Rate style */
+	/* Clear Button for Link fields */
 	.frappe-control[data-fieldtype="Link"] .control-input,
 	.frappe-control[data-fieldtype="Link"] .control-input-wrapper { position: relative; }
 	.frappe-control[data-fieldtype="Link"] input.input-with-feedback { padding-right: 26px !important; }
@@ -70,7 +70,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	}
 	</style>`).appendTo(document.head);
 
-	// ========== CLEAR BUTTON HELPER (from flow-rate-viewer) ==========
+	// ========== CLEAR BUTTON HELPER ==========
 	function addClearButtonToLinkField(field) {
 		const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
 			? field.$wrapper.find(".control-input, .control-input-wrapper").first()
@@ -116,13 +116,10 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	let fWODateRange, fWOOperation, fWOWO;
 
 	function createFilters() {
-		// Helper to get start and end of current year
 		const getYearRange = () => {
 			const currentYear = new Date().getFullYear();
-			const startOfYear = `${currentYear}-01-01`;
-			const endOfYear = `${currentYear}-12-31`;
-			return [startOfYear, endOfYear];
-		};		
+			return [`${currentYear}-01-01`, `${currentYear}-12-31`];
+		};
 
 		const defaultYearRange = getYearRange();
 
@@ -188,7 +185,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 			f.$wrapper.hide()
 		);
 
-		// ✅ Add clear buttons ONLY to Link fields (Operation, SO, WO)
+		// Add clear buttons
 		addClearButtonToLinkField(fSOOperation);
 		addClearButtonToLinkField(fSOSO);
 		addClearButtonToLinkField(fWOOperation);
@@ -198,23 +195,18 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	}
 
 	function bindFilterEvents() {
-	// Helper to bind all relevant events
-	function bindField(field) {
-		if (!field.$input) return;
-		// For Link fields: watch input, change, and Awesomplete select
-		field.$input.on("input change awesomplete-selectcomplete", debouncedLoad);
-		// For DateRange: already uses change
-	}
+		function bindField(field) {
+			if (!field.$input) return;
+			field.$input.on("input change awesomplete-selectcomplete", debouncedLoad);
+		}
 
-	// Bind all filters
-	bindField(fSOOperation);
-	bindField(fSOSO);
-	bindField(fWOOperation);
-	bindField(fWOWO);
+		bindField(fSOOperation);
+		bindField(fSOSO);
+		bindField(fWOOperation);
+		bindField(fWOWO);
 
-	// DateRange uses 'change'
-	fSODateRange.$input?.on("change", debouncedLoad);
-	fWODateRange.$input?.on("change", debouncedLoad);
+		fSODateRange.$input?.on("change", debouncedLoad);
+		fWODateRange.$input?.on("change", debouncedLoad);
 	}
 
 	// ========== RENDER LAYOUT ==========
@@ -258,7 +250,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
                 </table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Size & Operation(SO)</h6>
+                <h6>Pending Units by Operation(SO)</h6>
                 <table class="kpi-table" id="so-op-metrics-table">
                   <thead>
                     <tr>
@@ -317,7 +309,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
                 </table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Size & Operation(WO)</h6>
+                <h6>Pending Units by Operation(WO)</h6>
                 <table class="kpi-table" id="wo-op-metrics-table">
                   <thead>
                     <tr>
@@ -393,22 +385,15 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 				filters.work_order = fWOWO.get_value();
 			}
 
-			console.log(`🔄 Loading data for tab: ${tab}`);
-			console.log("📥 Using filters:", filters);
-
 			const resp = await frappe.call({
 				method: "frappe.desk.query_report.run",
 				args: { report_name: "SO WO Pending Status", filters },
 			});
 
-			console.log("✅ Raw response from backend:", resp);
-
 			const dataMap = {};
 			const reportSummary = resp?.message?.report_summary || [];
 
-			if (!Array.isArray(reportSummary)) {
-				console.warn("⚠️ report_summary is not an array:", reportSummary);
-			} else {
+			if (Array.isArray(reportSummary)) {
 				reportSummary.forEach((item) => {
 					if (item.name && item.data !== undefined) {
 						dataMap[item.name] = item.data;
@@ -416,24 +401,14 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 				});
 			}
 
-			console.log("🧩 Reconstructed dataMap from report_summary:", dataMap);
-
 			if (tab === "so") {
-				const detailSO = dataMap.detail_so;
-				console.log("📦 Calling loadSOTab with:", detailSO);
-				if (detailSO) {
-					loadSOTab(detailSO);
-				} else {
-					console.warn("⚠️ No detail_so data found in response.");
-				}
-			} else if (tab === "wo") {
-				const detailWO = dataMap.detail_wo;
-				console.log("📦 Calling loadWOTab with:", detailWO);
-				if (detailWO) {
-					loadWOTab(detailWO);
-				} else {
-					console.warn("⚠️ No detail_wo data found in response.");
-				}
+				const summarySO = dataMap.summary_so || [];
+				const detailSO = dataMap.detail_so || {};
+				loadSOTab(summarySO, detailSO);
+			} else {
+				const summaryWO = dataMap.summary_wo || [];
+				const detailWO = dataMap.detail_wo || {};
+				loadWOTab(summaryWO, detailWO);
 			}
 		} catch (error) {
 			console.error("❌ Error loading data:", error);
@@ -441,169 +416,135 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		}
 	}
 
-	function loadSOTab(detailSO) {
-		console.log("🚀 Inside loadSOTab");
-		console.log("📦 detailSO:", detailSO);
-
-		if (!detailSO) {
-			console.warn("❌ No SO details object found. Skipping detail rendering.");
-			// Clear tables & destroy chart if any
-			$root.find("#so-details-table tbody, #so-metrics-table tbody").empty();
-			const ctx = document.getElementById("so-chart")?.getContext("2d");
-			if (ctx?.chart) ctx.chart.destroy();
-			return;
-		}
-
-		const summaryData = detailSO.summary || [];
-		const detailData = detailSO.details || {};
-		const metrics = detailSO.metrics_by_op || [];
-
-		// Render SO Summary Table (if you have one - add if needed)
+	// ========== RENDER TABS ==========
+	function loadSOTab(summaryData, detailData) {
+		// --- Summary Table (Top) ---
 		const $sumTbody = $root.find("#so-summary-table tbody").empty();
 		if (summaryData.length === 0) {
 			$sumTbody.append(`<tr><td colspan="5">No data found</td></tr>`);
 		} else {
 			summaryData.forEach((row) => {
 				$sumTbody.append(`
-        <tr>
-          <td>${row.so_number || "-"}</td>
-          <td>${row.so_quantity || 0}</td>
-          <td class="completed">${row.completed_units || 0}</td>
-          <td class="pending">${row.pending_units || 0}</td>
-          <td class="rejected">${row.rejected_units || 0}</td>
-        </tr>
-      `);
+					<tr>
+						<td>${row.so_number || "-"}</td>
+						<td>${row.so_quantity || 0}</td>
+						<td class="completed">${row.completed_units || 0}</td>
+						<td class="pending">${row.pending_units || 0}</td>
+						<td class="rejected">${row.rejected_units || 0}</td>
+					</tr>
+				`);
 			});
 		}
 
-		// Render SO Details Table
+		// --- Detail Section (Bottom) ---
 		const $detTbody = $root.find("#so-details-table tbody").empty();
-		const fieldsToShow = [
-			"so_quantity",
-			"ex_factory_date",
-			"fty_client",
-			"product_family",
-			"fty_prod_id",
-			"style",
-			"color",
-			"material",
-		];
+		const $opTbody = $root.find("#so-op-metrics-table tbody").empty();
 
+		if (!detailData || Object.keys(detailData).length === 0) {
+			$detTbody.append(`<tr><td colspan="2">Select a Sales Order to view details</td></tr>`);
+			$opTbody.append(`<tr><td colspan="6">Select a Sales Order to view metrics</td></tr>`);
+			const ctx = document.getElementById("so-chart")?.getContext("2d");
+			if (ctx?.chart) ctx.chart.destroy();
+			return;
+		}
+
+		// Details
+		const fieldsToShow = [
+			"so_quantity", "ex_factory_date", "fty_client", "product_family",
+			"fty_prod_id", "style", "color", "material"
+		];
 		fieldsToShow.forEach((key) => {
-			const label = key == 'so_quantity'? 'SO Quantity' : frappe.unscrub(key);
-			const value = detailData[key] || "-";
+			const label = key === 'so_quantity' ? 'SO Quantity' : frappe.unscrub(key);
+			const value = detailData.details?.[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
 
-		// Render SO Metrics Table
-		const $opTbody = $root.find("#so-op-metrics-table tbody").empty();
+		// Metrics
+		const metrics = detailData.metrics_by_op || [];
 		if (metrics.length === 0) {
 			$opTbody.append(`<tr><td colspan="6">No operations found</td></tr>`);
 		} else {
 			metrics.forEach((row) => {
 				$opTbody.append(`
-        <tr>
-          <td>${row.operation || "-"}</td>
-          <td>${row.size || "-"}</td>
-          <td>${row.size_qty || 0}</td>
-          <td class="completed">${row.completed_units || 0}</td>
-          <td class="pending">${row.pending_units || 0}</td>
-          <td class="rejected">${row.rejected_units || 0}</td>
-        </tr>
-      `);
+					<tr>
+						<td>${row.operation || "-"}</td>
+						<td>${row.size || "-"}</td>
+						<td>${row.size_qty || 0}</td>
+						<td class="completed">${row.completed_units || 0}</td>
+						<td class="pending">${row.pending_units || 0}</td>
+						<td class="rejected">${row.rejected_units || 0}</td>
+					</tr>
+				`);
 			});
 		}
 
 		renderChart("so-chart", metrics, "Sales Order");
 	}
 
-	function loadWOTab(detailWO) {
-		console.log("🚀 Inside loadWOTab");
-		console.log("📦 detailWO:", detailWO);
-
-		// Clear all tables and destroy chart if no data
-		if (!detailWO) {
-			console.warn("❌ No WO details object found. Skipping detail rendering.");
-			$root
-				.find(
-					"#wo-details-table tbody, #wo-op-metrics-table tbody, #wo-summary-table tbody"
-				)
-				.empty();
-			const ctx = document.getElementById("wo-chart")?.getContext("2d");
-			if (ctx?.chart) ctx.chart.destroy();
-			return;
-		}
-
-		const summaryData = detailWO.summary || [];
-		const detailData = detailWO.details || {};
-		const metrics = detailWO.metrics_by_op || [];
-
-		// 1. Render Summary Table
+	function loadWOTab(summaryData, detailData) {
+		// --- Summary Table (Top) ---
 		const $sumTbody = $root.find("#wo-summary-table tbody").empty();
 		if (summaryData.length === 0) {
 			$sumTbody.append(`<tr><td colspan="5">No data found</td></tr>`);
 		} else {
 			summaryData.forEach((row) => {
 				$sumTbody.append(`
-        <tr>
-          <td>${row.wo_number || "-"}</td>
-          <td>${row.wo_quantity ?? 0}</td>
-          <td class="completed">${row.completed_units ?? 0}</td>
-          <td class="pending">${row.pending_units ?? 0}</td>
-          <td class="rejected">${row.rejected_units ?? 0}</td>
-        </tr>
-      `);
+					<tr>
+						<td>${row.wo_number || "-"}</td>
+						<td>${row.wo_quantity ?? 0}</td>
+						<td class="completed">${row.completed_units ?? 0}</td>
+						<td class="pending">${row.pending_units ?? 0}</td>
+						<td class="rejected">${row.rejected_units ?? 0}</td>
+					</tr>
+				`);
 			});
 		}
 
-		// 2. Render WO Details Table
+		// --- Detail Section (Bottom) ---
 		const $detTbody = $root.find("#wo-details-table tbody").empty();
-		const fieldsToShow = [			
-			"wo_quantity",
-			"sales_order",
-			"wo_allocated_qty",
-			"ex_factory_date",
-			"fty_client",
-			"product_family",
-			"fty_prod_id",
-			"style",
-			"color",
-			"material",
-		];
+		const $opTbody = $root.find("#wo-op-metrics-table tbody").empty();
 
+		if (!detailData || Object.keys(detailData).length === 0) {
+			$detTbody.append(`<tr><td colspan="2">Select a Work Order to view details</td></tr>`);
+			$opTbody.append(`<tr><td colspan="6">Select a Work Order to view metrics</td></tr>`);
+			const ctx = document.getElementById("wo-chart")?.getContext("2d");
+			if (ctx?.chart) ctx.chart.destroy();
+			return;
+		}
+
+		// Details
+		const fieldsToShow = [
+			"wo_quantity", "sales_order", "wo_allocated_qty",
+			"ex_factory_date", "fty_client", "product_family",
+			"fty_prod_id", "style", "color", "material"
+		];
 		fieldsToShow.forEach((key) => {
 			let label = frappe.unscrub(key);
-			if(key == 'wo_quantity'){
-				label = 'WO Quantity'
-			}
-			else if(key == "wo_allocated_qty"){
-				label = 'WO Allocated Quantity'
-			}							
-			const value = detailData[key] || "-";
+			if (key === "wo_quantity") label = "WO Quantity";
+			else if (key === "wo_allocated_qty") label = "WO Allocated Quantity";
+			const value = detailData.details?.[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
 
-		// 3. Render Metrics by Operation
-		const $opTbody = $root.find("#wo-op-metrics-table tbody").empty();
-
+		// Metrics
+		const metrics = detailData.metrics_by_op || [];
 		if (metrics.length === 0) {
 			$opTbody.append(`<tr><td colspan="6">No operations found</td></tr>`);
 		} else {
 			metrics.forEach((row) => {
 				$opTbody.append(`
-        <tr>
-          <td>${row.operation || "-"}</td>
-          <td>${row.size || "-"}</td>
-          <td>${row.size_qty ?? 0}</td>
-          <td class="completed">${row.completed_units ?? 0}</td>
-          <td class="pending">${row.pending_units ?? 0}</td>
-          <td class="rejected">${row.rejected_units ?? 0}</td>
-        </tr>
-      `);
+					<tr>
+						<td>${row.operation || "-"}</td>
+						<td>${row.size || "-"}</td>
+						<td>${row.size_qty ?? 0}</td>
+						<td class="completed">${row.completed_units ?? 0}</td>
+						<td class="pending">${row.pending_units ?? 0}</td>
+						<td class="rejected">${row.rejected_units ?? 0}</td>
+					</tr>
+				`);
 			});
 		}
 
-		// 4. Render Chart
 		renderChart("wo-chart", metrics, "Work Order");
 	}
 
@@ -612,19 +553,13 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 
 		const labels = [...new Set(metrics.map((r) => r.operation))];
 		const completed = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.completed_units || 0), 0)
+			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.completed_units || 0), 0)
 		);
 		const pending = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.pending_units || 0), 0)
+			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.pending_units || 0), 0)
 		);
 		const rejected = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.rejected_units || 0), 0)
+			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.rejected_units || 0), 0)
 		);
 
 		loadChartJs().then(() => {
@@ -638,9 +573,9 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 				data: {
 					labels: labels,
 					datasets: [
-						{ label: "Completed", completed, backgroundColor: "#96BE37" },
-						{ label: "Pending", pending, backgroundColor: "#ECAD4B" },
-						{ label: "Rejected", rejected, backgroundColor: "#EF4444" },
+						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
+						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
+						{ label: "Rejected", data: rejected, backgroundColor: "#EF4444" },
 					],
 				},
 				options: {
