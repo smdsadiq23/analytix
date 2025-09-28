@@ -29,54 +29,16 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	.kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
 	.kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
 	.kpi-card canvas { width:100%; height:420px; max-height:420px; }
-	
-	/* Frozen header table */
-	.kpi-frozen-header-table {
-		width: 100%;
-		border-collapse: collapse;
-		table-layout: fixed;
-	}
-	.kpi-frozen-header-table thead th {
-		position: sticky;
-		top: 0;
-		background: #f9fafb;
-		z-index: 10;
-		box-shadow: 0 1px 0 #e5e7eb;
-		padding: 8px;
-		border: 1px solid #e5e7eb;
-		text-align: left;
-		font-weight: 600;
-	}
-	.kpi-frozen-header-table tbody {
-		display: block;
-		max-height: 180px; /* ~5 rows */
+	.kpi-table { width:100%; border-collapse: collapse; margin-top:12px; }
+	.kpi-table th, .kpi-table td { padding:8px; border:1px solid #e5e7eb; text-align:left; }
+	.kpi-table th { background:#f9fafb; font-weight:600; }
+	.kpi-details-table { width:100%; border-collapse: collapse; margin-top:12px; }
+	.kpi-details-table td { padding:8px; border:1px solid #e5e7eb; vertical-align: top; }
+	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
+
+	.kpi-scrollable-table {
+		max-height: 220px;
 		overflow-y: auto;
-		width: 100%;
-	}
-	.kpi-frozen-header-table thead,
-	.kpi-frozen-header-table tbody tr {
-		display: table;
-		width: 100%;
-	}
-	.kpi-frozen-header-table td {
-		padding: 8px;
-		border: 1px solid #e5e7eb;
-		text-align: left;
-	}
-	.kpi-details-table { 
-		width: 100%; 
-		border-collapse: collapse; 
-		margin-top: 12px; 
-	}
-	.kpi-details-table td { 
-		padding: 8px; 
-		border: 1px solid #e5e7eb; 
-		vertical-align: top; 
-	}
-	.kpi-details-table td:first-child { 
-		font-weight: 600; 
-		background: #f9fafb; 
-		width: 40%; 
 	}
 
 	/* Clear Button for Link fields */
@@ -253,7 +215,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	}
 
 	// ========== RENDER LAYOUT ==========
-	$root.html(`
+$root.html(`
     <div class="kpi-tabs">
       <button class="kpi-tab active" data-tab="so">Sales Order Status</button>
       <button class="kpi-tab" data-tab="wo">Work Order Status</button>
@@ -266,18 +228,20 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
           <h5>SO Pending at Chosen Operation</h5>
           <div class="kpi-filter-row" id="so-summary-filters"></div>
           <div class="kpi-card">
-            <table class="kpi-frozen-header-table" id="so-summary-table">
-              <thead>
-                <tr>
-                  <th>SO Number</th>
-                  <th>SO Quantity</th>
-                  <th>Completed Units</th>
-                  <th>Pending Units</th>
-                  <th>Rejected Units</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+            <div class="kpi-scrollable-table">
+              <table class="kpi-table" id="so-summary-table">
+                <thead>
+                  <tr>
+                    <th>SO Number</th>
+                    <th>SO Quantity</th>
+                    <th>Completed Units</th>
+                    <th>Pending Units</th>
+                    <th>Rejected Units</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -294,19 +258,21 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
               </div>
               <div class="kpi-card">
                 <h6>Pending Units by Size & Operation(SO)</h6>
-                <table class="kpi-frozen-header-table" id="so-op-metrics-table">
-                  <thead>
-                    <tr>
-                      <th>Process</th>
-                      <th>Size</th>
-                      <th>Total Units</th>
-                      <th>Completed Units</th>
-                      <th>Pending Units</th>
-                      <th>Rejected Units</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
+                <div class="kpi-scrollable-table">
+                  <table class="kpi-table" id="so-op-metrics-table">
+                    <thead>
+                      <tr>
+                        <th>Process</th>
+                        <th>Size</th>
+                        <th>Total Units</th>
+                        <th>Completed Units</th>
+                        <th>Pending Units</th>
+                        <th>Rejected Units</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
               </div>
             </div>
             <div>
@@ -325,18 +291,20 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
           <h5>WO Pending at Chosen Operation</h5>
           <div class="kpi-filter-row" id="wo-summary-filters"></div>
           <div class="kpi-card">
-            <table class="kpi-frozen-header-table" id="wo-summary-table">
-              <thead>
-                <tr>
-                  <th>WO Number</th>
-                  <th>WO Quantity</th>
-                  <th>Completed Units</th>
-                  <th>Pending Units</th>
-                  <th>Rejected Units</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+            <div class="kpi-scrollable-table">
+              <table class="kpi-table" id="wo-summary-table">
+                <thead>
+                  <tr>
+                    <th>WO Number</th>
+                    <th>WO Quantity</th>
+                    <th>Completed Units</th>
+                    <th>Pending Units</th>
+                    <th>Rejected Units</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -353,19 +321,21 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
               </div>
               <div class="kpi-card">
                 <h6>Pending Units by Size & Operation(WO)</h6>
-                <table class="kpi-frozen-header-table" id="wo-op-metrics-table">
-                  <thead>
-                    <tr>
-                      <th>Process</th>
-                      <th>Size</th>
-                      <th>Total Units</th>
-                      <th>Completed Units</th>
-                      <th>Pending Units</th>
-                      <th>Rejected Units</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
+                <div class="kpi-scrollable-table">
+                  <table class="kpi-table" id="wo-op-metrics-table">
+                    <thead>
+                      <tr>
+                        <th>Process</th>
+                        <th>Size</th>
+                        <th>Total Units</th>
+                        <th>Completed Units</th>
+                        <th>Pending Units</th>
+                        <th>Rejected Units</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
               </div>
             </div>
             <div>
@@ -378,7 +348,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
         </div>
       </div>
     </div>
-  `);
+`);
 
 	// 👇 Add manual breadcrumb bar
 	const $breadcrumb = $(`
