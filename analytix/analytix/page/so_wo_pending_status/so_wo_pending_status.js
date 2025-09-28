@@ -29,16 +29,50 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	.kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
 	.kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
 	.kpi-card canvas { width:100%; height:420px; max-height:420px; }
-	.kpi-table { width:100%; border-collapse: collapse; margin-top:12px; }
-	.kpi-table th, .kpi-table td { padding:8px; border:1px solid #e5e7eb; text-align:left; }
-	.kpi-table th { background:#f9fafb; font-weight:600; }
-	.kpi-details-table { width:100%; border-collapse: collapse; margin-top:12px; }
-	.kpi-details-table td { padding:8px; border:1px solid #e5e7eb; vertical-align: top; }
-	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
 
+	/* Scrollable tables with sticky header */
 	.kpi-scrollable-table {
 		max-height: 220px;
 		overflow-y: auto;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		background: white;
+	}
+	.kpi-scrollable-table table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+	.kpi-scrollable-table th {
+		position: sticky;
+		top: 0;
+		background: #f9fafb;
+		z-index: 10;
+		padding: 8px;
+		border: 1px solid #e5e7eb;
+		text-align: left;
+		font-weight: 600;
+	}
+	.kpi-scrollable-table td {
+		padding: 8px;
+		border: 1px solid #e5e7eb;
+		text-align: left;
+	}
+
+	/* Details table */
+	.kpi-details-table { 
+		width: 100%; 
+		border-collapse: collapse; 
+		margin-top: 12px; 
+	}
+	.kpi-details-table td { 
+		padding: 8px; 
+		border: 1px solid #e5e7eb; 
+		vertical-align: top; 
+	}
+	.kpi-details-table td:first-child { 
+		font-weight: 600; 
+		background: #f9fafb; 
+		width: 40%; 
 	}
 
 	/* Clear Button for Link fields */
@@ -72,6 +106,11 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	@media (max-width: 1100px) {
 		.kpi-filter-row { flex-direction: column; align-items: stretch; }
 		.kpi-dashboard-grid { grid-template-columns: 1fr; }
+	}
+
+	/* FIX: Dropdown appearing behind sticky header */
+	.awesomplete {
+		z-index: 1000 !important;
 	}
 	</style>`).appendTo(document.head);
 
@@ -215,7 +254,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	}
 
 	// ========== RENDER LAYOUT ==========
-$root.html(`
+	$root.html(`
     <div class="kpi-tabs">
       <button class="kpi-tab active" data-tab="so">Sales Order Status</button>
       <button class="kpi-tab" data-tab="wo">Work Order Status</button>
@@ -348,7 +387,7 @@ $root.html(`
         </div>
       </div>
     </div>
-`);
+  `);
 
 	// 👇 Add manual breadcrumb bar
 	const $breadcrumb = $(`
