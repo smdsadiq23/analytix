@@ -19,28 +19,43 @@ def execute(filters=None):
 
 
 def get_summary_so(filters):
-    conds = [
-		"so.docstatus = 1",
-		"itm.custom_select_master = 'Finished Goods'",
-		"tbc.parentfield = 'component_bundle_configurations'"
-	]
+    conds = ["so.docstatus = 1", "itm.custom_select_master = 'Finished Goods'"]
     params = {}
 
     if filters.get("date_range"):
         start, end = filters["date_range"]
-        conds.append("date(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
+        conds.append("DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
 
-    if filters.get("operation"):
-        conds.append("isl.operation = %(op)s")
-        params["op"] = filters["operation"]
-
-    where_clause = " AND ".join(conds)
-
-    data = frappe.db.sql(f"""
+    # Build base SO list
+    so_where = " AND ".join(conds)
+    so_query = f"""
         SELECT 
             so.name AS so_number,
-            so.total_qty AS so_quantity,
+            so.total_qty AS so_quantity
+        FROM `tabSales Order` so
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+        INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+        WHERE {so_where}
+        GROUP BY so.name, so.total_qty
+        HAVING so_quantity > 0
+    """
+
+    all_sos = frappe.db.sql(so_query, params, as_dict=True)
+
+    # Now get scan metrics per SO (only if operation filter is applied)
+    scan_conds = ["so.docstatus = 1", "itm.custom_select_master = 'Finished Goods'"]
+    scan_params = params.copy()
+
+    if filters.get("operation"):
+        scan_conds.append("isl.operation = %(op)s")
+        scan_params["op"] = filters["operation"]
+
+    scan_where = " AND ".join(scan_conds)
+
+    scan_query = f"""
+        SELECT 
+            so.name AS so_number,
             COALESCE(SUM(CASE 
                 WHEN isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
@@ -48,26 +63,39 @@ def get_summary_so(filters):
                 WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
                 THEN pi.quantity ELSE 0 END), 0) AS rejected_units
         FROM `tabSales Order` so
-        INNER JOIN (
-            SELECT parent, custom_ex_fty_date, item_code
-            FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
-            GROUP BY parent, custom_ex_fty_date, item_code
-        ) soi ON soi.parent = so.name
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.sales_order = so.name
+        LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON tbc.sales_order = so.name AND tbc.parentfield = 'component_bundle_configurations'
         LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         LEFT JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed'
-        WHERE {where_clause}
-        GROUP BY so.name, so.total_qty
-        HAVING so_quantity > 0
-    """, params, as_dict=True)
+        WHERE {scan_where}
+        GROUP BY so.name
+    """
 
-    for row in data:
-        row.pending_units = row.so_quantity - (row.completed_units or 0) - (row.rejected_units or 0)
-    return data
+    scan_data = {}
+    for row in frappe.db.sql(scan_query, scan_params, as_dict=True):
+        scan_data[row.so_number] = {
+            "completed_units": row.completed_units,
+            "rejected_units": row.rejected_units
+        }
+
+    # Merge
+    result = []
+    for so in all_sos:
+        scan = scan_data.get(so.so_number, {"completed_units": 0, "rejected_units": 0})
+        pending = so.so_quantity - scan["completed_units"] - scan["rejected_units"]
+        result.append({
+            "so_number": so.so_number,
+            "so_quantity": so.so_quantity,
+            "completed_units": scan["completed_units"],
+            "rejected_units": scan["rejected_units"],
+            "pending_units": max(pending, 0)
+        })
+
+    return result
 
 
 def get_summary_wo(filters):
