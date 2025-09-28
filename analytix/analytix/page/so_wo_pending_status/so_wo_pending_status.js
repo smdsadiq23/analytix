@@ -258,7 +258,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
                 </table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Operation(SO)</h6>
+                <h6>Pending Units by Size & Operation(SO)</h6>
                 <table class="kpi-table" id="so-op-metrics-table">
                   <thead>
                     <tr>
@@ -317,7 +317,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
                 </table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Operation(WO)</h6>
+                <h6>Pending Units by Size & Operation(WO)</h6>
                 <table class="kpi-table" id="wo-op-metrics-table">
                   <thead>
                     <tr>
