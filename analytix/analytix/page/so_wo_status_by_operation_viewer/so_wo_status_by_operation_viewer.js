@@ -1,7 +1,7 @@
-frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
+frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: "SO-WO Status by Operation",
+		title: "SO WO Status by Operation",
 		single_column: true,
 	});
 
@@ -438,7 +438,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 
 			const resp = await frappe.call({
 				method: "frappe.desk.query_report.run",
-				args: { report_name: "SO WO Pending Status", filters },
+				args: { report_name: "SO WO Status by Operation", filters },
 			});
 
 			const dataMap = {};

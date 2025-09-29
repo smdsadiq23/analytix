@@ -1,19 +1,19 @@
 {
  "content": null,
- "creation": "2025-09-26 16:48:57.227579",
+ "creation": "2025-09-29 11:13:10.384163",
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2025-09-26 16:48:57.227579",
+ "modified": "2025-09-29 11:13:10.384163",
  "modified_by": "Administrator",
  "module": "AnalytiX",
- "name": "so-wo-pending-status",
+ "name": "so-wo-status-by-physical-cell-viewer",
  "owner": "Administrator",
- "page_name": "so-wo-pending-status",
+ "page_name": "so-wo-status-by-physical-cell-viewer",
  "roles": [],
  "script": null,
  "standard": "Yes",
  "style": null,
  "system_page": 0,
- "title": "SO WO Pending Status"
+ "title": "SO WO Status by Physical Cell"
 }

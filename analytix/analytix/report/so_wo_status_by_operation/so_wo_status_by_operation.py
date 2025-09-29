@@ -1,5 +1,5 @@
-# Copyright (c) 2025, Your Company
-# License: See license.txt
+# Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
+# For license information, please see license.txt
 
 import frappe
 

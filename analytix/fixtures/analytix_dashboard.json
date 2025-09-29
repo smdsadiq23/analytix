@@ -35,9 +35,9 @@
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Order Management",
-  "modified": "2025-09-29 11:00:29.189057",
+  "modified": "2025-09-29 11:24:15.539970",
   "name": "r44por0iok",
-  "route_override": "/app/so-wo-pending-status",
+  "route_override": "/app/so-wo-status-by-operation-viewer",
   "sort_order": 0,
   "title": "SO WO Status by Operation"
  }
