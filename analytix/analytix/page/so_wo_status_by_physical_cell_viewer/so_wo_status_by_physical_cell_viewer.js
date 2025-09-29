@@ -75,27 +75,15 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 		width: 40%; 
 	}
 
-	/* Clear Button */
-	.frappe-control[data-fieldtype="Link"] .control-input,
-	.frappe-control[data-fieldtype="Link"] .control-input-wrapper { position: relative; }
-	.frappe-control[data-fieldtype="Link"] input.input-with-feedback { padding-right: 26px !important; }
-	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn {
-		position: absolute;
-		right: 8px;
-		top: 50%;
-		transform: translateY(-50%);
-		border: 0;
-		background: transparent;
-		line-height: 1;
-		padding: 0 6px;
-		color: var(--gray-600);
-		border-radius: 6px;
-		cursor: pointer;
-		z-index: 2;
+	/* === Clear Button (generic; Link / Date / DateRange) === */
+	.kpi-clear-host { position: relative !important; }
+	/* inset the × by giving more right padding */
+	.kpi-clear-btn {
+	position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+	line-height: 1; padding: 0 8px; border: 0; background: transparent;
+	color: var(--gray-600); cursor: pointer; border-radius: 6px; z-index: 2;
 	}
-	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn:hover {
-		background: var(--gray-100);
-	}
+	.kpi-clear-btn:hover { background: var(--gray-100); }
 
 	/* Colors */
 	.completed { background: #96BE37; color: white; }
@@ -114,44 +102,115 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 	</style>`).appendTo(document.head);
 
 	// ========== CLEAR BUTTON HELPER ==========
-	function addClearButtonToLinkField(field) {
+	// attachClearButton(field, onClear) — works for Link + DateRange (and Date)
+	function attachClearButton(field, onClear) {
+		if (!field || !field.$wrapper) return;
+		const fname = field.df.fieldname;
+
 		const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
 			? field.$wrapper.find(".control-input, .control-input-wrapper").first()
 			: field.$wrapper;
+		$host.addClass("kpi-clear-host");
 
-		if ($host.find('.kpi-clear-btn[data-for="' + field.df.fieldname + '"]').length) return;
+		const ensure = () => {
+			// find live input (Awesomplete/DateRange can rebuild DOM)
+			let $inp = $host.find("input.input-with-feedback").first();
+			if (!$inp.length) $inp = $host.find("input").first();
+			if (!$inp.length && field.$input) $inp = field.$input;
+			if ($inp && $inp.length) $inp.addClass("kpi-clear-pad");
 
-		$(
-			`<button type="button" class="kpi-clear-btn" data-for="${field.df.fieldname}" title="Clear">×</button>`
-		)
-			.appendTo($host)
-			.on("click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
+			let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
+			if (!$btn.length) {
+				$btn = $(
+					`<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`
+				).appendTo($host);
+
+				// use mousedown so it works even while the input is focused
+				$btn.on("mousedown", async (e) => {
+					e.preventDefault();
+
+					// 1) Clear the model immediately
+					try {
+						if (field.df.fieldtype === "DateRange") {
+							if (field.set_value) await field.set_value([]);
+							if (field.parse_validate_and_set_in_model)
+								field.parse_validate_and_set_in_model({
+									from_date: "",
+									to_date: "",
+								});
+						} else {
+							if (field.set_value) await field.set_value("");
+							if (field.parse_validate_and_set_in_model)
+								field.parse_validate_and_set_in_model("");
+						}
+					} catch {}
+
+					// 2) Clear visible inputs + fire events (no need to blur manually)
+					$host
+						.find("input")
+						.val("")
+						.trigger("input")
+						.trigger("change")
+						.trigger("awesomplete-selectcomplete");
+
+					// 3) Control callback + external loader
+					try {
+						field.on_change && field.on_change();
+					} catch {}
+					try {
+						onClear && onClear();
+					} catch {}
+
+					toggle();
+				});
+			}
+
+			const hasValue = () => {
 				try {
-					field.set_value("");
-				} catch {}
-				try {
-					field.set_input && field.set_input("");
-				} catch {}
-				if (field.$input) {
-					field.$input.val("").trigger("input").trigger("change");
+					const v = field.get_value ? field.get_value() : null;
+					if (field.df.fieldtype === "DateRange") {
+						if (Array.isArray(v)) return !!(v[0] || v[1]);
+						if (v && typeof v === "object") return !!(v.from_date || v.to_date);
+						return !!v;
+					}
+					if (v == null) return false;
+					return typeof v === "string" ? v.trim().length > 0 : !!v;
+				} catch {
+					return !!(($inp && $inp.val()) || "").toString().trim().length;
 				}
-				if (field.on_change) field.on_change();
-			});
+			};
 
-		const toggleVisibility = () => {
-			const hasValue = !!field.get_value();
-			$host.find(`.kpi-clear-btn[data-for="${field.df.fieldname}"]`).toggle(hasValue);
+			const toggle = () => $btn.toggle(hasValue());
+
+			// keep visibility synced
+			$host
+				.find("input")
+				.off(".kpiClear")
+				.on("input.kpiClear change.kpiClear awesomplete-selectcomplete.kpiClear", toggle);
+
+			// wrap on_change once
+			if (!field._kpiClearPatched) {
+				const orig = field.on_change;
+				field.on_change = function () {
+					toggle();
+					if (orig) orig.call(this);
+				};
+				field._kpiClearPatched = true;
+			}
+
+			toggle();
 		};
 
-		toggleVisibility();
+		// initial
+		ensure();
 
-		const original_on_change = field.on_change;
-		field.on_change = function () {
-			toggleVisibility();
-			if (original_on_change) original_on_change.call(this);
-		};
+		// survive DOM re-renders
+		try {
+			if (field._kpiClearObserver) field._kpiClearObserver.disconnect();
+			const obs = new MutationObserver(() => ensure());
+			obs.observe($host[0], { childList: true, subtree: true });
+			field._kpiClearObserver = obs;
+		} catch {}
 	}
 
 	// ========== CREATE FILTERS ==========
@@ -187,7 +246,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 			fieldname: "sales_order",
 			label: "Sales Order",
 			options: "Sales Order",
-			filters: { docstatus: 1 }
+			filters: { docstatus: 1 },
 		});
 
 		// WO Tab Filters
@@ -211,7 +270,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 			fieldname: "work_order",
 			label: "Work Order",
 			options: "Work Order",
-			filters: { docstatus: 1 }
+			filters: { docstatus: 1 },
 		});
 
 		// Append to DOM
@@ -228,11 +287,14 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 			f.$wrapper.hide()
 		);
 
-		// Add clear buttons
-		addClearButtonToLinkField(fSOPhysicalCell);
-		addClearButtonToLinkField(fSOSO);
-		addClearButtonToLinkField(fWOPhysicalCell);
-		addClearButtonToLinkField(fWOWO);
+		// Add clear buttons (Link + DateRange) — run debouncedLoad instantly on clear
+		attachClearButton(fSODateRange, () => debouncedLoad && debouncedLoad());
+		attachClearButton(fSOPhysicalCell, () => debouncedLoad && debouncedLoad());
+		attachClearButton(fSOSO, () => debouncedLoad && debouncedLoad());
+
+		attachClearButton(fWODateRange, () => debouncedLoad && debouncedLoad());
+		attachClearButton(fWOPhysicalCell, () => debouncedLoad && debouncedLoad());
+		attachClearButton(fWOWO, () => debouncedLoad && debouncedLoad());
 
 		bindFilterEvents();
 	}
@@ -437,9 +499,9 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 			const resp = await frappe.call({
 				method: "frappe.desk.query_report.run",
-				args: { 
+				args: {
 					report_name: "SO WO Status by Physical Cell",
-					filters 
+					filters,
 				},
 			});
 
@@ -501,11 +563,17 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		// Details
 		const fieldsToShow = [
-			"so_quantity", "ex_factory_date", "fty_client", "product_family",
-			"fty_prod_id", "style", "color", "material"
+			"so_quantity",
+			"ex_factory_date",
+			"fty_client",
+			"product_family",
+			"fty_prod_id",
+			"style",
+			"color",
+			"material",
 		];
 		fieldsToShow.forEach((key) => {
-			const label = key === 'so_quantity' ? 'SO Quantity' : frappe.unscrub(key);
+			const label = key === "so_quantity" ? "SO Quantity" : frappe.unscrub(key);
 			const value = detailData.details?.[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
@@ -562,9 +630,16 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 		}
 
 		const fieldsToShow = [
-			"wo_quantity", "sales_order", "wo_allocated_qty",
-			"ex_factory_date", "fty_client", "product_family",
-			"fty_prod_id", "style", "color", "material"
+			"wo_quantity",
+			"sales_order",
+			"wo_allocated_qty",
+			"ex_factory_date",
+			"fty_client",
+			"product_family",
+			"fty_prod_id",
+			"style",
+			"color",
+			"material",
 		];
 		fieldsToShow.forEach((key) => {
 			let label = frappe.unscrub(key);
@@ -599,15 +674,21 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 	function renderChart(canvasId, metrics, title) {
 		if (!metrics || metrics.length === 0) return;
 
-		const labels = [...new Set(metrics.map(r => r.physical_cell))];
-		const completed = labels.map(cell =>
-			metrics.filter(r => r.physical_cell === cell).reduce((sum, r) => sum + (r.completed_units || 0), 0)
+		const labels = [...new Set(metrics.map((r) => r.physical_cell))];
+		const completed = labels.map((cell) =>
+			metrics
+				.filter((r) => r.physical_cell === cell)
+				.reduce((sum, r) => sum + (r.completed_units || 0), 0)
 		);
-		const pending = labels.map(cell =>
-			metrics.filter(r => r.physical_cell === cell).reduce((sum, r) => sum + (r.pending_units || 0), 0)
+		const pending = labels.map((cell) =>
+			metrics
+				.filter((r) => r.physical_cell === cell)
+				.reduce((sum, r) => sum + (r.pending_units || 0), 0)
 		);
-		const rejected = labels.map(cell =>
-			metrics.filter(r => r.physical_cell === cell).reduce((sum, r) => sum + (r.rejected_units || 0), 0)
+		const rejected = labels.map((cell) =>
+			metrics
+				.filter((r) => r.physical_cell === cell)
+				.reduce((sum, r) => sum + (r.rejected_units || 0), 0)
 		);
 
 		loadChartJs().then(() => {

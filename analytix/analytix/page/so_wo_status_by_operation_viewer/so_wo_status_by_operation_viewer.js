@@ -10,10 +10,13 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 	// ===== STYLES =====
 	$("#kpi-ms-overflow-fix").remove();
 	$(`<style id="kpi-ms-overflow-fix">
+	/* === SO/WO Viewer – Full CSS === */
 	.page-form .frappe-control { min-width: 0; }
+
+	/* Tabs */
 	.kpi-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
 	.kpi-tab { padding: 12px 24px; cursor: pointer; font-weight: 600; color: #6b7280; border: none; background: transparent; }
-	.kpi-tab.active { background: #96BE37; color: white; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+	.kpi-tab.active { background: #96BE37; color: #fff; border-top-left-radius: 6px; border-top-right-radius: 6px; }
 
 	/* Sections */
 	.kpi-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
@@ -26,133 +29,142 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 	.frappe-control[data-fieldname="wo_date_range"] { min-width: 280px !important; }
 
 	/* Cards */
-	.kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
-	.kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
-	.kpi-card canvas { width:100%; height:420px; max-height:420px; }
+	.kpi-card { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 12px; background: #fff; margin-bottom: 16px; }
+	.kpi-card h6 { margin: 0 0 6px 0; color: var(--text-muted, #6b7280); font-weight: 600; }
+	.kpi-card canvas { width: 100%; height: 420px; max-height: 420px; }
 
 	/* Scrollable tables with sticky header */
-	.kpi-scrollable-table {
-		max-height: 220px;
-		overflow-y: auto;
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		background: white;
-	}
-	.kpi-scrollable-table table {
-		width: 100%;
-		border-collapse: collapse;
-	}
+	.kpi-scrollable-table { max-height: 220px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+	.kpi-scrollable-table table { width: 100%; border-collapse: collapse; }
 	.kpi-scrollable-table th {
-		position: sticky;
-		top: 0;
-		background: #f9fafb;
-		z-index: 10;
-		padding: 8px;
-		border: 1px solid #e5e7eb;
-		text-align: left;
-		font-weight: 600;
+	position: sticky; top: 0; background: #f9fafb; z-index: 10;
+	padding: 8px; border: 1px solid #e5e7eb; text-align: left; font-weight: 600;
 	}
-	.kpi-scrollable-table td {
-		padding: 8px;
-		border: 1px solid #e5e7eb;
-		text-align: left;
-	}
+	.kpi-scrollable-table td { padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
 
 	/* Details table */
-	.kpi-details-table { 
-		width: 100%; 
-		border-collapse: collapse; 
-		margin-top: 12px; 
-	}
-	.kpi-details-table td { 
-		padding: 8px; 
-		border: 1px solid #e5e7eb; 
-		vertical-align: top; 
-	}
-	.kpi-details-table td:first-child { 
-		font-weight: 600; 
-		background: #f9fafb; 
-		width: 40%; 
-	}
+	.kpi-details-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+	.kpi-details-table td { padding: 8px; border: 1px solid #e5e7eb; vertical-align: top; }
+	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
 
-	/* Clear Button for Link fields */
-	.frappe-control[data-fieldtype="Link"] .control-input,
-	.frappe-control[data-fieldtype="Link"] .control-input-wrapper { position: relative; }
-	.frappe-control[data-fieldtype="Link"] input.input-with-feedback { padding-right: 26px !important; }
-	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn {
-		position: absolute;
-		right: 8px;
-		top: 50%;
-		transform: translateY(-50%);
-		border: 0;
-		background: transparent;
-		line-height: 1;
-		padding: 0 6px;
-		color: var(--gray-600);
-		border-radius: 6px;
-		cursor: pointer;
-		z-index: 2;
+	/* ===== Clear Button (works for Link / Date / DateRange) ===== */
+	.kpi-clear-host { position: relative !important; }
+	/* Extra padding so text doesn't collide with × */
+	.kpi-clear-btn {
+	position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+	line-height: 1; padding: 0 8px; border: 0; background: transparent;
+	color: var(--gray-600); cursor: pointer; border-radius: 6px; z-index: 2;
 	}
-	.frappe-control[data-fieldtype="Link"] .kpi-clear-btn:hover {
-		background: var(--gray-100);
-	}
+	.kpi-clear-btn:hover { background: var(--gray-100); }
 
-	/* Colors */
-	.completed { background: #96BE37; color: white; }
-	.pending { background: #ECAD4B; color: black; }
-	.rejected { background: #EF4444; color: white; }
+	/* Status colors */
+	.completed { background: #96BE37; color: #fff; }
+	.pending   { background: #ECAD4B; color: #000; }
+	.rejected  { background: #EF4444; color: #fff; }
 
 	/* Responsive */
 	@media (max-width: 1100px) {
-		.kpi-filter-row { flex-direction: column; align-items: stretch; }
-		.kpi-dashboard-grid { grid-template-columns: 1fr; }
+	.kpi-filter-row { flex-direction: column; align-items: stretch; }
+	.kpi-dashboard-grid { grid-template-columns: 1fr; }
 	}
 
-	.awesomplete {
-		z-index: 1000 !important;
-	}
-	</style>`).appendTo(document.head);
+	/* Make Awesomplete popover sit above cards */
+	.awesomplete { z-index: 1000 !important; }
+  </style>`).appendTo(document.head);
 
-	// ========== CLEAR BUTTON HELPER ==========
-	function addClearButtonToLinkField(field) {
-		const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
-			? field.$wrapper.find(".control-input, .control-input-wrapper").first()
-			: field.$wrapper;
+	// ========== CLEAR BUTTON HELPER (robust for Link/Date/DateRange) ==========
+function attachClearButton(field, onClear) {
+  if (!field || !field.$wrapper) return;
+  const fname = field.df.fieldname;
 
-		if ($host.find('.kpi-clear-btn[data-for="' + field.df.fieldname + '"]').length) return;
+  const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
+    ? field.$wrapper.find(".control-input, .control-input-wrapper").first()
+    : field.$wrapper;
 
-		$(
-			`<button type="button" class="kpi-clear-btn" data-for="${field.df.fieldname}" title="Clear">×</button>`
-		)
-			.appendTo($host)
-			.on("click", (e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				try {
-					field.set_value("");
-				} catch {}
-				try {
-					field.set_input && field.set_input("");
-				} catch {}
-				if (field.$input) {
-					field.$input.val("").trigger("input").trigger("change");
-				}
-				if (field.on_change) field.on_change();
-			});
+  $host.addClass("kpi-clear-host");
 
-		const toggleVisibility = () => {
-			const hasValue = !!field.get_value();
-			$host.find(`.kpi-clear-btn[data-for="${field.df.fieldname}"]`).toggle(hasValue);
-		};
+  const ensure = () => {
+    let $inp = $host.find('input.input-with-feedback').first();
+    if (!$inp.length) $inp = $host.find('input').first();
+    if (!$inp.length && field.$input) $inp = field.$input;
+    if ($inp && $inp.length) $inp.addClass("kpi-clear-pad");
 
-		toggleVisibility();
+    let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
+    if (!$btn.length) {
+      $btn = $(
+        `<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`
+      ).appendTo($host);
 
-		const original_on_change = field.on_change;
-		field.on_change = function () {
-			toggleVisibility();
-			if (original_on_change) original_on_change.call(this);
-		};
-	}
+      // IMPORTANT: use mousedown so it fires even while input is focused,
+      // and DO NOT stopPropagation (Frappe listens higher up).
+      $btn.on("mousedown", async (e) => {
+        e.preventDefault();
+
+        // 1) Clear the model value immediately
+        if (field.df.fieldtype === "DateRange") {
+          if (field.set_value) await field.set_value([]);
+          if (field.parse_validate_and_set_in_model)
+            field.parse_validate_and_set_in_model({ from_date: "", to_date: "" });
+        } else {
+          if (field.set_value) await field.set_value("");
+          if (field.parse_validate_and_set_in_model)
+            field.parse_validate_and_set_in_model("");
+        }
+
+        // 2) Clear visible inputs + fire events
+        $host.find("input").val("")
+          .trigger("input")
+          .trigger("change")
+          .trigger("awesomplete-selectcomplete")
+          .trigger("blur"); // force commit for Link
+
+        // 3) Call control callback (if any) and our loader directly
+        try { field.on_change && field.on_change(); } catch {}
+        try { onClear && onClear(); } catch {}
+
+        toggle();
+      });
+    }
+
+    const hasValue = () => {
+      try {
+        const v = field.get_value ? field.get_value() : null;
+        if (field.df.fieldtype === "DateRange") {
+          if (Array.isArray(v)) return !!(v[0] || v[1]);
+          if (v && typeof v === "object") return !!(v.from_date || v.to_date);
+          return !!v;
+        }
+        if (v == null) return false;
+        return typeof v === "string" ? v.trim().length > 0 : !!v;
+      } catch {
+        return !!(($inp && $inp.val()) || "").toString().trim().length;
+      }
+    };
+
+    const toggle = () => $btn.toggle(hasValue());
+
+    $host.find("input").off(".kpiClear")
+      .on("input.kpiClear change.kpiClear awesomplete-selectcomplete.kpiClear", toggle);
+
+    if (!field._kpiClearPatched) {
+      const orig = field.on_change;
+      field.on_change = function () {
+        toggle();
+        if (orig) orig.call(this);
+      };
+      field._kpiClearPatched = true;
+    }
+
+    toggle();
+  };
+
+  ensure();
+
+  if (field._kpiClearObserver) field._kpiClearObserver.disconnect();
+  const obs = new MutationObserver(() => ensure());
+  obs.observe($host[0], { childList: true, subtree: true });
+  field._kpiClearObserver = obs;
+}
 
 	// ========== CREATE FILTERS ==========
 	let fSODateRange, fSOOperation, fSOSO;
@@ -187,7 +199,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 			fieldname: "sales_order",
 			label: "Sales Order",
 			options: "Sales Order",
-			filters: { docstatus: 1 }
+			filters: { docstatus: 1 },
 		});
 
 		// WO Tab Filters
@@ -211,7 +223,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 			fieldname: "work_order",
 			label: "Work Order",
 			options: "Work Order",
-			filters: { docstatus: 1 }
+			filters: { docstatus: 1 },
 		});
 
 		// Append to DOM
@@ -228,11 +240,14 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 			f.$wrapper.hide()
 		);
 
-		// Add clear buttons
-		addClearButtonToLinkField(fSOOperation);
-		addClearButtonToLinkField(fSOSO);
-		addClearButtonToLinkField(fWOOperation);
-		addClearButtonToLinkField(fWOWO);
+		// Attach clear buttons (Link + DateRange)
+		attachClearButton(fSODateRange);
+		attachClearButton(fSOOperation);
+		attachClearButton(fSOSO);
+
+		attachClearButton(fWODateRange);
+		attachClearButton(fWOOperation);
+		attachClearButton(fWOWO);
 
 		bindFilterEvents();
 	}
@@ -476,14 +491,14 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		} else {
 			summaryData.forEach((row) => {
 				$sumTbody.append(`
-					<tr>
-						<td>${row.so_number || "-"}</td>
-						<td>${row.so_quantity || 0}</td>
-						<td class="completed">${row.completed_units || 0}</td>
-						<td class="pending">${row.pending_units || 0}</td>
-						<td class="rejected">${row.rejected_units || 0}</td>
-					</tr>
-				`);
+          <tr>
+            <td>${row.so_number || "-"}</td>
+            <td>${row.so_quantity || 0}</td>
+            <td class="completed">${row.completed_units || 0}</td>
+            <td class="pending">${row.pending_units || 0}</td>
+            <td class="rejected">${row.rejected_units || 0}</td>
+          </tr>
+        `);
 			});
 		}
 
@@ -501,11 +516,17 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		// Details
 		const fieldsToShow = [
-			"so_quantity", "ex_factory_date", "fty_client", "product_family",
-			"fty_prod_id", "style", "color", "material"
+			"so_quantity",
+			"ex_factory_date",
+			"fty_client",
+			"product_family",
+			"fty_prod_id",
+			"style",
+			"color",
+			"material",
 		];
 		fieldsToShow.forEach((key) => {
-			const label = key === 'so_quantity' ? 'SO Quantity' : frappe.unscrub(key);
+			const label = key === "so_quantity" ? "SO Quantity" : frappe.unscrub(key);
 			const value = detailData.details?.[key] || "-";
 			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
 		});
@@ -517,15 +538,15 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		} else {
 			metrics.forEach((row) => {
 				$opTbody.append(`
-					<tr>
-						<td>${row.operation || "-"}</td>
-						<td>${row.size || "-"}</td>
-						<td>${row.size_qty || 0}</td>
-						<td class="completed">${row.completed_units || 0}</td>
-						<td class="pending">${row.pending_units || 0}</td>
-						<td class="rejected">${row.rejected_units || 0}</td>
-					</tr>
-				`);
+          <tr>
+            <td>${row.operation || "-"}</td>
+            <td>${row.size || "-"}</td>
+            <td>${row.size_qty || 0}</td>
+            <td class="completed">${row.completed_units || 0}</td>
+            <td class="pending">${row.pending_units || 0}</td>
+            <td class="rejected">${row.rejected_units || 0}</td>
+          </tr>
+        `);
 			});
 		}
 
@@ -540,14 +561,14 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		} else {
 			summaryData.forEach((row) => {
 				$sumTbody.append(`
-					<tr>
-						<td>${row.wo_number || "-"}</td>
-						<td>${row.wo_quantity ?? 0}</td>
-						<td class="completed">${row.completed_units ?? 0}</td>
-						<td class="pending">${row.pending_units ?? 0}</td>
-						<td class="rejected">${row.rejected_units ?? 0}</td>
-					</tr>
-				`);
+          <tr>
+            <td>${row.wo_number || "-"}</td>
+            <td>${row.wo_quantity ?? 0}</td>
+            <td class="completed">${row.completed_units ?? 0}</td>
+            <td class="pending">${row.pending_units ?? 0}</td>
+            <td class="rejected">${row.rejected_units ?? 0}</td>
+          </tr>
+        `);
 			});
 		}
 
@@ -565,9 +586,16 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		// Details
 		const fieldsToShow = [
-			"wo_quantity", "sales_order", "wo_allocated_qty",
-			"ex_factory_date", "fty_client", "product_family",
-			"fty_prod_id", "style", "color", "material"
+			"wo_quantity",
+			"sales_order",
+			"wo_allocated_qty",
+			"ex_factory_date",
+			"fty_client",
+			"product_family",
+			"fty_prod_id",
+			"style",
+			"color",
+			"material",
 		];
 		fieldsToShow.forEach((key) => {
 			let label = frappe.unscrub(key);
@@ -584,15 +612,15 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		} else {
 			metrics.forEach((row) => {
 				$opTbody.append(`
-					<tr>
-						<td>${row.operation || "-"}</td>
-						<td>${row.size || "-"}</td>
-						<td>${row.size_qty ?? 0}</td>
-						<td class="completed">${row.completed_units ?? 0}</td>
-						<td class="pending">${row.pending_units ?? 0}</td>
-						<td class="rejected">${row.rejected_units ?? 0}</td>
-					</tr>
-				`);
+          <tr>
+            <td>${row.operation || "-"}</td>
+            <td>${row.size || "-"}</td>
+            <td>${row.size_qty ?? 0}</td>
+            <td class="completed">${row.completed_units ?? 0}</td>
+            <td class="pending">${row.pending_units ?? 0}</td>
+            <td class="rejected">${row.rejected_units ?? 0}</td>
+          </tr>
+        `);
 			});
 		}
 
@@ -604,13 +632,19 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		const labels = [...new Set(metrics.map((r) => r.operation))];
 		const completed = labels.map((op) =>
-			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.completed_units || 0), 0)
+			metrics
+				.filter((r) => r.operation === op)
+				.reduce((sum, r) => sum + (r.completed_units || 0), 0)
 		);
 		const pending = labels.map((op) =>
-			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.pending_units || 0), 0)
+			metrics
+				.filter((r) => r.operation === op)
+				.reduce((sum, r) => sum + (r.pending_units || 0), 0)
 		);
 		const rejected = labels.map((op) =>
-			metrics.filter(r => r.operation === op).reduce((sum, r) => sum + (r.rejected_units || 0), 0)
+			metrics
+				.filter((r) => r.operation === op)
+				.reduce((sum, r) => sum + (r.rejected_units || 0), 0)
 		);
 
 		loadChartJs().then(() => {
@@ -672,5 +706,14 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		createFilters();
 		updateTabFilters("so");
 		loadData("so");
+	});
+
+	// Cleanup observers on unload (optional)
+	$(window).on("beforeunload", () => {
+		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) => {
+			try {
+				f._kpiClearObserver && f._kpiClearObserver.disconnect();
+			} catch {}
+		});
 	});
 };
