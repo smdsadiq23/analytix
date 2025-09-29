@@ -25,38 +25,52 @@ frappe.pages["kpi-hub"].on_page_load = async function (wrapper) {
 	function applyFilters() {
 		const searchTerm = ($search.val() || "").toLowerCase().trim();
 
-		console.log(`[DEBUG] Search term: "${searchTerm}"`);
-
 		if (searchTerm) {
+			// Search mode: apply BOTH group and text filter
 			$list.find(".dash-card").each(function () {
 				const $card = $(this);
 				const cardText = $card.attr("data-search-text") || "";
-				const matches = cardText.includes(searchTerm);
-				if (matches) {
+				const cardGroup = $card.attr("data-group") || "";
+
+				// Check if card matches search AND belongs to current group (or All)
+				const matchesSearch = cardText.includes(searchTerm);
+				const isInCurrentGroup = currentGroup === "__all" || cardGroup === currentGroup;
+
+				const shouldShow = matchesSearch && isInCurrentGroup;
+
+				if (shouldShow) {
 					$card.addClass("is-visible").css("display", "block");
 				} else {
 					$card.removeClass("is-visible").css("display", "none");
 				}
-				console.log(
-					`[DEBUG] Card text: "${cardText}" → matches "${searchTerm}": ${matches}`
-				);
 			});
 
+			// Hide sections with no visible cards
 			$list.find(".kpi-section").each(function () {
 				const $section = $(this);
 				const hasVisible = $section.find(".dash-card.is-visible").length > 0;
 				$section.css("display", hasVisible ? "block" : "none");
-				console.log(
-					`[DEBUG] Section "${$section.data("group")}": ${hasVisible ? "SHOW" : "HIDE"}`
-				);
 			});
 		} else {
-			// Group mode
+			// Group mode: show sections AND their cards
 			if (currentGroup === "__all") {
-				$list.find(".kpi-section, .dash-card").show();
+				$list
+					.find(".kpi-section, .dash-card")
+					.css("display", "block")
+					.addClass("is-visible");
 			} else {
-				$list.find(".kpi-section").hide();
-				$list.find(`.kpi-section[data-group="${currentGroup}"]`).show();
+				// Hide all sections and cards first
+				$list
+					.find(".kpi-section, .dash-card")
+					.css("display", "none")
+					.removeClass("is-visible");
+
+				// Show only the active section and its cards
+				$list.find(`.kpi-section[data-group="${currentGroup}"]`).css("display", "block");
+				$list
+					.find(`.dash-card[data-group="${currentGroup}"]`)
+					.css("display", "block")
+					.addClass("is-visible");
 			}
 		}
 	}
