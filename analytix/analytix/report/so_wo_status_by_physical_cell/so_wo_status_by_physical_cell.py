@@ -45,12 +45,12 @@ def get_summary_so_by_cell(filters):
         SELECT
             so.name AS so_number,
             so.total_qty AS so_quantity,
-            COALESCE(scan_agg.completed_units, 0) AS completed_units,
-            COALESCE(scan_agg.rejected_units, 0) AS rejected_units,
+            COALESCE(SUM(scan_agg.completed_units), 0) AS completed_units,
+            COALESCE(SUM(scan_agg.rejected_units), 0) AS rejected_units,
             GREATEST(
                 so.total_qty - 
-                COALESCE(scan_agg.completed_units, 0) - 
-                COALESCE(scan_agg.rejected_units, 0),
+                COALESCE(SUM(scan_agg.completed_units), 0) - 
+                COALESCE(SUM(scan_agg.rejected_units), 0),
                 0
             ) AS pending_units
         FROM `tabSales Order` so
@@ -75,7 +75,6 @@ def get_summary_so_by_cell(filters):
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
                 ON tor.name = tbc.parent
-            -- 🔸 JOIN to get operation based on physical_cell
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name 
                 AND topclo.physical_cell = %(physical_cell)s
@@ -87,13 +86,14 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.log_status = 'Completed'
-                AND isl.operation = topclo.operation  -- 👈 Use operation from physical cell mapping
+                AND isl.operation = topclo.operation
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) scan_agg ON scan_agg.sales_order = so.name
         WHERE {where_clause}
+        GROUP BY so.name, so.total_qty  -- 👈 CRITICAL: Group by SO to avoid duplicates
         HAVING so_quantity > 0
         ORDER BY so.name
     """, params, as_dict=True)
