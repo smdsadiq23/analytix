@@ -1,7 +1,7 @@
 frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: "SO WO Pending Status",
+		title: "SO-WO Status by Operation",
 		single_column: true,
 	});
 
@@ -108,7 +108,6 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
 		.kpi-dashboard-grid { grid-template-columns: 1fr; }
 	}
 
-	/* FIX: Dropdown appearing behind sticky header */
 	.awesomplete {
 		z-index: 1000 !important;
 	}
@@ -400,7 +399,7 @@ frappe.pages["so-wo-pending-status"].on_page_load = function (wrapper) {
     ">
       <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
       <span style="margin: 0 8px;">></span>
-      <span style="color: #6b7280;">SO WO Pending Status</span>
+      <span style="color: #6b7280;">SO WO Status by Operation</span>
     </div>
   `).prependTo($root);
 
