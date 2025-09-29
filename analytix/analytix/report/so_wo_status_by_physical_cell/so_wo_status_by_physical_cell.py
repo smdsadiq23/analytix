@@ -208,7 +208,6 @@ def get_detail_so_by_cell(so_name):
     metrics_by_cell = frappe.db.sql(f"""
         SELECT 
             topclo.physical_cell,
-            topclo.operation,
             soi.custom_size AS size,
             SUM(soi.qty) AS size_qty,
             COALESCE(SUM(CASE 
@@ -292,7 +291,6 @@ def get_detail_wo_by_cell(wo_name):
     metrics_by_cell = frappe.db.sql(f"""
         SELECT 
             topclo.physical_cell,
-            topclo.operation,
             woli.size,
             SUM(woli.qty) AS size_qty,
             COALESCE(SUM(CASE 
