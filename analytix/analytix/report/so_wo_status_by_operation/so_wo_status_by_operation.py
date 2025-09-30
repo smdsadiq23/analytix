@@ -196,7 +196,7 @@ def get_detail_so(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Get ALL operations mapped to this SO (via Tracking Order → Operation Map)
+    # Get ALL operations mapped to this SO
     operations = frappe.db.sql("""
         SELECT DISTINCT opm.operation
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -209,7 +209,7 @@ def get_detail_so(so_name):
     if not operation_names:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Fetch scan logs (only completed ones)
+    # Fetch LATEST scan per (Production Item, Operation) — deduplicated!
     scan_logs = frappe.db.sql("""
         SELECT
             opm.operation,
@@ -224,12 +224,19 @@ def get_detail_so(so_name):
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
             ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN (
+            SELECT production_item, operation, MAX(creation) AS max_creation
+            FROM `tabItem Scan Log`
+            WHERE log_status = 'Completed'
+              AND status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+            GROUP BY production_item, operation
+        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.operation = opm.operation
+            AND isl.creation = latest_scan.max_creation
         WHERE tbc.sales_order = %s
           AND tbc.parentfield = 'component_bundle_configurations'
-          AND isl.log_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     # Initialize all (operation, size) combinations
@@ -243,7 +250,7 @@ def get_detail_so(so_name):
                 "size_qty": size_qty_map[size]
             }
 
-    # Apply actual scan data
+    # Apply scan data (now deduplicated!)
     for log in scan_logs:
         key = (log.operation, log.size or "")
         if key in metrics:
@@ -252,17 +259,24 @@ def get_detail_so(so_name):
             elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
                 metrics[key]["rejected"] += 1
 
-    # Build final list
+    # Build final list with completion %
     metrics_by_op = []
     for (op, size), vals in metrics.items():
-        pending = max(vals["size_qty"] - vals["completed"] - vals["rejected"], 0)
+        total = vals["size_qty"]
+        completed = vals["completed"]
+        rejected = vals["rejected"]
+        pending = max(total - completed - rejected, 0)
+        # Cap completion at 100%
+        completion_pct = min((completed / total) * 100, 100.0) if total > 0 else 0.0
+
         metrics_by_op.append({
             "operation": op,
             "size": size,
-            "size_qty": vals["size_qty"],
-            "completed_units": vals["completed"],
-            "rejected_units": vals["rejected"],
-            "pending_units": pending
+            "size_qty": total,
+            "completed_units": completed,
+            "rejected_units": rejected,
+            "pending_units": pending,
+            "completion_pct": round(completion_pct, 1)
         })
 
     metrics_by_op.sort(key=lambda x: (x["operation"], x["size"]))
@@ -336,7 +350,7 @@ def get_detail_wo(wo_name):
     if not operation_names:
         return {"details": wo_details[0], "metrics_by_op": []}
 
-    # Fetch scan logs
+    # Fetch LATEST scan per (Production Item, Operation) — deduplicated!
     scan_logs = frappe.db.sql("""
         SELECT
             opm.operation,
@@ -351,12 +365,19 @@ def get_detail_wo(wo_name):
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
             ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN (
+            SELECT production_item, operation, MAX(creation) AS max_creation
+            FROM `tabItem Scan Log`
+            WHERE log_status = 'Completed'
+              AND status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+            GROUP BY production_item, operation
+        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.operation = opm.operation
+            AND isl.creation = latest_scan.max_creation
         WHERE tbc.work_order = %s
           AND tbc.parentfield = 'component_bundle_configurations'
-          AND isl.log_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     # Initialize all (operation, size) combinations
@@ -370,7 +391,7 @@ def get_detail_wo(wo_name):
                 "size_qty": size_qty_map[size]
             }
 
-    # Apply scan data
+    # Apply scan data (deduplicated)
     for log in scan_logs:
         key = (log.operation, log.size or "")
         if key in metrics:
@@ -379,17 +400,23 @@ def get_detail_wo(wo_name):
             elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
                 metrics[key]["rejected"] += 1
 
-    # Build final list
+    # Build final list with completion %
     metrics_by_op = []
     for (op, size), vals in metrics.items():
-        pending = max(vals["size_qty"] - vals["completed"] - vals["rejected"], 0)
+        total = vals["size_qty"]
+        completed = vals["completed"]
+        rejected = vals["rejected"]
+        pending = max(total - completed - rejected, 0)
+        completion_pct = min((completed / total) * 100, 100.0) if total > 0 else 0.0
+
         metrics_by_op.append({
             "operation": op,
             "size": size,
-            "size_qty": vals["size_qty"],
-            "completed_units": vals["completed"],
-            "rejected_units": vals["rejected"],
-            "pending_units": pending
+            "size_qty": total,
+            "completed_units": completed,
+            "rejected_units": rejected,
+            "pending_units": pending,
+            "completion_pct": round(completion_pct, 1)
         })
 
     metrics_by_op.sort(key=lambda x: (x["operation"], x["size"]))
