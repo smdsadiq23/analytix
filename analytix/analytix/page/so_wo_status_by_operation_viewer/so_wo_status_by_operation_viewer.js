@@ -1,4 +1,11 @@
 frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrapper) {
+	// ---- idempotent remount: clean up previous mount on navigation back/forward ----
+	if (wrapper.__op_cleanup) {
+		try {
+			wrapper.__op_cleanup();
+		} catch {}
+	}
+
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: "SO WO Status by Operation",
@@ -6,269 +13,153 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 	});
 
 	const $root = $(wrapper).find(".layout-main-section");
+	const MOUNT_ID = "soop-viewer-mount";
+
+	// fresh mount container
+	$root.empty().append(`<div id="${MOUNT_ID}"></div>`);
+	const $mount = $root.find("#" + MOUNT_ID);
 
 	// ===== STYLES =====
 	$("#kpi-ms-overflow-fix").remove();
 	$(`<style id="kpi-ms-overflow-fix">
-	/* === SO/WO Viewer – Full CSS === */
-	.page-form .frappe-control { min-width: 0; }
-
-	/* Tabs */
-	.kpi-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
-	.kpi-tab { padding: 12px 24px; cursor: pointer; font-weight: 600; color: #6b7280; border: none; background: transparent; }
-	.kpi-tab.active { background: #96BE37; color: #fff; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-
-	/* Sections */
-	.kpi-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
-	.kpi-section h5 { margin: 0 0 16px 0; color: #333; font-size: 16px; }
-
-	/* Filters */
-	.kpi-filter-row { display: flex; gap: 16px; margin-bottom: 16px; align-items: center; }
-	.kpi-filter-row .frappe-control { min-width: 200px; }
-	.frappe-control[data-fieldname="so_date_range"],
-	.frappe-control[data-fieldname="wo_date_range"] { min-width: 280px !important; }
-
-	/* Cards */
-	.kpi-card { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 12px; background: #fff; margin-bottom: 16px; }
-	.kpi-card h6 { margin: 0 0 6px 0; color: var(--text-muted, #6b7280); font-weight: 600; }
-	.kpi-card canvas { width: 100%; height: 420px; max-height: 420px; }
-
-	/* Scrollable tables with sticky header */
-	.kpi-scrollable-table { max-height: 220px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
-	.kpi-scrollable-table table { width: 100%; border-collapse: collapse; }
-	.kpi-scrollable-table th {
-	position: sticky; top: 0; background: #f9fafb; z-index: 10;
-	padding: 8px; border: 1px solid #e5e7eb; text-align: left; font-weight: 600;
+    #${MOUNT_ID}.page-form .frappe-control { min-width: 0; }
+    .kpi-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: #f9fafb; }
+    .kpi-tab { padding: 12px 24px; cursor: pointer; font-weight: 600; color: #6b7280; border: none; background: transparent; }
+    .kpi-tab.active { background: #96BE37; color: white; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+    .kpi-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
+    .kpi-section h5 { margin: 0 0 16px 0; color: #333; font-size: 16px; }
+    .kpi-filter-row { display: flex; gap: 16px; margin-bottom: 16px; align-items: center; }
+    .kpi-filter-row .frappe-control { min-width: 200px; }
+    .frappe-control[data-fieldname="so_date_range"],
+    .frappe-control[data-fieldname="wo_date_range"] { min-width: 280px !important; }
+    .kpi-card { border:1px solid var(--border-color,#e5e7eb); border-radius:8px; padding:12px; background:#fff; margin-bottom:16px; }
+    .kpi-card h6 { margin:0 0 6px 0; color:var(--text-muted,#6b7280); font-weight:600; }
+    .kpi-card canvas { width:100%; height:420px; max-height:420px; }
+    .kpi-scrollable-table { max-height: 220px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: white; }
+    .kpi-scrollable-table table { width: 100%; border-collapse: collapse; }
+    .kpi-scrollable-table th { position: sticky; top: 0; background: #f9fafb; z-index: 10; padding: 8px; border: 1px solid #e5e7eb; text-align: left; font-weight: 600; }
+    .kpi-scrollable-table td { padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
+    .kpi-details-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    .kpi-details-table td { padding: 8px; border: 1px solid #e5e7eb; vertical-align: top; }
+    .kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
+    .kpi-clear-host { position: relative !important; }
+    .kpi-clear-btn { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); line-height: 1; padding: 0 8px; border: 0; background: transparent; color: var(--gray-600); cursor: pointer; border-radius: 6px; z-index: 2; }
+    .kpi-clear-btn:hover { background: var(--gray-100); }
+    .completed { background: #96BE37; color: white; }
+    .pending { background: #ECAD4B; color: black; }
+    .rejected { background: #EF4444; color: white; }
+    @media (max-width: 1100px) { .kpi-filter-row { flex-direction: column; align-items: stretch; } .kpi-dashboard-grid { grid-template-columns: 1fr; } }
+    .awesomplete {
+    z-index: 10000 !important;
 	}
-	.kpi-scrollable-table td { padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
-
-	/* Details table */
-	.kpi-details-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-	.kpi-details-table td { padding: 8px; border: 1px solid #e5e7eb; vertical-align: top; }
-	.kpi-details-table td:first-child { font-weight: 600; background: #f9fafb; width: 40%; }
-
-	/* ===== Clear Button (works for Link / Date / DateRange) ===== */
-	.kpi-clear-host { position: relative !important; }
-	/* Extra padding so text doesn't collide with × */
-	.kpi-clear-btn {
-	position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-	line-height: 1; padding: 0 8px; border: 0; background: transparent;
-	color: var(--gray-600); cursor: pointer; border-radius: 6px; z-index: 2;
+	.awesomplete > ul {
+		z-index: 10000 !important;
+		position: absolute !important;
+		top: auto !important;
+		bottom: auto !important;
 	}
-	.kpi-clear-btn:hover { background: var(--gray-100); }
-
-	/* Status colors */
-	.completed { background: #96BE37; color: #fff; }
-	.pending   { background: #ECAD4B; color: #000; }
-	.rejected  { background: #EF4444; color: #fff; }
-
-	/* Responsive */
-	@media (max-width: 1100px) {
-	.kpi-filter-row { flex-direction: column; align-items: stretch; }
-	.kpi-dashboard-grid { grid-template-columns: 1fr; }
-	}
-
-	/* Make Awesomplete popover sit above cards */
-	.awesomplete { z-index: 1000 !important; }
   </style>`).appendTo(document.head);
 
-	// ========== CLEAR BUTTON HELPER (robust for Link/Date/DateRange) ==========
-function attachClearButton(field, onClear) {
-  if (!field || !field.$wrapper) return;
-  const fname = field.df.fieldname;
+	// ========== CLEAR BUTTON HELPER ==========
+	function attachClearButton(field, onClear) {
+		if (!field || !field.$wrapper) return;
+		const fname = field.df.fieldname;
+		const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
+			? field.$wrapper.find(".control-input, .control-input-wrapper").first()
+			: field.$wrapper;
+		$host.addClass("kpi-clear-host");
 
-  const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
-    ? field.$wrapper.find(".control-input, .control-input-wrapper").first()
-    : field.$wrapper;
+		const ensure = () => {
+			let $inp = $host.find("input.input-with-feedback").first();
+			if (!$inp.length) $inp = $host.find("input").first();
+			if (!$inp.length && field.$input) $inp = field.$input;
 
-  $host.addClass("kpi-clear-host");
+			let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
+			if (!$btn.length) {
+				$btn = $(
+					`<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`
+				).appendTo($host);
+				$btn.on("mousedown", async (e) => {
+					e.preventDefault();
+					try {
+						if (field.df.fieldtype === "DateRange") {
+							if (field.set_value) await field.set_value([]);
+							if (field.parse_validate_and_set_in_model)
+								field.parse_validate_and_set_in_model({
+									from_date: "",
+									to_date: "",
+								});
+						} else {
+							if (field.set_value) await field.set_value("");
+							if (field.parse_validate_and_set_in_model)
+								field.parse_validate_and_set_in_model("");
+						}
+					} catch {}
+					$host
+						.find("input")
+						.val("")
+						.trigger("input")
+						.trigger("change")
+						.trigger("awesomplete-selectcomplete");
+					try {
+						field.on_change && field.on_change();
+					} catch {}
+					try {
+						onClear && onClear();
+					} catch {}
+					toggle();
+				});
+			}
 
-  const ensure = () => {
-    let $inp = $host.find('input.input-with-feedback').first();
-    if (!$inp.length) $inp = $host.find('input').first();
-    if (!$inp.length && field.$input) $inp = field.$input;
-    if ($inp && $inp.length) $inp.addClass("kpi-clear-pad");
+			const hasValue = () => {
+				try {
+					const v = field.get_value ? field.get_value() : null;
+					if (field.df.fieldtype === "DateRange") {
+						if (Array.isArray(v)) return !!(v[0] || v[1]);
+						if (v && typeof v === "object") return !!(v.from_date || v.to_date);
+						return !!v;
+					}
+					if (v == null) return false;
+					return typeof v === "string" ? v.trim().length > 0 : !!v;
+				} catch {
+					return !!(($inp && $inp.val()) || "").toString().trim().length;
+				}
+			};
 
-    let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
-    if (!$btn.length) {
-      $btn = $(
-        `<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`
-      ).appendTo($host);
+			const toggle = () => $btn.toggle(hasValue());
+			$host
+				.find("input")
+				.off(".kpiClear")
+				.on("input.kpiClear change.kpiClear awesomplete-selectcomplete.kpiClear", toggle);
 
-      // IMPORTANT: use mousedown so it fires even while input is focused,
-      // and DO NOT stopPropagation (Frappe listens higher up).
-      $btn.on("mousedown", async (e) => {
-        e.preventDefault();
+			if (!field._kpiClearPatched) {
+				const orig = field.on_change;
+				field.on_change = function () {
+					toggle();
+					if (orig) orig.call(this);
+				};
+				field._kpiClearPatched = true;
+			}
 
-        // 1) Clear the model value immediately
-        if (field.df.fieldtype === "DateRange") {
-          if (field.set_value) await field.set_value([]);
-          if (field.parse_validate_and_set_in_model)
-            field.parse_validate_and_set_in_model({ from_date: "", to_date: "" });
-        } else {
-          if (field.set_value) await field.set_value("");
-          if (field.parse_validate_and_set_in_model)
-            field.parse_validate_and_set_in_model("");
-        }
-
-        // 2) Clear visible inputs + fire events
-        $host.find("input").val("")
-          .trigger("input")
-          .trigger("change")
-          .trigger("awesomplete-selectcomplete")
-          .trigger("blur"); // force commit for Link
-
-        // 3) Call control callback (if any) and our loader directly
-        try { field.on_change && field.on_change(); } catch {}
-        try { onClear && onClear(); } catch {}
-
-        toggle();
-      });
-    }
-
-    const hasValue = () => {
-      try {
-        const v = field.get_value ? field.get_value() : null;
-        if (field.df.fieldtype === "DateRange") {
-          if (Array.isArray(v)) return !!(v[0] || v[1]);
-          if (v && typeof v === "object") return !!(v.from_date || v.to_date);
-          return !!v;
-        }
-        if (v == null) return false;
-        return typeof v === "string" ? v.trim().length > 0 : !!v;
-      } catch {
-        return !!(($inp && $inp.val()) || "").toString().trim().length;
-      }
-    };
-
-    const toggle = () => $btn.toggle(hasValue());
-
-    $host.find("input").off(".kpiClear")
-      .on("input.kpiClear change.kpiClear awesomplete-selectcomplete.kpiClear", toggle);
-
-    if (!field._kpiClearPatched) {
-      const orig = field.on_change;
-      field.on_change = function () {
-        toggle();
-        if (orig) orig.call(this);
-      };
-      field._kpiClearPatched = true;
-    }
-
-    toggle();
-  };
-
-  ensure();
-
-  if (field._kpiClearObserver) field._kpiClearObserver.disconnect();
-  const obs = new MutationObserver(() => ensure());
-  obs.observe($host[0], { childList: true, subtree: true });
-  field._kpiClearObserver = obs;
-}
-
-	// ========== CREATE FILTERS ==========
-	let fSODateRange, fSOOperation, fSOSO;
-	let fWODateRange, fWOOperation, fWOWO;
-
-	function createFilters() {
-		const getYearRange = () => {
-			const currentYear = new Date().getFullYear();
-			return [`${currentYear}-01-01`, `${currentYear}-12-31`];
+			toggle();
 		};
 
-		const defaultYearRange = getYearRange();
+		ensure();
 
-		// SO Tab Filters
-		fSODateRange = page.add_field({
-			fieldtype: "DateRange",
-			fieldname: "so_date_range",
-			label: "Ex-Fty Date Range",
-			reqd: 1,
-			default: defaultYearRange,
-		});
-
-		fSOOperation = page.add_field({
-			fieldtype: "Link",
-			fieldname: "so_operation",
-			label: "Operation",
-			options: "Operation",
-		});
-
-		fSOSO = page.add_field({
-			fieldtype: "Link",
-			fieldname: "sales_order",
-			label: "Sales Order",
-			options: "Sales Order",
-			filters: { docstatus: 1 },
-		});
-
-		// WO Tab Filters
-		fWODateRange = page.add_field({
-			fieldtype: "DateRange",
-			fieldname: "wo_date_range",
-			label: "Ex-Fty Date Range",
-			reqd: 1,
-			default: defaultYearRange,
-		});
-
-		fWOOperation = page.add_field({
-			fieldtype: "Link",
-			fieldname: "wo_operation",
-			label: "Operation",
-			options: "Operation",
-		});
-
-		fWOWO = page.add_field({
-			fieldtype: "Link",
-			fieldname: "work_order",
-			label: "Work Order",
-			options: "Work Order",
-			filters: { docstatus: 1 },
-		});
-
-		// Append to DOM
-		$("#so-summary-filters").append($("<div>").append(fSODateRange.$wrapper));
-		$("#so-summary-filters").append($("<div>").append(fSOOperation.$wrapper));
-		$("#so-detail-filters").append($("<div>").append(fSOSO.$wrapper));
-
-		$("#wo-summary-filters").append($("<div>").append(fWODateRange.$wrapper));
-		$("#wo-summary-filters").append($("<div>").append(fWOOperation.$wrapper));
-		$("#wo-detail-filters").append($("<div>").append(fWOWO.$wrapper));
-
-		// Hide all initially
-		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) =>
-			f.$wrapper.hide()
-		);
-
-		// Attach clear buttons (Link + DateRange)
-		attachClearButton(fSODateRange);
-		attachClearButton(fSOOperation);
-		attachClearButton(fSOSO);
-
-		attachClearButton(fWODateRange);
-		attachClearButton(fWOOperation);
-		attachClearButton(fWOWO);
-
-		bindFilterEvents();
+		if (field._kpiClearObserver) field._kpiClearObserver.disconnect();
+		const obs = new MutationObserver(() => ensure());
+		obs.observe($host[0], { childList: true, subtree: true });
+		field._kpiClearObserver = obs;
 	}
 
-	function bindFilterEvents() {
-		function bindField(field) {
-			if (!field.$input) return;
-			field.$input.on("input change awesomplete-selectcomplete", debouncedLoad);
-		}
+	// ========== LAYOUT ==========
+	$mount.html(`
+    <div class="breadcrumb-bar" style="padding: 8px 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; font-size: 14px; margin-bottom: 16px;">
+      <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
+      <span style="margin: 0 8px;">></span>
+      <span style="color: #6b7280;">SO WO Status by Operation</span>
+    </div>
 
-		bindField(fSOOperation);
-		bindField(fSOSO);
-		bindField(fWOOperation);
-		bindField(fWOWO);
-
-		fSODateRange.$input?.on("change", debouncedLoad);
-		fWODateRange.$input?.on("change", debouncedLoad);
-	}
-
-	// ========== RENDER LAYOUT ==========
-	$root.html(`
     <div class="kpi-tabs">
       <button class="kpi-tab active" data-tab="so">Sales Order Status</button>
       <button class="kpi-tab" data-tab="wo">Work Order Status</button>
@@ -290,6 +181,7 @@ function attachClearButton(field, onClear) {
                     <th>Completed Units</th>
                     <th>Pending Units</th>
                     <th>Rejected Units</th>
+                    <th>Completion %</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -305,12 +197,10 @@ function attachClearButton(field, onClear) {
             <div>
               <div class="kpi-card">
                 <h6>Sales Order Details</h6>
-                <table class="kpi-details-table" id="so-details-table">
-                  <tbody></tbody>
-                </table>
+                <table class="kpi-details-table" id="so-details-table"><tbody></tbody></table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Size & Operation(SO)</h6>
+                <h6>Pending Units by Size & Operation (SO)</h6>
                 <div class="kpi-scrollable-table">
                   <table class="kpi-table" id="so-op-metrics-table">
                     <thead>
@@ -321,6 +211,7 @@ function attachClearButton(field, onClear) {
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
+                        <th>Completion %</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -353,6 +244,7 @@ function attachClearButton(field, onClear) {
                     <th>Completed Units</th>
                     <th>Pending Units</th>
                     <th>Rejected Units</th>
+                    <th>Completion %</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -368,12 +260,10 @@ function attachClearButton(field, onClear) {
             <div>
               <div class="kpi-card">
                 <h6>Work Order Details</h6>
-                <table class="kpi-details-table" id="wo-details-table">
-                  <tbody></tbody>
-                </table>
+                <table class="kpi-details-table" id="wo-details-table"><tbody></tbody></table>
               </div>
               <div class="kpi-card">
-                <h6>Pending Units by Size & Operation(WO)</h6>
+                <h6>Pending Units by Size & Operation (WO)</h6>
                 <div class="kpi-scrollable-table">
                   <table class="kpi-table" id="wo-op-metrics-table">
                     <thead>
@@ -384,6 +274,7 @@ function attachClearButton(field, onClear) {
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
+                        <th>Completion %</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -403,41 +294,104 @@ function attachClearButton(field, onClear) {
     </div>
   `);
 
-	// 👇 Add manual breadcrumb bar
-	const $breadcrumb = $(`
-    <div class="breadcrumb-bar" style="
-      padding: 8px 16px;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
-      font-size: 14px;
-      margin-bottom: 16px;
-    ">
-      <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
-      <span style="margin: 0 8px;">></span>
-      <span style="color: #6b7280;">SO WO Status by Operation</span>
-    </div>
-  `).prependTo($root);
+	// ========== FILTERS ==========
+	let fSODateRange, fSOOperation, fSOSO;
+	let fWODateRange, fWOOperation, fWOWO;
 
-	const $tabs = $root.find(".kpi-tabs");
-	const $panes = $root.find(".kpi-tab-pane");
+	function createFilters() {
+		const getYearRange = () => {
+			const y = new Date().getFullYear();
+			return [`${y}-01-01`, `${y}-12-31`];
+		};
+		const defaultYearRange = getYearRange();
 
-	// ========== SHOW/HIDE FILTERS ==========
-	function updateTabFilters(tab) {
+		// SO Tab Filters
+		fSODateRange = page.add_field({
+			fieldtype: "DateRange",
+			fieldname: "so_date_range",
+			label: "Ex-Fty Date Range",
+			reqd: 1,
+			default: defaultYearRange,
+		});
+		fSOOperation = page.add_field({
+			fieldtype: "Link",
+			fieldname: "so_operation",
+			label: "Operation",
+			options: "Operation",
+		});
+		fSOSO = page.add_field({
+			fieldtype: "Link",
+			fieldname: "sales_order",
+			label: "Sales Order",
+			options: "Sales Order",
+			filters: { docstatus: 1 },
+		});
+
+		// WO Tab Filters
+		fWODateRange = page.add_field({
+			fieldtype: "DateRange",
+			fieldname: "wo_date_range",
+			label: "Ex-Fty Date Range",
+			reqd: 1,
+			default: defaultYearRange,
+		});
+		fWOOperation = page.add_field({
+			fieldtype: "Link",
+			fieldname: "wo_operation",
+			label: "Operation",
+			options: "Operation",
+		});
+		fWOWO = page.add_field({
+			fieldtype: "Link",
+			fieldname: "work_order",
+			label: "Work Order",
+			options: "Work Order",
+			filters: { docstatus: 1 },
+		});
+
+		// Append inside this page only (scoped to $mount)
+		$mount.find("#so-summary-filters").append($("<div>").append(fSODateRange.$wrapper));
+		$mount.find("#so-summary-filters").append($("<div>").append(fSOOperation.$wrapper));
+		$mount.find("#so-detail-filters").append($("<div>").append(fSOSO.$wrapper));
+
+		$mount.find("#wo-summary-filters").append($("<div>").append(fWODateRange.$wrapper));
+		$mount.find("#wo-summary-filters").append($("<div>").append(fWOOperation.$wrapper));
+		$mount.find("#wo-detail-filters").append($("<div>").append(fWOWO.$wrapper));
+
 		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) =>
 			f.$wrapper.hide()
 		);
-		if (tab === "so") {
-			fSODateRange.$wrapper.show();
-			fSOOperation.$wrapper.show();
-			fSOSO.$wrapper.show();
-		} else {
-			fWODateRange.$wrapper.show();
-			fWOOperation.$wrapper.show();
-			fWOWO.$wrapper.show();
-		}
+
+		// clear buttons + trigger reload on clear
+		attachClearButton(fSODateRange, debouncedLoad);
+		attachClearButton(fSOOperation, debouncedLoad);
+		attachClearButton(fSOSO, debouncedLoad);
+		attachClearButton(fWODateRange, debouncedLoad);
+		attachClearButton(fWOOperation, debouncedLoad);
+		attachClearButton(fWOWO, debouncedLoad);
+
+		bindFilterEvents();
 	}
 
-	// ========== LOAD DATA ==========
+	function bindFilterEvents() {
+		const bind = (f) =>
+			f?.$input && f.$input.on("input change awesomplete-selectcomplete", debouncedLoad);
+		bind(fSOOperation);
+		bind(fSOSO);
+		bind(fWOOperation);
+		bind(fWOWO);
+		fSODateRange.$input?.on("change", debouncedLoad);
+		fWODateRange.$input?.on("change", debouncedLoad);
+	}
+
+	// ========== UTIL ==========
+	function pct(completed, total) {
+		const c = Number(completed) || 0;
+		const t = Number(total) || 0;
+		return t > 0 ? ((c / t) * 100).toFixed(1) + "%" : "0%";
+	}
+
+	// ========== DATA ==========
 	async function loadData(tab) {
 		try {
 			const filters = {};
@@ -456,66 +410,52 @@ function attachClearButton(field, onClear) {
 				args: { report_name: "SO WO Status by Operation", filters },
 			});
 
-			const dataMap = {};
-			const reportSummary = resp?.message?.report_summary || [];
+			const map = {};
+			(resp?.message?.report_summary || []).forEach((it) => {
+				if (it?.name) map[it.name] = it.data;
+			});
 
-			if (Array.isArray(reportSummary)) {
-				reportSummary.forEach((item) => {
-					if (item.name && item.data !== undefined) {
-						dataMap[item.name] = item.data;
-					}
-				});
-			}
-
-			if (tab === "so") {
-				const summarySO = dataMap.summary_so || [];
-				const detailSO = dataMap.detail_so || {};
-				loadSOTab(summarySO, detailSO);
-			} else {
-				const summaryWO = dataMap.summary_wo || [];
-				const detailWO = dataMap.detail_wo || {};
-				loadWOTab(summaryWO, detailWO);
-			}
-		} catch (error) {
-			console.error("❌ Error loading data:", error);
+			if (tab === "so") loadSOTab(map.summary_so || [], map.detail_so || {});
+			else loadWOTab(map.summary_wo || [], map.detail_wo || {});
+		} catch (e) {
+			console.error("❌ loadData:", e);
 			frappe.show_alert({ message: "Failed to load data", indicator: "red" }, 5);
 		}
 	}
 
 	// ========== RENDER TABS ==========
-	function loadSOTab(summaryData, detailData) {
-		// --- Summary Table (Top) ---
-		const $sumTbody = $root.find("#so-summary-table tbody").empty();
-		if (summaryData.length === 0) {
-			$sumTbody.append(`<tr><td colspan="5">No data found</td></tr>`);
+	function loadSOTab(summary, detail) {
+		const $sumTbody = $mount.find("#so-summary-table tbody").empty();
+		if (!summary.length) {
+			$sumTbody.append(`<tr><td colspan="6">No data found</td></tr>`);
 		} else {
-			summaryData.forEach((row) => {
+			summary.forEach((row) => {
+				const total = Number(row.so_quantity || 0);
+				const comp = Number(row.completed_units || 0);
 				$sumTbody.append(`
           <tr>
             <td>${row.so_number || "-"}</td>
-            <td>${row.so_quantity || 0}</td>
-            <td class="completed">${row.completed_units || 0}</td>
+            <td>${total}</td>
+            <td class="completed">${comp}</td>
             <td class="pending">${row.pending_units || 0}</td>
             <td class="rejected">${row.rejected_units || 0}</td>
-          </tr>
-        `);
+            <td>${pct(comp, total)}</td>
+          </tr>`);
 			});
 		}
 
-		// --- Detail Section (Bottom) ---
-		const $detTbody = $root.find("#so-details-table tbody").empty();
-		const $opTbody = $root.find("#so-op-metrics-table tbody").empty();
+		const $detTbody = $mount.find("#so-details-table tbody").empty();
+		const $opTbody = $mount.find("#so-op-metrics-table tbody").empty();
 
-		if (!detailData || Object.keys(detailData).length === 0) {
+		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Sales Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="6">Select a Sales Order to view metrics</td></tr>`);
+			$opTbody.append(`<tr><td colspan="7">Select a Sales Order to view metrics</td></tr>`);
 			const ctx = document.getElementById("so-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
 		}
 
-		// Details
-		const fieldsToShow = [
+		[
 			"so_quantity",
 			"ex_factory_date",
 			"fty_client",
@@ -524,68 +464,67 @@ function attachClearButton(field, onClear) {
 			"style",
 			"color",
 			"material",
-		];
-		fieldsToShow.forEach((key) => {
-			const label = key === "so_quantity" ? "SO Quantity" : frappe.unscrub(key);
-			const value = detailData.details?.[key] || "-";
-			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
+		].forEach((k) => {
+			const label = k === "so_quantity" ? "SO Quantity" : frappe.unscrub(k);
+			const val = detail.details?.[k] || "-";
+			$detTbody.append(`<tr><td>${label}</td><td>${val}</td></tr>`);
 		});
 
-		// Metrics
-		const metrics = detailData.metrics_by_op || [];
-		if (metrics.length === 0) {
-			$opTbody.append(`<tr><td colspan="6">No operations found</td></tr>`);
+		const metrics = detail.metrics_by_op || [];
+		if (!metrics.length) {
+			$opTbody.append(`<tr><td colspan="7">No operations found</td></tr>`);
 		} else {
-			metrics.forEach((row) => {
+			metrics.forEach((r) => {
+				const tot = Number(r.size_qty || 0);
+				const cmp = Number(r.completed_units || 0);
 				$opTbody.append(`
           <tr>
-            <td>${row.operation || "-"}</td>
-            <td>${row.size || "-"}</td>
-            <td>${row.size_qty || 0}</td>
-            <td class="completed">${row.completed_units || 0}</td>
-            <td class="pending">${row.pending_units || 0}</td>
-            <td class="rejected">${row.rejected_units || 0}</td>
-          </tr>
-        `);
+            <td>${r.operation || "-"}</td>
+            <td>${r.size || "-"}</td>
+            <td>${tot}</td>
+            <td class="completed">${cmp}</td>
+            <td class="pending">${r.pending_units || 0}</td>
+            <td class="rejected">${r.rejected_units || 0}</td>
+            <td>${pct(cmp, tot)}</td>
+          </tr>`);
 			});
 		}
 
 		renderChart("so-chart", metrics, "Sales Order");
 	}
 
-	function loadWOTab(summaryData, detailData) {
-		// --- Summary Table (Top) ---
-		const $sumTbody = $root.find("#wo-summary-table tbody").empty();
-		if (summaryData.length === 0) {
-			$sumTbody.append(`<tr><td colspan="5">No data found</td></tr>`);
+	function loadWOTab(summary, detail) {
+		const $sumTbody = $mount.find("#wo-summary-table tbody").empty();
+		if (!summary.length) {
+			$sumTbody.append(`<tr><td colspan="6">No data found</td></tr>`);
 		} else {
-			summaryData.forEach((row) => {
+			summary.forEach((row) => {
+				const total = Number(row.wo_quantity ?? 0);
+				const comp = Number(row.completed_units ?? 0);
 				$sumTbody.append(`
           <tr>
             <td>${row.wo_number || "-"}</td>
-            <td>${row.wo_quantity ?? 0}</td>
-            <td class="completed">${row.completed_units ?? 0}</td>
+            <td>${total}</td>
+            <td class="completed">${comp}</td>
             <td class="pending">${row.pending_units ?? 0}</td>
             <td class="rejected">${row.rejected_units ?? 0}</td>
-          </tr>
-        `);
+            <td>${pct(comp, total)}</td>
+          </tr>`);
 			});
 		}
 
-		// --- Detail Section (Bottom) ---
-		const $detTbody = $root.find("#wo-details-table tbody").empty();
-		const $opTbody = $root.find("#wo-op-metrics-table tbody").empty();
+		const $detTbody = $mount.find("#wo-details-table tbody").empty();
+		const $opTbody = $mount.find("#wo-op-metrics-table tbody").empty();
 
-		if (!detailData || Object.keys(detailData).length === 0) {
+		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Work Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="6">Select a Work Order to view metrics</td></tr>`);
+			$opTbody.append(`<tr><td colspan="7">Select a Work Order to view metrics</td></tr>`);
 			const ctx = document.getElementById("wo-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
 		}
 
-		// Details
-		const fieldsToShow = [
+		[
 			"wo_quantity",
 			"sales_order",
 			"wo_allocated_qty",
@@ -596,67 +535,58 @@ function attachClearButton(field, onClear) {
 			"style",
 			"color",
 			"material",
-		];
-		fieldsToShow.forEach((key) => {
-			let label = frappe.unscrub(key);
-			if (key === "wo_quantity") label = "WO Quantity";
-			else if (key === "wo_allocated_qty") label = "WO Allocated Quantity";
-			const value = detailData.details?.[key] || "-";
-			$detTbody.append(`<tr><td>${label}</td><td>${value}</td></tr>`);
+		].forEach((k) => {
+			let label = frappe.unscrub(k);
+			if (k === "wo_quantity") label = "WO Quantity";
+			else if (k === "wo_allocated_qty") label = "WO Allocated Quantity";
+			const val = detail.details?.[k] || "-";
+			$detTbody.append(`<tr><td>${label}</td><td>${val}</td></tr>`);
 		});
 
-		// Metrics
-		const metrics = detailData.metrics_by_op || [];
-		if (metrics.length === 0) {
-			$opTbody.append(`<tr><td colspan="6">No operations found</td></tr>`);
+		const metrics = detail.metrics_by_op || [];
+		if (!metrics.length) {
+			$opTbody.append(`<tr><td colspan="7">No operations found</td></tr>`);
 		} else {
-			metrics.forEach((row) => {
+			metrics.forEach((r) => {
+				const tot = Number(r.size_qty ?? 0);
+				const cmp = Number(r.completed_units ?? 0);
 				$opTbody.append(`
           <tr>
-            <td>${row.operation || "-"}</td>
-            <td>${row.size || "-"}</td>
-            <td>${row.size_qty ?? 0}</td>
-            <td class="completed">${row.completed_units ?? 0}</td>
-            <td class="pending">${row.pending_units ?? 0}</td>
-            <td class="rejected">${row.rejected_units ?? 0}</td>
-          </tr>
-        `);
+            <td>${r.operation || "-"}</td>
+            <td>${r.size || "-"}</td>
+            <td>${tot}</td>
+            <td class="completed">${cmp}</td>
+            <td class="pending">${r.pending_units ?? 0}</td>
+            <td class="rejected">${r.rejected_units ?? 0}</td>
+            <td>${pct(cmp, tot)}</td>
+          </tr>`);
 			});
 		}
 
 		renderChart("wo-chart", metrics, "Work Order");
 	}
 
+	// ========== CHART ==========
 	function renderChart(canvasId, metrics, title) {
-		if (!metrics || metrics.length === 0) return;
+		if (!metrics || !metrics.length) return;
 
 		const labels = [...new Set(metrics.map((r) => r.operation))];
-		const completed = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.completed_units || 0), 0)
-		);
-		const pending = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.pending_units || 0), 0)
-		);
-		const rejected = labels.map((op) =>
-			metrics
-				.filter((r) => r.operation === op)
-				.reduce((sum, r) => sum + (r.rejected_units || 0), 0)
-		);
+		const sum = (op, key) =>
+			metrics.filter((r) => r.operation === op).reduce((s, r) => s + (r[key] || 0), 0);
+
+		const completed = labels.map((op) => sum(op, "completed_units"));
+		const pending = labels.map((op) => sum(op, "pending_units"));
+		const rejected = labels.map((op) => sum(op, "rejected_units"));
 
 		loadChartJs().then(() => {
 			const canvas = document.getElementById(canvasId);
 			if (!canvas) return;
 			const ctx = canvas.getContext("2d");
 			if (ctx.chart) ctx.chart.destroy();
-
 			ctx.chart = new Chart(ctx, {
 				type: "bar",
 				data: {
-					labels: labels,
+					labels,
 					datasets: [
 						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
 						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
@@ -687,6 +617,9 @@ function attachClearButton(field, onClear) {
 	}
 
 	// ========== EVENTS ==========
+	const $tabs = $mount.find(".kpi-tabs");
+	const $panes = $mount.find(".kpi-tab-pane");
+
 	$tabs.on("click", ".kpi-tab", function () {
 		const tab = $(this).data("tab");
 		$tabs.find(".kpi-tab").removeClass("active");
@@ -696,24 +629,41 @@ function attachClearButton(field, onClear) {
 		loadData(tab);
 	});
 
+	function updateTabFilters(tab) {
+		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) =>
+			f?.$wrapper.hide()
+		);
+		if (tab === "so") {
+			fSODateRange.$wrapper.show();
+			fSOOperation.$wrapper.show();
+			fSOSO.$wrapper.show();
+		} else {
+			fWODateRange.$wrapper.show();
+			fWOOperation.$wrapper.show();
+			fWOWO.$wrapper.show();
+		}
+	}
+
 	const debouncedLoad = frappe.utils.debounce(() => {
-		const activeTab = $tabs.find(".active").data("tab");
+		const activeTab = $tabs.find(".active").data("tab") || "so";
 		loadData(activeTab);
 	}, 400);
 
-	// Initialize
+	// Initialize after ajax so Link fields are ready
 	frappe.after_ajax(() => {
 		createFilters();
 		updateTabFilters("so");
 		loadData("so");
 	});
 
-	// Cleanup observers on unload (optional)
-	$(window).on("beforeunload", () => {
-		[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach((f) => {
-			try {
-				f._kpiClearObserver && f._kpiClearObserver.disconnect();
-			} catch {}
-		});
-	});
+	// ---- expose cleanup for next remount ----
+	wrapper.__op_cleanup = () => {
+		try {
+			[fSODateRange, fSOOperation, fSOSO, fWODateRange, fWOOperation, fWOWO].forEach(
+				(f) => f?._kpiClearObserver && f._kpiClearObserver.disconnect()
+			);
+		} catch {}
+		$tabs.off();
+		$mount.remove();
+	};
 };

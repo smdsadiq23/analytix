@@ -19,7 +19,6 @@ def execute(filters=None):
 
 
 def get_summary_so(filters):
-    # 🔹 Return empty if no operation is selected
     if not filters.get("operation"):
         return []
 
@@ -31,7 +30,6 @@ def get_summary_so(filters):
         conds.append("DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
     else:
-        # Default to current year if no date range
         from frappe.utils import now_datetime
         year = now_datetime().year
         conds.append("YEAR(soi.custom_ex_fty_date) = %(year)s")
@@ -39,7 +37,6 @@ def get_summary_so(filters):
 
     where_clause = " AND ".join(conds)
 
-    # 🔹 SAFE QUERY: Aggregate scan data per SO to avoid duplication
     data = frappe.db.sql(f"""
         SELECT
             so.name AS so_number,
@@ -61,7 +58,6 @@ def get_summary_so(filters):
         ) soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code
         LEFT JOIN (
-            -- 🔸 Aggregate scan logs per SO (prevents duplication)
             SELECT 
                 tbc.sales_order,
                 SUM(CASE 
@@ -75,6 +71,9 @@ def get_summary_so(filters):
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
                 ON tor.name = tbc.parent
+            INNER JOIN `tabOperation Map` opm 
+                ON opm.parent = tor.name 
+                AND opm.operation = %(op)s  -- ✅ Filter via Operation Map
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
                 AND pi.bundle_configuration = tbc.name
@@ -83,7 +82,7 @@ def get_summary_so(filters):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.log_status = 'Completed'
-                AND isl.operation = %(op)s  -- 👈 Operation filter applied HERE
+                AND isl.operation = opm.operation  -- ✅ Match mapped operation
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.sales_order IS NOT NULL
@@ -98,7 +97,6 @@ def get_summary_so(filters):
 
 
 def get_summary_wo(filters):
-    # 🔹 Return empty array if no operation is selected
     if not filters.get("operation"):
         return []
 
@@ -110,7 +108,6 @@ def get_summary_wo(filters):
         conds.append("DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
     else:
-        # Default to current year if no date range
         from frappe.utils import now_datetime
         year = now_datetime().year
         conds.append("YEAR(soi.custom_ex_fty_date) = %(year)s")
@@ -145,7 +142,6 @@ def get_summary_wo(filters):
         ) soi ON soi.parent = woso.sales_order AND soi.item_code = wo.production_item
         INNER JOIN `tabItem` itm ON itm.name = wo.production_item
         LEFT JOIN (
-            -- 🔸 SAFE: Aggregate scan data per Work Order to avoid duplication
             SELECT 
                 tbc.work_order,
                 SUM(CASE 
@@ -159,6 +155,9 @@ def get_summary_wo(filters):
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
                 ON tor.name = tbc.parent
+            INNER JOIN `tabOperation Map` opm 
+                ON opm.parent = tor.name 
+                AND opm.operation = %(op)s  -- ✅ Filter via Operation Map
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
                 AND pi.bundle_configuration = tbc.name
@@ -167,7 +166,7 @@ def get_summary_wo(filters):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.log_status = 'Completed'
-                AND isl.operation = %(op)s  -- 👈 Operation filter applied HERE only
+                AND isl.operation = opm.operation  -- ✅ Match mapped operation
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.work_order IS NOT NULL
@@ -188,7 +187,7 @@ def get_detail_so(so_name):
     conds = ["so.name = %(so_name)s", "so.docstatus = 1"]
     params = {"so_name": so_name}
 
-    # Get SO details
+    # Get SO details (unchanged)
     so_details = frappe.db.sql(f"""
         SELECT 
             so.name AS so_number,
@@ -211,10 +210,10 @@ def get_detail_so(so_name):
         frappe.msgprint("No Sales Order details found or not an FG Item")
         return {} 
     
-	# Get metrics by operation and size
+    # Get metrics by operation and size — WITH Operation Map
     metrics_by_op = frappe.db.sql(f"""
         SELECT 
-            isl.operation,
+            opm.operation,  -- ✅ From Operation Map
             soi.custom_size AS size,
             SUM(soi.qty) AS size_qty,
             COALESCE(SUM(CASE 
@@ -229,22 +228,29 @@ def get_detail_so(so_name):
             FROM `tabSales Order Item`
             GROUP BY parent, item_code, custom_ex_fty_date, custom_size
         ) soi ON soi.parent = so.name
-		INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.sales_order = so.name AND tbc.size = soi.custom_size
-        LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        LEFT JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-        LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-        LEFT JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed'
-        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
-        GROUP BY isl.operation, soi.custom_size
-        ORDER BY isl.operation, soi.custom_size
+        INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON tbc.sales_order = so.name 
+            AND tbc.size = soi.custom_size
+            AND tbc.parentfield = 'component_bundle_configurations'
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name  -- ✅ Join Operation Map
+        LEFT JOIN `tabProduction Item` pi 
+            ON pi.tracking_order = tor.name 
+            AND pi.bundle_configuration = tbc.name
+        LEFT JOIN `tabTracking Component` tc 
+            ON tc.name = pi.component AND tc.is_main = 1
+        LEFT JOIN `tabItem Scan Log` isl 
+            ON isl.production_item = pi.name 
+            AND isl.log_status = 'Completed'
+            AND isl.operation = opm.operation  -- ✅ Match mapped operation
+        WHERE {' AND '.join(conds)}
+        GROUP BY opm.operation, soi.custom_size
+        ORDER BY opm.operation, soi.custom_size
     """, params, as_dict=True)
 
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
-        
-    # if not metrics_by_op:
-    #     frappe.msgprint("No operation metrics found")
 
     return {
         "details": so_details[0],
@@ -259,44 +265,44 @@ def get_detail_wo(wo_name):
     conds = ["wo.name = %(wo_name)s", "wo.docstatus = 1"]
     params = {"wo_name": wo_name}
 
-    # Get WO details
+    # Get WO details (unchanged)
     wo_details = frappe.db.sql(f"""
-		SELECT 
-			wo.name AS wo_number,
-			wo.qty AS wo_quantity,        
-			GROUP_CONCAT(DISTINCT woli.sales_order ORDER BY woli.sales_order SEPARATOR ' | ') AS sales_order,
-			GROUP_CONCAT(DISTINCT CONVERT(woli.wo_allocated_qty, SIGNED) ORDER BY woli.sales_order SEPARATOR ' | ') AS wo_allocated_qty,
-			GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY woli.sales_order SEPARATOR ' | ') AS ex_factory_date,
-			GROUP_CONCAT(DISTINCT itm.brand ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_client,
-			GROUP_CONCAT(DISTINCT itm.item_name ORDER BY woli.sales_order SEPARATOR ' | ') AS product_family,
-			GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_prod_id,
-			GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS style,
-			GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY woli.sales_order SEPARATOR ' | ') AS color,
-			GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY woli.sales_order SEPARATOR ' | ') AS material
-		FROM `tabWork Order` wo
-		INNER JOIN (
-			SELECT parent AS work_order, sales_order, SUM(work_order_allocated_qty) as 'wo_allocated_qty'
-			FROM `tabWork Order Line Item`
-			GROUP BY parent, sales_order
-		) woli ON woli.work_order = wo.name
-		INNER JOIN (
-			SELECT parent, custom_ex_fty_date, item_code
-			FROM `tabSales Order Item`
-			GROUP BY parent, custom_ex_fty_date, item_code
-		) soi ON soi.parent = woli.sales_order AND soi.item_code = wo.production_item
-		INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
-		WHERE {' AND '.join(conds)}
-		GROUP BY wo.name, wo.qty
+        SELECT 
+            wo.name AS wo_number,
+            wo.qty AS wo_quantity,        
+            GROUP_CONCAT(DISTINCT woli.sales_order ORDER BY woli.sales_order SEPARATOR ' | ') AS sales_order,
+            GROUP_CONCAT(DISTINCT CONVERT(woli.wo_allocated_qty, SIGNED) ORDER BY woli.sales_order SEPARATOR ' | ') AS wo_allocated_qty,
+            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY woli.sales_order SEPARATOR ' | ') AS ex_factory_date,
+            GROUP_CONCAT(DISTINCT itm.brand ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_client,
+            GROUP_CONCAT(DISTINCT itm.item_name ORDER BY woli.sales_order SEPARATOR ' | ') AS product_family,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_prod_id,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS style,
+            GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY woli.sales_order SEPARATOR ' | ') AS color,
+            GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY woli.sales_order SEPARATOR ' | ') AS material
+        FROM `tabWork Order` wo
+        INNER JOIN (
+            SELECT parent AS work_order, sales_order, SUM(work_order_allocated_qty) as 'wo_allocated_qty'
+            FROM `tabWork Order Line Item`
+            GROUP BY parent, sales_order
+        ) woli ON woli.work_order = wo.name
+        INNER JOIN (
+            SELECT parent, custom_ex_fty_date, item_code
+            FROM `tabSales Order Item`
+            GROUP BY parent, custom_ex_fty_date, item_code
+        ) soi ON soi.parent = woli.sales_order AND soi.item_code = wo.production_item
+        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
+        WHERE {' AND '.join(conds)}
+        GROUP BY wo.name, wo.qty
     """, params, as_dict=True)
 
     if not wo_details:
         frappe.msgprint("No Work Order details found or not an FG Item")
         return {}
 
-    # Get metrics by operation and size
+    # Get metrics by operation and size — WITH Operation Map
     metrics_by_op = frappe.db.sql(f"""
         SELECT 
-            isl.operation,
+            opm.operation,  -- ✅ From Operation Map
             woli.size,
             SUM(woli.qty) AS size_qty,
             COALESCE(SUM(CASE 
@@ -311,33 +317,29 @@ def get_detail_wo(wo_name):
             FROM `tabWork Order Line Item`
             GROUP BY parent, size
         ) woli ON woli.parent = wo.name
-        LEFT JOIN (
-            SELECT parent AS work_order, sales_order
-            FROM `tabWork Order Sales Orders`
-            WHERE sales_order IS NOT NULL
-            GROUP BY parent
-        ) woso ON woso.work_order = wo.name
-        LEFT JOIN (
-            SELECT parent, custom_ex_fty_date
-            FROM `tabSales Order Item`
-            GROUP BY parent	
-        ) soi ON soi.parent = woso.sales_order
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON tbc.work_order = wo.name 
+            AND tbc.size = woli.size
+            AND tbc.parentfield = 'component_bundle_configurations'
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name  -- ✅ Join Operation Map
         INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.work_order = wo.name AND tbc.size = woli.size
-        LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        LEFT JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-        LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-        LEFT JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed'
-        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
-        GROUP BY isl.operation, woli.size
-        ORDER BY isl.operation, woli.size
+        LEFT JOIN `tabProduction Item` pi 
+            ON pi.tracking_order = tor.name 
+            AND pi.bundle_configuration = tbc.name
+        LEFT JOIN `tabTracking Component` tc 
+            ON tc.name = pi.component AND tc.is_main = 1
+        LEFT JOIN `tabItem Scan Log` isl 
+            ON isl.production_item = pi.name 
+            AND isl.log_status = 'Completed'
+            AND isl.operation = opm.operation  -- ✅ Match mapped operation
+        WHERE {' AND '.join(conds)}
+        GROUP BY opm.operation, woli.size
+        ORDER BY opm.operation, woli.size
     """, params, as_dict=True)
 
     for row in metrics_by_op:
         row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
-        
-    # if not metrics_by_op:
-    #     frappe.msgprint("No operation metrics found for WO")        
 
     return {
         "details": wo_details[0],
