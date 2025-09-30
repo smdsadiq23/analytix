@@ -180,7 +180,7 @@ def get_detail_so(so_name):
     """, (so_name,), as_dict=True)
 
     if not so_details:
-        frappe.msgprint("No Sales Order details found or not an FG Item")
+        # frappe.msgprint("No Sales Order details found or not an FG Item")
         return {}
 
     # Get size-wise quantities
@@ -321,7 +321,7 @@ def get_detail_wo(wo_name):
     """, (wo_name,), as_dict=True)
 
     if not wo_details:
-        frappe.msgprint("No Work Order details found or not an FG Item")
+        # frappe.msgprint("No Work Order details found or not an FG Item")
         return {}
 
     # Get size-wise quantities
