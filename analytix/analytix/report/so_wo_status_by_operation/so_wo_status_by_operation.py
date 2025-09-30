@@ -203,7 +203,7 @@ def get_detail_so(so_name):
     conds = ["so.name = %(so_name)s", "so.docstatus = 1"]
     params = {"so_name": so_name}
 
-    # ---- SO header details (unchanged structure; DISTINCT in GROUP_CONCATs already prevents dupes) ----
+    # Get SO details (unchanged)
     so_details = frappe.db.sql(f"""
         SELECT 
             so.name AS so_number,
@@ -224,97 +224,170 @@ def get_detail_so(so_name):
 
     if not so_details:
         frappe.msgprint("No Sales Order details found or not an FG Item")
-        return {}
-
-    # ---- Metrics by operation & size (dup-safe) ----
-    # Strategy:
-    # 1) isl_ok: one row per (production_item, operation) for "good" statuses to avoid multiplying pi
-    # 2) rej_ok: count of reject logs per (production_item, operation)
+        return {} 
+    
+    # Get metrics by operation and size — WITH Operation Map
     metrics_by_op = frappe.db.sql(f"""
-        WITH
-        soi_dedup AS (
-            /* De-duplicate SOI per SO+item+date+size to avoid multiplying TBC */
+        SELECT
+            opm.operation,
+            soi.custom_size AS size,
+            SUM(soi.qty)    AS size_qty,
+            COALESCE(ca.completed_units, 0) AS completed_units,
+            COALESCE(ra.rejected_units, 0)  AS rejected_units
+        FROM `tabSales Order` so
+
+        /* de-dup SOI at (SO, item, ex_fty, size) */
+        INNER JOIN (
             SELECT parent, item_code, custom_ex_fty_date, custom_size, SUM(qty) AS qty
             FROM `tabSales Order Item`
             GROUP BY parent, item_code, custom_ex_fty_date, custom_size
-        ),
-        isl_ok AS (
-            /* One row per PI+operation for good statuses */
-            SELECT
-                isl.production_item,
-                isl.operation
-            FROM `tabItem Scan Log` isl
-            WHERE isl.log_status = 'Completed'
-              AND isl.status IN ('Counted','Activated','Pass')
-            GROUP BY isl.production_item, isl.operation
-        ),
-        rej_ok AS (
-            /* Count reject logs per PI+operation */
-            SELECT
-                isl.production_item,
-                isl.operation,
-                COUNT(*) AS reject_count
-            FROM `tabItem Scan Log` isl
-            WHERE isl.log_status = 'Completed'
-              AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
-            GROUP BY isl.production_item, isl.operation
-        )
+        ) soi ON soi.parent = so.name
 
-        SELECT 
-            opm.operation,                -- From Operation Map
-            soi.custom_size AS size,
-            SUM(soi.qty) AS size_qty,     -- ordered qty for that size (deduped at source)
-
-            /* Sum PI.quantity ONCE per PI that has any "good" scan at this operation */
-            COALESCE(SUM(
-                CASE WHEN io.production_item IS NOT NULL THEN pi.quantity ELSE 0 END
-            ), 0) AS completed_units,
-
-            /* Sum of reject logs for this op & size */
-            COALESCE(SUM(COALESCE(ro.reject_count, 0)), 0) AS rejected_units
-
-        FROM `tabSales Order` so
-        INNER JOIN soi_dedup soi
-                ON soi.parent = so.name
         INNER JOIN `tabItem` itm
                 ON itm.name = soi.item_code
-               AND itm.custom_select_master = 'Finished Goods'
+            AND itm.custom_select_master = 'Finished Goods'
 
-        /* Bundle matching SO + Size */
-        INNER JOIN `tabTracking Order Bundle Configuration` tbc 
-                ON tbc.sales_order = so.name 
-               AND tbc.size = soi.custom_size
-               AND tbc.parentfield = 'component_bundle_configurations'
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc
+                ON tbc.sales_order = so.name
+            AND tbc.size = soi.custom_size
+            AND tbc.parentfield = 'component_bundle_configurations'
+
         INNER JOIN `tabTracking Order` tor
                 ON tor.name = tbc.parent
 
-        /* All operations in the map for this order */
-        INNER JOIN `tabOperation Map` opm
-                ON opm.parent = tor.name
+        /* de-dup Operation Map per (order, operation) */
+        INNER JOIN (
+            SELECT parent, operation
+            FROM `tabOperation Map`
+            GROUP BY parent, operation
+        ) opm ON opm.parent = tor.name
 
-        /* PIs tied to bundle (may be many per size) */
-        LEFT JOIN `tabProduction Item` pi 
-               ON pi.tracking_order = tor.name 
-              AND pi.bundle_configuration = tbc.name
-        LEFT JOIN `tabTracking Component` tc 
-               ON tc.name = pi.component AND tc.is_main = 1
+        /* ==== Completed (sum each PI once per op+size) ==== */
+        LEFT JOIN (
+            SELECT
+                x.operation,
+                x.size,
+                SUM(x.qty_once) AS completed_units
+            FROM (
+                SELECT
+                    pc.operation,
+                    pc.size,
+                    pc.pi_name,
+                    MAX(pc.pi_qty) AS qty_once
+                FROM (
+                    /* core PI rows per (op, size, PI) for the order */
+                    SELECT
+                        tor.name      AS tracking_order,
+                        tbc.size      AS size,
+                        opm2.operation AS operation,
+                        pi.name       AS pi_name,
+                        pi.quantity   AS pi_qty
+                    FROM `tabSales Order` so2
+                    INNER JOIN (
+                        SELECT parent, item_code, custom_ex_fty_date, custom_size, SUM(qty) AS qty
+                        FROM `tabSales Order Item`
+                        GROUP BY parent, item_code, custom_ex_fty_date, custom_size
+                    ) soi2 ON soi2.parent = so2.name
+                    INNER JOIN `tabItem` itm2
+                            ON itm2.name = soi2.item_code
+                        AND itm2.custom_select_master = 'Finished Goods'
+                    INNER JOIN `tabTracking Order Bundle Configuration` tbc
+                            ON tbc.sales_order = so2.name
+                        AND tbc.size = soi2.custom_size
+                        AND tbc.parentfield = 'component_bundle_configurations'
+                    INNER JOIN `tabTracking Order` tor
+                            ON tor.name = tbc.parent
+                    INNER JOIN (
+                        SELECT parent, operation
+                        FROM `tabOperation Map`
+                        GROUP BY parent, operation
+                    ) opm2 ON opm2.parent = tor.name
+                    LEFT  JOIN `tabProduction Item` pi
+                            ON pi.tracking_order = tor.name
+                        AND pi.bundle_configuration = tbc.name
+                    LEFT  JOIN `tabTracking Component` tc
+                            ON tc.name = pi.component AND tc.is_main = 1
+                    WHERE so2.docstatus = 1
+                    AND so2.name = 'OCN00168'
+                ) pc
+                /* keep only PIs that have ANY good scan at that operation */
+                INNER JOIN (
+                    SELECT production_item, operation
+                    FROM `tabItem Scan Log`
+                    WHERE log_status = 'Completed'
+                    AND status IN ('Counted','Activated','Pass')
+                    GROUP BY production_item, operation
+                ) good ON good.production_item = pc.pi_name
+                    AND good.operation       = pc.operation
+                GROUP BY pc.operation, pc.size, pc.pi_name
+            ) x
+            GROUP BY x.operation, x.size
+        ) ca
+        ON ca.operation = opm.operation
+        AND ca.size      = soi.custom_size
 
-        /* Join to deduped "good" scans and rejects by PI+operation */
-        LEFT JOIN isl_ok io
-               ON io.production_item = pi.name
-              AND io.operation = opm.operation
-        LEFT JOIN rej_ok ro
-               ON ro.production_item = pi.name
-              AND ro.operation = opm.operation
+        /* ==== Rejects (sum reject_count per op+size) ==== */
+        LEFT JOIN (
+            SELECT
+                pc.operation,
+                pc.size,
+                SUM(COALESCE(rj.reject_count, 0)) AS rejected_units
+            FROM (
+                SELECT
+                    tor.name      AS tracking_order,
+                    tbc.size      AS size,
+                    opm2.operation AS operation,
+                    pi.name       AS pi_name
+                FROM `tabSales Order` so2
+                INNER JOIN (
+                    SELECT parent, item_code, custom_ex_fty_date, custom_size, SUM(qty) AS qty
+                    FROM `tabSales Order Item`
+                    GROUP BY parent, item_code, custom_ex_fty_date, custom_size
+                ) soi2 ON soi2.parent = so2.name
+                INNER JOIN `tabItem` itm2
+                        ON itm2.name = soi2.item_code
+                    AND itm2.custom_select_master = 'Finished Goods'
+                INNER JOIN `tabTracking Order Bundle Configuration` tbc
+                        ON tbc.sales_order = so2.name
+                    AND tbc.size = soi2.custom_size
+                    AND tbc.parentfield = 'component_bundle_configurations'
+                INNER JOIN `tabTracking Order` tor
+                        ON tor.name = tbc.parent
+                INNER JOIN (
+                    SELECT parent, operation
+                    FROM `tabOperation Map`
+                    GROUP BY parent, operation
+                ) opm2 ON opm2.parent = tor.name
+                LEFT  JOIN `tabProduction Item` pi
+                        ON pi.tracking_order = tor.name
+                    AND pi.bundle_configuration = tbc.name
+                LEFT  JOIN `tabTracking Component` tc
+                        ON tc.name = pi.component AND tc.is_main = 1
+                WHERE so2.docstatus = 1
+                AND so2.name = 'OCN00168'
+            ) pc
+            LEFT JOIN (
+                SELECT production_item, operation, COUNT(*) AS reject_count
+                FROM `tabItem Scan Log`
+                WHERE log_status = 'Completed'
+                AND status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
+                GROUP BY production_item, operation
+            ) rj
+            ON rj.production_item = pc.pi_name
+            AND rj.operation       = pc.operation
+            GROUP BY pc.operation, pc.size
+        ) ra
+        ON ra.operation = opm.operation
+        AND ra.size      = soi.custom_size
 
-        WHERE { ' AND '.join(conds) }
-
+        WHERE {' AND '.join(conds)} 
         GROUP BY opm.operation, soi.custom_size
-        ORDER BY opm.operation, soi.custom_size
+        ORDER BY opm.operation, soi.custom_size;
+
     """, params, as_dict=True)
 
     for row in metrics_by_op:
-        row.pending_units = (row.size_qty or 0) - (row.completed_units or 0) - (row.rejected_units or 0)
+        row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
 
     return {
         "details": so_details[0],

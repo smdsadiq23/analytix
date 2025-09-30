@@ -7,14 +7,14 @@ def execute(filters=None):
     filters = filters or {}
     summary_so = get_summary_so_by_cell(filters)
     summary_wo = get_summary_wo_by_cell(filters)
-    detail_so = get_detail_so_by_cell(filters.get("sales_order"))
-    detail_wo = get_detail_wo_by_cell(filters.get("work_order"))
+    detail_so  = get_detail_so_by_cell(filters.get("sales_order"))
+    detail_wo  = get_detail_wo_by_cell(filters.get("work_order"))
 
     return [], [], None, None, [
         {"name": "summary_so", "data": summary_so or []},
         {"name": "summary_wo", "data": summary_wo or []},
         {"name": "detail_so", "data": detail_so or {}},
-        {"name": "detail_wo", "data": detail_wo or {}}
+        {"name": "detail_wo", "data": detail_wo or {}},
     ]
 
 
@@ -38,10 +38,14 @@ def get_summary_so_by_cell(filters):
         return []
 
     params = {"physical_cell": filters["physical_cell"]}
-    # Build SOI date filter with your helper (kept)
-    conds = ["so.docstatus = 1"]
-    conds.extend(_build_date_conditions(filters, params, alias="soi"))
-    where_clause = " AND ".join(conds)
+
+    # Outer (SO) base conds (docstatus)
+    so_conds = ["so.docstatus = 1"]
+    so_where = " AND ".join(so_conds)
+
+    # Build SOI date predicates separately (aliased to soi)
+    soi_date_conds = _build_date_conditions(filters, params, alias="soi")
+    soi_date_where = " AND ".join(soi_date_conds) if soi_date_conds else "1=1"
 
     return frappe.db.sql(
         f"""
@@ -65,7 +69,7 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabItem` itm ON itm.name = soi.item_code
             WHERE soi.custom_ex_fty_date IS NOT NULL
               AND itm.custom_select_master = 'Finished Goods'
-              AND {where_clause.replace('so.', 'soi.').replace('itm.custom_select_master = \'Finished Goods\' AND ', '')}
+              AND {soi_date_where}
         ) soi_ok ON soi_ok.parent = so.name
 
         /* Scan aggregation at the cell's LAST operation (validated via Op Map) */
@@ -107,7 +111,7 @@ def get_summary_so_by_cell(filters):
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
 
-        WHERE so.docstatus = 1
+        WHERE {so_where}
         HAVING so_quantity > 0
         ORDER BY so.name
         """,
@@ -122,10 +126,14 @@ def get_summary_wo_by_cell(filters):
         return []
 
     params = {"physical_cell": filters["physical_cell"]}
-    # Build SOI date filter with your helper (kept)
-    conds = ["wo.docstatus = 1"]
-    conds.extend(_build_date_conditions(filters, params, alias="soi"))
-    where_clause = " AND ".join(conds)
+
+    # Outer (WO) base conds (docstatus)
+    wo_conds = ["wo.docstatus = 1"]
+    wo_where = " AND ".join(wo_conds)
+
+    # SOI date predicates for inner DISTINCT (aliased to soi)
+    soi_date_conds = _build_date_conditions(filters, params, alias="soi")
+    soi_date_where = " AND ".join(soi_date_conds) if soi_date_conds else "1=1"
 
     return frappe.db.sql(
         f"""
@@ -157,7 +165,7 @@ def get_summary_wo_by_cell(filters):
             INNER JOIN `tabItem` itm ON itm.name = soi.item_code
             WHERE soi.custom_ex_fty_date IS NOT NULL
               AND itm.custom_select_master = 'Finished Goods'
-              AND {where_clause.replace('wo.', 'soi.').replace('itm.custom_select_master = \'Finished Goods\' AND ', '')}
+              AND {soi_date_where}
         ) soi_ok ON soi_ok.sales_order = woso.sales_order
                 AND soi_ok.item_code   = wo.production_item
 
@@ -199,7 +207,7 @@ def get_summary_wo_by_cell(filters):
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
 
-        WHERE wo.docstatus = 1
+        WHERE {wo_where}
         HAVING wo_quantity > 0
         ORDER BY wo.name
         """,
@@ -242,10 +250,12 @@ def get_detail_so_by_cell(so_name):
             soi.custom_size AS size,
             SUM(soi.qty) AS size_qty,
             COALESCE(SUM(CASE 
-                WHEN isl.status IN ('Counted','Activated','Pass') 
+                WHEN isl.log_status = 'Completed'
+                 AND isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
             COALESCE(COUNT(CASE 
-                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                WHEN isl.log_status = 'Completed'
+                 AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
                 THEN 1 END), 0) AS rejected_units
         FROM `tabSales Order` so
         INNER JOIN (
@@ -261,7 +271,6 @@ def get_detail_so_by_cell(so_name):
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
             ON topclo.parent = tor.name
-        -- ✅ ADD Operation Map
         INNER JOIN `tabOperation Map` opm 
             ON opm.parent = tor.name 
             AND opm.operation = topclo.operation
@@ -272,14 +281,14 @@ def get_detail_so_by_cell(so_name):
         LEFT JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.log_status = 'Completed'
-            AND isl.operation = opm.operation  -- ✅ Match via Operation Map
+            AND isl.operation = opm.operation
         WHERE {' AND '.join(conds)}
         GROUP BY topclo.physical_cell, topclo.operation, soi.custom_size
         ORDER BY topclo.physical_cell, topclo.operation, soi.custom_size
     """, params, as_dict=True)
 
     for row in metrics_by_cell:
-        row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
+        row.pending_units = (row.size_qty or 0) - (row.completed_units or 0) - (row.rejected_units or 0)
 
     return {
         "details": so_details[0],
@@ -332,10 +341,12 @@ def get_detail_wo_by_cell(wo_name):
             woli.size,
             SUM(woli.qty) AS size_qty,
             COALESCE(SUM(CASE 
-                WHEN isl.status IN ('Counted','Activated','Pass') 
+                WHEN isl.log_status = 'Completed'
+                 AND isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
             COALESCE(COUNT(CASE 
-                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                WHEN isl.log_status = 'Completed'
+                 AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
                 THEN 1 END), 0) AS rejected_units
         FROM `tabWork Order` wo
         INNER JOIN (
@@ -350,7 +361,6 @@ def get_detail_wo_by_cell(wo_name):
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
             ON topclo.parent = tor.name
-        -- ✅ ADD Operation Map
         INNER JOIN `tabOperation Map` opm 
             ON opm.parent = tor.name 
             AND opm.operation = topclo.operation
@@ -362,14 +372,14 @@ def get_detail_wo_by_cell(wo_name):
         LEFT JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.log_status = 'Completed'
-            AND isl.operation = opm.operation  -- ✅ Match via Operation Map
+            AND isl.operation = opm.operation
         WHERE {' AND '.join(conds)}
         GROUP BY topclo.physical_cell, topclo.operation, woli.size
         ORDER BY topclo.physical_cell, topclo.operation, woli.size
     """, params, as_dict=True)
 
     for row in metrics_by_cell:
-        row.pending_units = row.size_qty - (row.completed_units or 0) - (row.rejected_units or 0)
+        row.pending_units = (row.size_qty or 0) - (row.completed_units or 0) - (row.rejected_units or 0)
 
     return {
         "details": wo_details[0],
