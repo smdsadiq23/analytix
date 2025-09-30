@@ -19,53 +19,58 @@ def execute(filters=None):
 
 
 def get_summary_so(filters):
+    """Per-Sales Order summary for a selected operation (dup-safe)."""
     if not filters.get("operation"):
         return []
 
-    conds = ["so.docstatus = 1", "itm.custom_select_master = 'Finished Goods'"]
     params = {"op": filters["operation"]}
-
+    # Build SOI date filter once
     if filters.get("date_range"):
         start, end = filters["date_range"]
-        conds.append("DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
+        date_pred = "DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s"
     else:
         from frappe.utils import now_datetime
-        year = now_datetime().year
-        conds.append("YEAR(soi.custom_ex_fty_date) = %(year)s")
-        params["year"] = year
+        params["year"] = now_datetime().year
+        date_pred = "YEAR(soi.custom_ex_fty_date) = %(year)s"
 
-    where_clause = " AND ".join(conds)
-
-    data = frappe.db.sql(f"""
+    # DISTINCT SO list that passes FG + date
+    return frappe.db.sql(
+        f"""
         SELECT
             so.name AS so_number,
             so.total_qty AS so_quantity,
-            COALESCE(scan_agg.completed_units, 0) AS completed_units,
-            COALESCE(scan_agg.rejected_units, 0) AS rejected_units,
+            COALESCE(sa.completed_units, 0) AS completed_units,
+            COALESCE(sa.rejected_units, 0)  AS rejected_units,
             GREATEST(
-                so.total_qty - 
-                COALESCE(scan_agg.completed_units, 0) - 
-                COALESCE(scan_agg.rejected_units, 0),
+                so.total_qty
+                - COALESCE(sa.completed_units, 0)
+                - COALESCE(sa.rejected_units, 0),
                 0
             ) AS pending_units
         FROM `tabSales Order` so
+        /* Only keep SOs that have at least one FG item matching the date filter */
         INNER JOIN (
-            SELECT parent, custom_ex_fty_date, item_code
-            FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
-            GROUP BY parent, custom_ex_fty_date, item_code
-        ) soi ON soi.parent = so.name
-        INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+            SELECT DISTINCT soi.parent
+            FROM `tabSales Order Item` soi
+            INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+            WHERE soi.custom_ex_fty_date IS NOT NULL
+              AND itm.custom_select_master = 'Finished Goods'
+              AND {date_pred}
+        ) soi_ok ON soi_ok.parent = so.name
+
+        /* Scan aggregation for the selected operation via Operation Map */
         LEFT JOIN (
             SELECT 
                 tbc.sales_order,
                 SUM(CASE 
-                    WHEN isl.status IN ('Counted','Activated','Pass') 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('Counted','Activated','Pass')
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -73,83 +78,93 @@ def get_summary_so(filters):
                 ON tor.name = tbc.parent
             INNER JOIN `tabOperation Map` opm 
                 ON opm.parent = tor.name 
-                AND opm.operation = %(op)s  -- ✅ Filter via Operation Map
+               AND opm.operation = %(op)s
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
-                AND pi.bundle_configuration = tbc.name
+               AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc 
                 ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
-                AND isl.log_status = 'Completed'
-                AND isl.operation = opm.operation  -- ✅ Match mapped operation
+               AND isl.operation = opm.operation
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
-        ) scan_agg ON scan_agg.sales_order = so.name
-        WHERE {where_clause}
+        ) sa ON sa.sales_order = so.name
+
+        WHERE so.docstatus = 1
         HAVING so_quantity > 0
         ORDER BY so.name
-    """, params, as_dict=True)
+        """,
+        params,
+        as_dict=True,
+    )
 
-    return data
 
 
 def get_summary_wo(filters):
+    """Per-Work Order summary for a selected operation (dup-safe)."""
     if not filters.get("operation"):
         return []
 
-    conds = ["wo.docstatus = 1", "itm.custom_select_master = 'Finished Goods'"]
     params = {"op": filters["operation"]}
-
+    # Build SOI date filter once
     if filters.get("date_range"):
         start, end = filters["date_range"]
-        conds.append("DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
         params.update({"start": start, "end": end})
+        date_pred = "DATE(soi.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s"
     else:
         from frappe.utils import now_datetime
-        year = now_datetime().year
-        conds.append("YEAR(soi.custom_ex_fty_date) = %(year)s")
-        params["year"] = year
+        params["year"] = now_datetime().year
+        date_pred = "YEAR(soi.custom_ex_fty_date) = %(year)s"
 
-    where_clause = " AND ".join(conds)
-
-    data = frappe.db.sql(f"""
+    return frappe.db.sql(
+        f"""
         SELECT
             wo.name AS wo_number,
-            wo.qty AS wo_quantity,
-            COALESCE(scan_agg.completed_units, 0) AS completed_units,
-            COALESCE(scan_agg.rejected_units, 0) AS rejected_units,
+            wo.qty  AS wo_quantity,
+            COALESCE(sa.completed_units, 0) AS completed_units,
+            COALESCE(sa.rejected_units, 0)  AS rejected_units,
             GREATEST(
-                wo.qty - 
-                COALESCE(scan_agg.completed_units, 0) - 
-                COALESCE(scan_agg.rejected_units, 0),
+                wo.qty
+                - COALESCE(sa.completed_units, 0)
+                - COALESCE(sa.rejected_units, 0),
                 0
             ) AS pending_units
         FROM `tabWork Order` wo
+
+        /* WO → SO mapping (unique) */
         INNER JOIN (
             SELECT parent AS work_order, sales_order
             FROM `tabWork Order Sales Orders`
             WHERE sales_order IS NOT NULL
             GROUP BY parent, sales_order
         ) woso ON woso.work_order = wo.name
+
+        /* DISTINCT (SO, item_code) that pass FG + date; tie to WO's item */
         INNER JOIN (
-            SELECT parent, custom_ex_fty_date, item_code
-            FROM `tabSales Order Item`
-            WHERE custom_ex_fty_date IS NOT NULL
-            GROUP BY parent, custom_ex_fty_date, item_code
-        ) soi ON soi.parent = woso.sales_order AND soi.item_code = wo.production_item
-        INNER JOIN `tabItem` itm ON itm.name = wo.production_item
+            SELECT DISTINCT soi.parent AS sales_order, soi.item_code
+            FROM `tabSales Order Item` soi
+            INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+            WHERE soi.custom_ex_fty_date IS NOT NULL
+              AND itm.custom_select_master = 'Finished Goods'
+              AND {date_pred}
+        ) soi_ok ON soi_ok.sales_order = woso.sales_order
+                AND soi_ok.item_code   = wo.production_item
+
+        /* Scan aggregation for the selected operation via Operation Map */
         LEFT JOIN (
             SELECT 
                 tbc.work_order,
                 SUM(CASE 
-                    WHEN isl.status IN ('Counted','Activated','Pass') 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('Counted','Activated','Pass')
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -157,27 +172,28 @@ def get_summary_wo(filters):
                 ON tor.name = tbc.parent
             INNER JOIN `tabOperation Map` opm 
                 ON opm.parent = tor.name 
-                AND opm.operation = %(op)s  -- ✅ Filter via Operation Map
+               AND opm.operation = %(op)s
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
-                AND pi.bundle_configuration = tbc.name
+               AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc 
                 ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
-                AND isl.log_status = 'Completed'
-                AND isl.operation = opm.operation  -- ✅ Match mapped operation
+               AND isl.operation = opm.operation
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
-        ) scan_agg ON scan_agg.work_order = wo.name
-        WHERE {where_clause}
+        ) sa ON sa.work_order = wo.name
+
+        WHERE wo.docstatus = 1
         HAVING wo_quantity > 0
         ORDER BY wo.name
-    """, params, as_dict=True)
-
-    return data
+        """,
+        params,
+        as_dict=True,
+    )
 
 
 def get_detail_so(so_name):
