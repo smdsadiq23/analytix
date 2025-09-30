@@ -64,9 +64,9 @@ def get_summary_so(filters):
                     WHEN isl.status IN ('Counted','Activated','Pass') 
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
-                SUM(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                    THEN pi.quantity ELSE 0 
+                COUNT(CASE 
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
@@ -148,9 +148,9 @@ def get_summary_wo(filters):
                     WHEN isl.status IN ('Counted','Activated','Pass') 
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
-                SUM(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                    THEN pi.quantity ELSE 0 
+                COUNT(CASE 
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
@@ -219,9 +219,9 @@ def get_detail_so(so_name):
             COALESCE(SUM(CASE 
                 WHEN isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
-            COALESCE(SUM(CASE 
-                WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                THEN pi.quantity ELSE 0 END), 0) AS rejected_units
+            COALESCE(COUNT(CASE 
+                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                THEN 1 END), 0) AS rejected_units
         FROM `tabSales Order` so
         INNER JOIN (
             SELECT parent, item_code, custom_ex_fty_date, custom_size, qty
@@ -308,9 +308,9 @@ def get_detail_wo(wo_name):
             COALESCE(SUM(CASE 
                 WHEN isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
-            COALESCE(SUM(CASE 
-                WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                THEN pi.quantity ELSE 0 END), 0) AS rejected_units
+            COALESCE(COUNT(CASE 
+                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                THEN 1 END), 0) AS rejected_units
         FROM `tabWork Order` wo
         INNER JOIN (
             SELECT parent, size, work_order_allocated_qty AS qty

@@ -68,9 +68,9 @@ def get_summary_so_by_cell(filters):
                     WHEN isl.status IN ('Counted','Activated','Pass') 
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
-                SUM(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                    THEN pi.quantity ELSE 0 
+                COUNT(CASE 
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
@@ -78,6 +78,10 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name 
                 AND topclo.physical_cell = %(physical_cell)s
+            -- ✅ ADD Operation Map
+            INNER JOIN `tabOperation Map` opm 
+                ON opm.parent = tor.name 
+                AND opm.operation = topclo.operation  -- Ensure operation is mapped
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
                 AND pi.bundle_configuration = tbc.name
@@ -86,14 +90,14 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.log_status = 'Completed'
-                AND isl.operation = topclo.operation
+                AND isl.operation = opm.operation  -- ✅ Match via Operation Map
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) scan_agg ON scan_agg.sales_order = so.name
         WHERE {where_clause}
-        GROUP BY so.name, so.total_qty  -- 👈 CRITICAL: Group by SO to avoid duplicates
+        GROUP BY so.name, so.total_qty
         HAVING so_quantity > 0
         ORDER BY so.name
     """, params, as_dict=True)
@@ -143,17 +147,20 @@ def get_summary_wo_by_cell(filters):
                     WHEN isl.status IN ('Counted','Activated','Pass') 
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
-                SUM(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                    THEN pi.quantity ELSE 0 
+                COUNT(CASE 
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor 
                 ON tor.name = tbc.parent
-            -- 🔸 JOIN to get operation from physical cell
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name 
                 AND topclo.physical_cell = %(physical_cell)s
+            -- ✅ ADD Operation Map
+            INNER JOIN `tabOperation Map` opm 
+                ON opm.parent = tor.name 
+                AND opm.operation = topclo.operation
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name 
                 AND pi.bundle_configuration = tbc.name
@@ -162,7 +169,7 @@ def get_summary_wo_by_cell(filters):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.log_status = 'Completed'
-                AND isl.operation = topclo.operation
+                AND isl.operation = opm.operation  -- ✅ Match via Operation Map
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations'
                 AND tbc.work_order IS NOT NULL
@@ -204,7 +211,6 @@ def get_detail_so_by_cell(so_name):
     if not so_details:
         return {}
 
-    # Get metrics by physical_cell → operation → size
     metrics_by_cell = frappe.db.sql(f"""
         SELECT 
             topclo.physical_cell,
@@ -213,9 +219,9 @@ def get_detail_so_by_cell(so_name):
             COALESCE(SUM(CASE 
                 WHEN isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
-            COALESCE(SUM(CASE 
-                WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                THEN pi.quantity ELSE 0 END), 0) AS rejected_units
+            COALESCE(COUNT(CASE 
+                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                THEN 1 END), 0) AS rejected_units
         FROM `tabSales Order` so
         INNER JOIN (
             SELECT parent, item_code, custom_ex_fty_date, custom_size, qty
@@ -223,19 +229,26 @@ def get_detail_so_by_cell(so_name):
             GROUP BY parent, item_code, custom_ex_fty_date, custom_size
         ) soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
-            ON tbc.sales_order = so.name AND tbc.size = soi.custom_size
-        LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        LEFT JOIN `tabTracking Order Physical Cell Last Operation` topclo
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON tbc.sales_order = so.name 
+            AND tbc.size = soi.custom_size
+            AND tbc.parentfield = 'component_bundle_configurations'
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
             ON topclo.parent = tor.name
+        -- ✅ ADD Operation Map
+        INNER JOIN `tabOperation Map` opm 
+            ON opm.parent = tor.name 
+            AND opm.operation = topclo.operation
         LEFT JOIN `tabProduction Item` pi 
-            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            ON pi.tracking_order = tor.name 
+            AND pi.bundle_configuration = tbc.name
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.log_status = 'Completed'
-            AND isl.operation = topclo.operation
-        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
+            AND isl.operation = opm.operation  -- ✅ Match via Operation Map
+        WHERE {' AND '.join(conds)}
         GROUP BY topclo.physical_cell, topclo.operation, soi.custom_size
         ORDER BY topclo.physical_cell, topclo.operation, soi.custom_size
     """, params, as_dict=True)
@@ -296,40 +309,36 @@ def get_detail_wo_by_cell(wo_name):
             COALESCE(SUM(CASE 
                 WHEN isl.status IN ('Counted','Activated','Pass') 
                 THEN pi.quantity ELSE 0 END), 0) AS completed_units,
-            COALESCE(SUM(CASE 
-                WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
-                THEN pi.quantity ELSE 0 END), 0) AS rejected_units
+            COALESCE(COUNT(CASE 
+                WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                THEN 1 END), 0) AS rejected_units
         FROM `tabWork Order` wo
         INNER JOIN (
             SELECT parent, size, work_order_allocated_qty AS qty
             FROM `tabWork Order Line Item`
             GROUP BY parent, size
         ) woli ON woli.parent = wo.name
-        LEFT JOIN (
-            SELECT parent AS work_order, sales_order
-            FROM `tabWork Order Sales Orders`
-            WHERE sales_order IS NOT NULL
-            GROUP BY parent
-        ) woso ON woso.work_order = wo.name
-        LEFT JOIN (
-            SELECT parent, custom_ex_fty_date
-            FROM `tabSales Order Item`
-            GROUP BY parent	
-        ) soi ON soi.parent = woso.sales_order
-        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
-            ON tbc.work_order = wo.name AND tbc.size = woli.size
-        LEFT JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        LEFT JOIN `tabTracking Order Physical Cell Last Operation` topclo
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON tbc.work_order = wo.name 
+            AND tbc.size = woli.size
+            AND tbc.parentfield = 'component_bundle_configurations'
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
             ON topclo.parent = tor.name
+        -- ✅ ADD Operation Map
+        INNER JOIN `tabOperation Map` opm 
+            ON opm.parent = tor.name 
+            AND opm.operation = topclo.operation
+        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
         LEFT JOIN `tabProduction Item` pi 
-            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            ON pi.tracking_order = tor.name 
+            AND pi.bundle_configuration = tbc.name
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name 
             AND isl.log_status = 'Completed'
-            AND isl.operation = topclo.operation
-        WHERE tbc.parentfield = 'component_bundle_configurations' AND {' AND '.join(conds)}
+            AND isl.operation = opm.operation  -- ✅ Match via Operation Map
+        WHERE {' AND '.join(conds)}
         GROUP BY topclo.physical_cell, topclo.operation, woli.size
         ORDER BY topclo.physical_cell, topclo.operation, woli.size
     """, params, as_dict=True)
