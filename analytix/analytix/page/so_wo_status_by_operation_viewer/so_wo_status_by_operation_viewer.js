@@ -48,7 +48,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
     .completed { background: #96BE37; color: white; }
     .pending { background: #ECAD4B; color: black; }
     .rejected { background: #EF4444; color: white; }
-    .wip { background: #3B82F6; color: white; } /* ✅ WIP styling */
+    .wip { background: #3B82F6; color: white; } /* WIP styling */
     @media (max-width: 1100px) { .kpi-filter-row { flex-direction: column; align-items: stretch; } .kpi-dashboard-grid { grid-template-columns: 1fr; } }
     .awesomplete {
     z-index: 10000 !important;
@@ -213,7 +213,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
                         <th>Completion %</th>
-                        <th>WIP</th> <!-- ✅ Added WIP header -->
+                        <th>WIP</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -277,7 +277,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
                         <th>Completion %</th>
-                        <th>WIP</th> <!-- ✅ Added WIP header -->
+                        <th>WIP</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -452,7 +452,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Sales Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="8">Select a Sales Order to view metrics</td></tr>`); // ✅ 8 columns
+			$opTbody.append(`<tr><td colspan="8">Select a Sales Order to view metrics</td></tr>`);
 			const ctx = document.getElementById("so-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -475,12 +475,18 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		const metrics = detail.metrics_by_op || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`); // ✅ 8 columns
+			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`);
 		} else {
-			metrics.forEach((r) => {
+			// 🔑 Sort by sort_order for correct sequence
+			const sortedMetrics = [...metrics].sort((a, b) => {
+				return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
+				       (a.operation ?? "").localeCompare(b.operation ?? "");
+			});
+
+			sortedMetrics.forEach((r) => {
 				const tot = Number(r.size_qty || 0);
 				const cmp = Number(r.completed_units || 0);
-				const wip = Number(r.wip || 0); // ✅ Get WIP from backend
+				const wip = Number(r.wip || 0);
 				$opTbody.append(`
           <tr>
             <td>${r.operation || "-"}</td>
@@ -490,7 +496,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
             <td class="pending">${r.pending_units || 0}</td>
             <td class="rejected">${r.rejected_units || 0}</td>
             <td>${pct(cmp, tot)}</td>
-            <td class="wip">${wip}</td> <!-- ✅ WIP cell -->
+            <td class="wip">${wip}</td>
           </tr>`);
 			});
 		}
@@ -523,7 +529,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Work Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="8">Select a Work Order to view metrics</td></tr>`); // ✅ 8 columns
+			$opTbody.append(`<tr><td colspan="8">Select a Work Order to view metrics</td></tr>`);
 			const ctx = document.getElementById("wo-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -550,12 +556,18 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 
 		const metrics = detail.metrics_by_op || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`); // ✅ 8 columns
+			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`);
 		} else {
-			metrics.forEach((r) => {
+			// 🔑 Sort by sort_order for correct sequence
+			const sortedMetrics = [...metrics].sort((a, b) => {
+				return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
+				       (a.operation ?? "").localeCompare(b.operation ?? "");
+			});
+
+			sortedMetrics.forEach((r) => {
 				const tot = Number(r.size_qty ?? 0);
 				const cmp = Number(r.completed_units ?? 0);
-				const wip = Number(r.wip || 0); // ✅ Get WIP from backend
+				const wip = Number(r.wip || 0);
 				$opTbody.append(`
           <tr>
             <td>${r.operation || "-"}</td>
@@ -565,7 +577,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
             <td class="pending">${r.pending_units ?? 0}</td>
             <td class="rejected">${r.rejected_units ?? 0}</td>
             <td>${pct(cmp, tot)}</td>
-            <td class="wip">${wip}</td> <!-- ✅ WIP cell -->
+            <td class="wip">${wip}</td>
           </tr>`);
 			});
 		}
@@ -577,14 +589,29 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 	function renderChart(canvasId, metrics, title) {
 		if (!metrics || !metrics.length) return;
 
-		const labels = [...new Set(metrics.map((r) => r.operation))];
+		// 🔑 Sort metrics by sort_order
+		const sortedMetrics = [...metrics].sort((a, b) => {
+			return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
+			       (a.operation ?? "").localeCompare(b.operation ?? "");
+		});
+
+		// Get unique operations in sorted order
+		const seen = new Set();
+		const labels = [];
+		for (const r of sortedMetrics) {
+			if (!seen.has(r.operation)) {
+				seen.add(r.operation);
+				labels.push(r.operation);
+			}
+		}
+
 		const sum = (op, key) =>
-			metrics.filter((r) => r.operation === op).reduce((s, r) => s + (r[key] || 0), 0);
+			sortedMetrics.filter((r) => r.operation === op).reduce((s, r) => s + (r[key] || 0), 0);
 
 		const completed = labels.map((op) => sum(op, "completed_units"));
 		const pending = labels.map((op) => sum(op, "pending_units"));
 		const rejected = labels.map((op) => sum(op, "rejected_units"));
-		const wip = labels.map((op) => sum(op, "wip")); // ✅ WIP data
+		const wip = labels.map((op) => sum(op, "wip"));
 
 		loadChartJs().then(() => {
 			const canvas = document.getElementById(canvasId);
@@ -599,7 +626,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
 						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
 						{ label: "Rejected", data: rejected, backgroundColor: "#EF4444" },
-						{ label: "WIP", data: wip, backgroundColor: "#3B82F6" }, // ✅ WIP dataset
+						{ label: "WIP", data: wip, backgroundColor: "#3B82F6" },
 					],
 				},
 				options: {
