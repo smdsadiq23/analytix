@@ -180,7 +180,6 @@ def get_detail_so(so_name):
     """, (so_name,), as_dict=True)
 
     if not so_details:
-        # frappe.msgprint("No Sales Order details found or not an FG Item")
         return {}
 
     # Get size-wise quantities
@@ -196,20 +195,30 @@ def get_detail_so(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Get ALL operations mapped to this SO
-    operations = frappe.db.sql("""
-        SELECT DISTINCT opm.operation
+    # Get all operations and build previous operation mapping
+    op_links = frappe.db.sql("""
+        SELECT DISTINCT opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
         WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations'
     """, (so_name,), as_dict=True)
-    operation_names = [row.operation for row in operations]
+
+    # Build map: next_operation → current operation (i.e., op → previous)
+    next_to_prev = {}
+    all_operations = set()
+    for row in op_links:
+        all_operations.add(row.operation)
+        if row.next_operation:
+            all_operations.add(row.next_operation)
+            next_to_prev[row.next_operation] = row.operation
+
+    operation_names = sorted(all_operations)
 
     if not operation_names:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Fetch LATEST scan per (Production Item, Operation) — deduplicated!
+    # Fetch latest scan per (Production Item, Operation) — deduplicated
     scan_logs = frappe.db.sql("""
         SELECT
             opm.operation,
@@ -239,45 +248,48 @@ def get_detail_so(so_name):
           AND tbc.parentfield = 'component_bundle_configurations'
     """, (so_name,), as_dict=True)
 
-    # Initialize all (operation, size) combinations
-    metrics = {}
+    # Aggregate completed and rejected units per (operation, size)
+    from collections import defaultdict
+    op_size_data = defaultdict(lambda: {"completed": 0, "rejected": 0})
+
+    for log in scan_logs:
+        key = (log.operation, log.size or "")
+        if log.status in ('Counted', 'Activated', 'Pass'):
+            op_size_data[key]["completed"] += log.pi_qty or 0
+        elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
+            op_size_data[key]["rejected"] += 1
+
+    # Build final metrics with WIP
+    metrics_by_op = []
     for op in operation_names:
         for size in sizes:
             key = (op, size)
-            metrics[key] = {
-                "completed": 0,
-                "rejected": 0,
-                "size_qty": size_qty_map[size]
-            }
+            total_qty = size_qty_map[size]
+            completed = op_size_data[key]["completed"]
+            rejected = op_size_data[key]["rejected"]
+            pending = max(total_qty - completed - rejected, 0)
+            completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-    # Apply scan data (now deduplicated!)
-    for log in scan_logs:
-        key = (log.operation, log.size or "")
-        if key in metrics:
-            if log.status in ('Counted', 'Activated', 'Pass'):
-                metrics[key]["completed"] += log.pi_qty or 0
-            elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
-                metrics[key]["rejected"] += 1
+            # 🔑 Calculate WIP
+            prev_op = next_to_prev.get(op)
+            if prev_op:
+                prev_key = (prev_op, size)
+                completed_prev = op_size_data[prev_key]["completed"]
+                wip = completed - completed_prev
+            else:
+                # First operation: all completed units are WIP (nothing before to subtract)
+                wip = completed
 
-    # Build final list with completion %
-    metrics_by_op = []
-    for (op, size), vals in metrics.items():
-        total = vals["size_qty"]
-        completed = vals["completed"]
-        rejected = vals["rejected"]
-        pending = max(total - completed - rejected, 0)
-        # Cap completion at 100%
-        completion_pct = min((completed / total) * 100, 100.0) if total > 0 else 0.0
-
-        metrics_by_op.append({
-            "operation": op,
-            "size": size,
-            "size_qty": total,
-            "completed_units": completed,
-            "rejected_units": rejected,
-            "pending_units": pending,
-            "completion_pct": round(completion_pct, 1)
-        })
+            metrics_by_op.append({
+                "operation": op,
+                "size": size,
+                "size_qty": total_qty,
+                "completed_units": completed,
+                "rejected_units": rejected,
+                "pending_units": pending,
+                "completion_pct": round(completion_pct, 1),
+                "wip": max(wip, 0)  # Ensure WIP is non-negative
+            })
 
     metrics_by_op.sort(key=lambda x: (x["operation"], x["size"]))
     return {
