@@ -281,6 +281,8 @@ def get_detail_so(so_name):
                 # First operation: backlog = unprocessed units
                 backlog = pending  # which is: size_qty - completed - rejected
 
+            wip = int(backlog)
+
             metrics_by_op.append({
                 "operation": op,
                 "size": size,
