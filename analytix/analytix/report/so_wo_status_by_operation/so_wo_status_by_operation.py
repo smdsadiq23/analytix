@@ -270,15 +270,16 @@ def get_detail_so(so_name):
             pending = max(total_qty - completed - rejected, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-            # 🔑 Calculate WIP
+            # 🔑 Calculate BACKLOG (units waiting at this operation)
             prev_op = next_to_prev.get(op)
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
-                wip = completed - completed_prev
+                # Backlog = units that finished previous but not this
+                backlog = max(0, completed_prev - completed)
             else:
-                # First operation: all completed units are WIP (nothing before to subtract)
-                wip = completed
+                # First operation: backlog = unprocessed units
+                backlog = pending  # which is: size_qty - completed - rejected
 
             metrics_by_op.append({
                 "operation": op,
