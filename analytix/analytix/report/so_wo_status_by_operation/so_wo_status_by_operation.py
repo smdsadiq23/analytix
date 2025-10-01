@@ -275,13 +275,11 @@ def get_detail_so(so_name):
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
-                # Backlog = units that finished previous but not this
-                backlog = max(0, completed_prev - completed)
+                # WIP = how many more finished previous than this
+                wip = max(0, completed_prev - completed)
             else:
-                # First operation: backlog = unprocessed units
-                backlog = pending  # which is: size_qty - completed - rejected
-
-            wip = int(backlog)
+                # First operation: no upstream → WIP = 0
+                wip = 0
 
             metrics_by_op.append({
                 "operation": op,

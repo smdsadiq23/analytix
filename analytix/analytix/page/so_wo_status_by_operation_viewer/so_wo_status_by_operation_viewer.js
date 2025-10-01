@@ -206,7 +206,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
                   <table class="kpi-table" id="so-op-metrics-table">
                     <thead>
                       <tr>
-                        <th>Process</th>
+                        <th>Operation</th>
                         <th>Size</th>
                         <th>Total Units</th>
                         <th>Completed Units</th>
@@ -270,7 +270,7 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
                   <table class="kpi-table" id="wo-op-metrics-table">
                     <thead>
                       <tr>
-                        <th>Process</th>
+                        <th>Operation</th>
                         <th>Size</th>
                         <th>Total Units</th>
                         <th>Completed Units</th>
