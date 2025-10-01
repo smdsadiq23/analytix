@@ -477,10 +477,12 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		if (!metrics.length) {
 			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`);
 		} else {
-			// 🔑 Sort by sort_order for correct sequence
+			// 🔑 Sort by sort_order (ensure numeric comparison)
 			const sortedMetrics = [...metrics].sort((a, b) => {
-				return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
-				       (a.operation ?? "").localeCompare(b.operation ?? "");
+				const aOrder = a.sort_order != null ? Number(a.sort_order) : 9999;
+				const bOrder = b.sort_order != null ? Number(b.sort_order) : 9999;
+				if (aOrder !== bOrder) return aOrder - bOrder;
+				return (a.operation || "").localeCompare(b.operation || "");
 			});
 
 			sortedMetrics.forEach((r) => {
@@ -558,10 +560,12 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 		if (!metrics.length) {
 			$opTbody.append(`<tr><td colspan="8">No operations found</td></tr>`);
 		} else {
-			// 🔑 Sort by sort_order for correct sequence
+			// 🔑 Sort by sort_order (ensure numeric comparison)
 			const sortedMetrics = [...metrics].sort((a, b) => {
-				return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
-				       (a.operation ?? "").localeCompare(b.operation ?? "");
+				const aOrder = a.sort_order != null ? Number(a.sort_order) : 9999;
+				const bOrder = b.sort_order != null ? Number(b.sort_order) : 9999;
+				if (aOrder !== bOrder) return aOrder - bOrder;
+				return (a.operation || "").localeCompare(b.operation || "");
 			});
 
 			sortedMetrics.forEach((r) => {
@@ -589,10 +593,12 @@ frappe.pages["so-wo-status-by-operation-viewer"].on_page_load = function (wrappe
 	function renderChart(canvasId, metrics, title) {
 		if (!metrics || !metrics.length) return;
 
-		// 🔑 Sort metrics by sort_order
+		// 🔑 Sort metrics by sort_order (ensure numeric comparison)
 		const sortedMetrics = [...metrics].sort((a, b) => {
-			return (a.sort_order ?? 999) - (b.sort_order ?? 999) || 
-			       (a.operation ?? "").localeCompare(b.operation ?? "");
+			const aOrder = a.sort_order != null ? Number(a.sort_order) : 9999;
+			const bOrder = b.sort_order != null ? Number(b.sort_order) : 9999;
+			if (aOrder !== bOrder) return aOrder - bOrder;
+			return (a.operation || "").localeCompare(b.operation || "");
 		});
 
 		// Get unique operations in sorted order
