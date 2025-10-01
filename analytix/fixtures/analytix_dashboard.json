@@ -1,5 +1,19 @@
 [
  {
+  "dashboard": null,
+  "description": "Defective Units and Rejected Units and its percentage vs Scanned Units",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Quality",
+  "modified": "2025-10-01 13:31:32.357165",
+  "name": "fkr3nedcic",
+  "route_override": "/app/defective-and-rejections-viewer",
+  "sort_order": 0,
+  "title": "Defective and Rejections"
+ },
+ {
   "dashboard": "",
   "description": "Hourly Output vs Target",
   "docstatus": 0,
