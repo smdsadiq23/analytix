@@ -28,7 +28,7 @@ frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
   // ---------- CONFIG ----------
   const REPORT_NAME = "Cell Output vs Plan";
   const MAX_RANGE_DAYS = 45;
-  const COLORS = { output: "#96BE37", target: "#ECAD4B" };
+  const COLORS = { output: "#96BE37", plan: "#ECAD4B" };
 
   // ---------- Controls ----------
   const fDate = page.add_field({
@@ -158,7 +158,7 @@ frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
       const rows = res.message?.result || [];
       const labels = rows.map(r => r.hour_label || "");
       const output = rows.map(r => parseFloat(r.output) || 0);
-      const target = rows.map(r => parseFloat(r.target) || 0);
+      const plan = rows.map(r => parseFloat(r.plan) || 0);
 
       await loadChartJs();
       const ctx = document.getElementById("chartHourly").getContext("2d");
@@ -180,8 +180,8 @@ frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
             {
               type: "line",
               label: "Plan (Qty)",
-              data: target,
-              borderColor: COLORS.target,
+              data: plan,
+              borderColor: COLORS.plan,
               backgroundColor: "transparent",
               borderWidth: 2,
               pointRadius: 2,
@@ -240,15 +240,15 @@ frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
 
       const labels = [];
       const output = [];
-      const target = [];
+      const plan = [];
 
       results.forEach((res, i) => {
         const rows = res.message?.result || [];
         const out = rows.reduce((sum, r) => sum + (parseFloat(r.output) || 0), 0);
-        const tgt = rows.reduce((sum, r) => sum + (parseFloat(r.target) || 0), 0);
+        const tgt = rows.reduce((sum, r) => sum + (parseFloat(r.plan) || 0), 0);
         labels.push(fmtDMY(dates[i]));
         output.push(out);
-        target.push(tgt);
+        plan.push(tgt);
       });
 
       await loadChartJs();
@@ -271,8 +271,8 @@ frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
             {
               type: "line",
               label: "Plan (Qty)",
-              data: target,
-              borderColor: COLORS.target,
+              data: plan,
+              borderColor: COLORS.plan,
               backgroundColor: "transparent",
               borderWidth: 2,
               pointRadius: 2,
