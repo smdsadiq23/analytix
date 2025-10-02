@@ -25,7 +25,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     </div>
   `).prependTo($root);
 
-
   // ---------- CONFIG ----------
   const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
   const APPLY_COMPANY_FILTER = true; // only if DocType actually has "company"
