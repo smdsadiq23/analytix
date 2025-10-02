@@ -15,13 +15,13 @@
  },
  {
   "dashboard": "",
-  "description": "Hourly Output vs Target",
+  "description": "Hourly and Daily Output vs Target",
   "docstatus": 0,
   "doctype": "Analytix Dashboard",
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Productivity",
-  "modified": "2025-09-25 18:49:13.059372",
+  "modified": "2025-10-02 11:46:47.803893",
   "name": "q900uk5ug8",
   "route_override": "/app/output-target-viewer",
   "sort_order": 0,
@@ -35,10 +35,10 @@
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Productivity",
-  "modified": "2025-09-24 19:16:53.736593",
+  "modified": "2025-10-02 11:49:39.704218",
   "name": "7bigf8fr66",
   "route_override": "/app/flow-rate-viewer",
-  "sort_order": 1,
+  "sort_order": 2,
   "title": "Flow Rate"
  },
  {
@@ -68,5 +68,19 @@
   "route_override": "/app/so-wo-status-by-physical-cell-viewer",
   "sort_order": 1,
   "title": "SO WO Status by Physical Cell"
+ },
+ {
+  "dashboard": null,
+  "description": "Hourly and Daily Output vs Cell Plan",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Productivity",
+  "modified": "2025-10-02 11:49:31.042108",
+  "name": "tlgdi7e8e6",
+  "route_override": "/app/cell-output-vs-plan-viewer",
+  "sort_order": 1,
+  "title": "Cell Output vs Plan"
  }
 ]

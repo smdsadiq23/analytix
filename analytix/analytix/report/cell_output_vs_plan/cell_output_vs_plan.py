@@ -1,15 +1,6 @@
 # Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
-# import frappe
-
-
-# file: analytix/analytix/report/cell_output_vs_plan/cell_output_vs_plan.py
-# Copyright (c) 2025, CognitionX Logic India Private Limited
-# For license information, please see license.txt
-
-from __future__ import annotations
-
 import frappe
 from datetime import datetime, timedelta
 from analytix.utils.company import resolve_company, add_company_condition
