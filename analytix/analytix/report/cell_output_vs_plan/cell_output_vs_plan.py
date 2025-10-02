@@ -8,10 +8,7 @@ from analytix.utils.company import resolve_company, add_company_condition
 
 def execute(filters=None):
     """
-    Cell Output vs Plan (Hourly)
-    - Returns output ONLY from the LAST operation of each Physical Cell,
-      as defined in `tabTracking Order Physical Cell Last Operation`.
-    - Plan = 0 (placeholder).
+    Cell Output vs Plan (Hourly) — WITH DEBUG LOGS
     """
     filters = filters or {}
     if not filters.get("date"):
@@ -21,13 +18,11 @@ def execute(filters=None):
     start_dt = datetime.combine(day, datetime.min.time())
     end_dt = start_dt + timedelta(days=1)
 
-    # ---- Company scoping ----
     company = resolve_company(explicit=filters.get("company"))
 
-    # ---- Base conditions ----
     conds = [
         "isl.log_status = 'Completed'",
-        "isl.status IN ('Counted', 'Activated', 'Pass')",  # ✅ 'Pass', not 'Passed'
+        "isl.status IN ('Counted', 'Activated', 'Pass')",
         "isl.logged_time >= %(start_dt)s",
         "isl.logged_time < %(end_dt)s",
     ]
@@ -35,7 +30,6 @@ def execute(filters=None):
 
     add_company_condition(conds, params, table_alias="tor", company=company)
 
-    # ---- Physical Cell filter ----
     if filters.get("physical_cell"):
         conds.append("isl.physical_cell = %(physical_cell)s")
         params["physical_cell"] = filters["physical_cell"]
@@ -47,9 +41,12 @@ def execute(filters=None):
 
     where_clause = " AND ".join(conds)
 
-    # ---- Query: INNER JOIN to ensure ONLY last-operation logs are included ----
-    rows = frappe.db.sql(
-        f"""
+    # 🔍 DEBUG: Print filters and params
+    frappe.msgprint(f"<b>Filters:</b> {frappe.as_json(filters)}", alert=True)
+    frappe.msgprint(f"<b>Params:</b> {frappe.as_json(params)}", alert=True)
+    frappe.msgprint(f"<b>WHERE clause:</b> {where_clause}", alert=True)
+
+    query = f"""
         SELECT
             DATE(isl.logged_time) AS date,
             HOUR(isl.logged_time) AS hour_num,
@@ -65,19 +62,23 @@ def execute(filters=None):
             ON pi.component = tc.name AND tc.is_main = 1
         INNER JOIN `tabTracking Order` tor 
             ON tc.parent = tor.name
-        -- ✅ CRITICAL: INNER JOIN to Last Operation table via tor.name
         INNER JOIN `tabTracking Order Physical Cell Last Operation` lo
             ON lo.parent = tor.name
             AND lo.physical_cell = isl.physical_cell
-            AND lo.operation = isl.operation   -- ✅ Enforce match
+            AND lo.operation = isl.operation
         WHERE {where_clause}
         GROUP BY DATE(isl.logged_time), HOUR(isl.logged_time),
                  isl.physical_cell, lo.operation
         ORDER BY hour_num ASC
-        """,
-        params,
-        as_dict=True,
-    )
+    """
+
+    # 🔍 DEBUG: Print full query
+    frappe.msgprint(f"<b>Full Query:</b><pre>{frappe.safe_decode(query % params)}</pre>", wide=True)
+
+    rows = frappe.db.sql(query, params, as_dict=True)
+
+    # 🔍 DEBUG: Row count
+    frappe.msgprint(f"<b>Rows returned:</b> {len(rows)}", alert=True)
 
     columns = [
         {"label": "Date",                 "fieldname": "date",          "fieldtype": "Date",  "width": 100},
