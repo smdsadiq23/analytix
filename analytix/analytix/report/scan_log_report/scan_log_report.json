@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-10-06 16:42:07.699027",
+ "modified": "2025-10-06 16:45:45.460409",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Scan Log Report",
@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0
