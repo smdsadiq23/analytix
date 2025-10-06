@@ -82,5 +82,19 @@
   "route_override": "/app/cell-output-vs-plan-viewer",
   "sort_order": 1,
   "title": "Cell Output vs Plan"
+ },
+ {
+  "dashboard": null,
+  "description": "Detailed extract of the Scan Logs",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Extracts",
+  "modified": "2025-10-06 16:59:34.910988",
+  "name": "49l3md0c15",
+  "route_override": "/app/query-report/Scan%20Log%20Report",
+  "sort_order": 0,
+  "title": "Scan Log Report"
  }
 ]
