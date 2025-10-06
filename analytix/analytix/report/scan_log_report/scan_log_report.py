@@ -53,7 +53,7 @@ def get_data(filters):
     conditions = [
         "isl.log_status = 'Completed'",
         "tbc.parentfield = 'component_bundle_configurations'",
-        "tbc.bc_name LIKE '%-A'" # Temporary Condition. Need to check with Hassan about ths column and modify
+        "tbc.bc_name LIKE '%%-A'" # Temporary Condition. Need to check with Hassan about ths column and modify
     ]
 
     # Date Range Filter
