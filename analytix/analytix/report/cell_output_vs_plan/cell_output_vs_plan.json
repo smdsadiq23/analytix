@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-09-25 18:37:43.845426",
+ "modified": "2025-10-06 22:01:06.815700",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Cell Output vs Plan",
@@ -23,6 +23,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

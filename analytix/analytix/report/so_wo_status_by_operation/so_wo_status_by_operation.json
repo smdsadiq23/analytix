@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-09-29 11:30:16.568386",
+ "modified": "2025-10-06 22:00:43.643070",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "SO WO Status by Operation",
@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

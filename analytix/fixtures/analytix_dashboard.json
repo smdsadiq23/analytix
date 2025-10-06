@@ -110,5 +110,47 @@
   "route_override": "/app/query-report/Kill%20Garment%20Report",
   "sort_order": 3,
   "title": "Kill Garment Report"
+ },
+ {
+  "dashboard": null,
+  "description": "Cutting Balance Report",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2025-10-06 21:59:24.789666",
+  "name": "gavnpi4cfb",
+  "route_override": "/app/query-report/Cutting%20Balance%20Report",
+  "sort_order": 0,
+  "title": "Cutting Balance Report"
+ },
+ {
+  "dashboard": null,
+  "description": "Cutting Completion Report",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2025-10-06 21:59:15.727761",
+  "name": "gokjmkik0s",
+  "route_override": "/app/query-report/Cutting%20Completion%20Report",
+  "sort_order": 1,
+  "title": "Cutting Completion Report"
+ },
+ {
+  "dashboard": null,
+  "description": "Size Set Follow-up Report",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": "",
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2025-10-06 21:58:56.061669",
+  "name": "ictl6f4mt0",
+  "route_override": "/app/query-report/Size%20Set%20Follow-up%20Report",
+  "sort_order": 2,
+  "title": "Size Set Follow-up Report"
  }
 ]
