@@ -50,7 +50,11 @@ def get_columns():
     ]
 
 def get_data(filters):
-    conditions = ["isl.log_status = 'Completed'"]
+    conditions = [
+        "isl.log_status = 'Completed'",
+        "tbc.parentfield = 'component_bundle_configurations'",
+        "tbc.bc_name LIKE '%-A'" # Temporary Condition. Need to check with Hassan about ths column and modify
+    ]
 
     # Date Range Filter
     if filters.get("from_date"):
@@ -73,7 +77,7 @@ def get_data(filters):
             DATE(isl.logged_time) AS `date`,
             isl.logged_time AS `logged_time`,
             isl.scan_time AS `scan_time`,
-            soi.custom_ex_fty_date AS `ex_fty_date`,
+            DATE(soi.custom_ex_fty_date) AS `ex_fty_date`,
             isl.owner AS `user`,
             itm.brand AS `brand`,   
             tbc.sales_order AS `sales_order`,
@@ -113,7 +117,7 @@ def get_data(filters):
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
             ON tor.name = tbc.parent 
             AND pi.size = tbc.size 
-            AND tc.component_name = tbc.component
+            AND tc.name = tbc.component
         LEFT JOIN `tabItem` itm ON tor.item = itm.name
         LEFT JOIN `tabSales Order` so ON tbc.sales_order = so.name
         LEFT JOIN `tabSales Order Item` soi 
