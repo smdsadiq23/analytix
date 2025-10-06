@@ -96,5 +96,19 @@
   "route_override": "/app/query-report/Scan%20Log%20Report",
   "sort_order": 0,
   "title": "Scan Log Report"
+ },
+ {
+  "dashboard": null,
+  "description": "Kill Garment Report",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2025-10-06 20:31:47.309935",
+  "name": "pm0ft0qo9e",
+  "route_override": "/app/query-report/Kill%20Garment%20Report",
+  "sort_order": 3,
+  "title": "Kill Garment Report"
  }
 ]

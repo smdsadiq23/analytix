@@ -1,0 +1,18 @@
+// Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
+// For license information, please see license.txt
+
+frappe.query_reports["Kill Garment Report"] = {
+	"filters": [
+
+	],
+
+  onload(report) {
+    CX.mountBreadcrumb({
+      wrapper: report.page.wrapper || report.page.$wrapper,
+      trail: [
+        { label: "KPI Hub", href: "/app/kpi-hub" },
+        { label: "Kill Garment Report" }
+      ]
+    });
+  }
+};
