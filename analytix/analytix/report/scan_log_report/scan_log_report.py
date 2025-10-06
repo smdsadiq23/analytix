@@ -14,9 +14,9 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 100},
-        {"label": _("Logged Time"), "fieldname": "logged_time", "fieldtype": "Datetime", "width": 160},
-        {"label": _("Scan Time"), "fieldname": "scan_time", "fieldtype": "Datetime", "width": 160},
+        {"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
+        {"label": _("Logged Time"), "fieldname": "logged_time", "fieldtype": "Datetime", "width": 180},
+        {"label": _("Scan Time"), "fieldname": "scan_time", "fieldtype": "Datetime", "width": 180},
         {"label": _("Ex Factory Date"), "fieldname": "ex_fty_date", "fieldtype": "Date", "width": 120},
         {"label": _("User"), "fieldname": "user", "fieldtype": "Data", "width": 150},
         {"label": _("Brand"), "fieldname": "brand", "fieldtype": "Link", "options": "Brand", "width": 120},
