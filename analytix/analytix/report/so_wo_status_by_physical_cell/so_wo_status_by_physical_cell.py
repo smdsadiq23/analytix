@@ -1,101 +1,433 @@
-# Copyright (c) 2025, CognitionX Logic India Private Limited
+# Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
 import frappe
-from datetime import datetime, timedelta
-from analytix.utils.company import resolve_company, add_company_condition
+from frappe.utils import now_datetime
 
 
 def execute(filters=None):
-    """
-    Cell Output vs Plan (Plan = 0 for now)
-    - Shows actual output per hour from the LAST operation of each selected Physical Cell.
-    - Target is hardcoded to 0 (to be replaced later with real plan data).
-    - Filters: physical_cell OR physical_cell_csv (multi-select).
-    """
     filters = filters or {}
-    if not filters.get("date"):
-        frappe.throw("Please select a Date.")
+    summary_so = get_summary_so_by_cell(filters)
+    summary_wo = get_summary_wo_by_cell(filters)
+    detail_so = get_detail_so_by_cell(filters.get("sales_order"))
+    detail_wo = get_detail_wo_by_cell(filters.get("work_order"))
 
-    day = frappe.utils.getdate(filters["date"])
-    start_dt = datetime.combine(day, datetime.min.time())
-    end_dt = start_dt + timedelta(days=1)
-
-    # ---- Company scoping ----
-    company = resolve_company(explicit=filters.get("company"))
-
-    # ---- Build conditions and params ----
-    conds = [
-        "isl.log_status = 'Completed'",
-        "isl.status IN ('Counted', 'Activated', 'Pass')",
-        "isl.logged_time >= %(start_dt)s",
-        "isl.logged_time < %(end_dt)s",
+    return [], [], None, None, [
+        {"name": "summary_so", "data": summary_so or []},
+        {"name": "summary_wo", "data": summary_wo or []},
+        {"name": "detail_so", "data": detail_so or {}},
+        {"name": "detail_wo", "data": detail_wo or {}},
     ]
-    params = {"start_dt": start_dt, "end_dt": end_dt}
 
-    add_company_condition(conds, params, table_alias="tor", company=company)
 
-    # ---- Physical Cell filter (CSV or single) ----
-    pc_csv = (filters.get("physical_cell_csv") or "").strip().strip(",")
-    if filters.get("physical_cell") and not pc_csv:
-        pc_csv = filters["physical_cell"]
+def _build_date_conditions(filters, params, alias="soi"):
+    conds = []
+    if filters.get("date_range"):
+        start, end = filters["date_range"]
+        conds.append(f"DATE({alias}.custom_ex_fty_date) BETWEEN %(start)s AND %(end)s")
+        params.update({"start": start, "end": end})
+    else:
+        year = now_datetime().year
+        conds.append(f"YEAR({alias}.custom_ex_fty_date) = %(year)s")
+        params["year"] = year
+    return conds
 
-    if not pc_csv:
-        frappe.throw("Please select at least one Physical Cell.")
 
-    conds.append("FIND_IN_SET(isl.physical_cell, %(pc_csv)s)")
-    params["pc_csv"] = pc_csv
+def get_summary_so_by_cell(filters):
+    """Per-Sales Order summary for a given Physical Cell (uses that cell’s last operation; dup-safe)."""
+    if not filters.get("physical_cell"):
+        return []
 
-    where_clause = " AND ".join(conds)
+    params = {"physical_cell": filters["physical_cell"]}
+    so_conds = ["so.docstatus = 1"]
+    so_where = " AND ".join(so_conds)
+    soi_date_conds = _build_date_conditions(filters, params, alias="soi")
+    soi_date_where = " AND ".join(soi_date_conds) if soi_date_conds else "1=1"
 
-    # ---- Main Query: Only last-operation output per Physical Cell ----
-    rows = frappe.db.sql(
+    return frappe.db.sql(
         f"""
         SELECT
-            DATE(isl.logged_time) AS date,
-            HOUR(isl.logged_time) AS hour_num,
-            CONCAT(
-                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
-                ':00 - ',
-                LPAD(CAST(HOUR(isl.logged_time) AS CHAR), 2, '0'),
-                ':59'
-            ) AS hour_label,
-            isl.physical_cell,
-            COALESCE(SUM(pi.quantity), 0) AS output,
-            0 AS target  -- Placeholder; will be replaced with real plan later
-        FROM `tabItem Scan Log` isl
-        INNER JOIN `tabProduction Item` pi 
-            ON isl.production_item = pi.name
-        INNER JOIN `tabTracking Component` tc 
-            ON pi.component = tc.name AND tc.is_main = 1
-        INNER JOIN `tabTracking Order` tor 
-            ON tc.parent = tor.name
-        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
-            ON topclo.parent = tor.name
-            AND topclo.physical_cell = isl.physical_cell
-            AND topclo.operation = isl.operation
-        WHERE {where_clause}
-        GROUP BY DATE(isl.logged_time), HOUR(isl.logged_time), isl.physical_cell
-        ORDER BY isl.physical_cell, hour_num
+            so.name AS so_number,
+            so.total_qty AS so_quantity,
+            COALESCE(sa.completed_units, 0) AS completed_units,
+            COALESCE(sa.rejected_units, 0) AS rejected_units,
+            GREATEST(
+                so.total_qty - COALESCE(sa.completed_units, 0) - COALESCE(sa.rejected_units, 0),
+                0
+            ) AS pending_units
+        FROM `tabSales Order` so
+        INNER JOIN (
+            SELECT DISTINCT soi.parent
+            FROM `tabSales Order Item` soi
+            INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+            WHERE soi.custom_ex_fty_date IS NOT NULL
+              AND itm.custom_select_master = 'Finished Goods'
+              AND {soi_date_where}
+        ) soi_ok ON soi_ok.parent = so.name
+        LEFT JOIN (
+            SELECT 
+                tbc.sales_order,
+                SUM(CASE 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('Counted','Activated','Pass') 
+                    THEN pi.quantity ELSE 0 
+                END) AS completed_units,
+                COUNT(CASE 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                    THEN 1
+                END) AS rejected_units
+            FROM `tabTracking Order Bundle Configuration` tbc
+            INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
+                ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
+            INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = topclo.operation
+            INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed' AND isl.operation = opm.operation
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.sales_order IS NOT NULL
+            GROUP BY tbc.sales_order
+        ) sa ON sa.sales_order = so.name
+        WHERE {so_where}
+        HAVING so_quantity > 0
+        ORDER BY so.name
         """,
         params,
         as_dict=True,
     )
 
-    # ---- Columns ----
-    columns = [
-        {"label": "Date",                   "fieldname": "date",            "fieldtype": "Date",    "width": 100},
-        {"label": "Hour (HH:MM - HH:MM)",   "fieldname": "hour_label",      "fieldtype": "Data",    "width": 160},
-        {"label": "Physical Cell",          "fieldname": "physical_cell",   "fieldtype": "Link",    "options": "Physical Cell", "width": 160},
-        {"label": "Output (Qty)",           "fieldname": "output",          "fieldtype": "Float",   "width": 130},
-        {"label": "Plan (Qty)",             "fieldname": "target",          "fieldtype": "Float",   "width": 130},
-    ]
 
-    # ---- Summary ----
-    total_output = sum(r.get("output") or 0 for r in rows)
-    summary = [
-        {"label": "Total Output (Qty)", "value": total_output, "indicator": "green" if total_output else "gray"},
-        {"label": "Total Plan (Qty)",   "value": 0,            "indicator": "orange"},
-    ]
+def get_summary_wo_by_cell(filters):
+    """Per-Work Order summary for a given Physical Cell (uses that cell’s last operation; dup-safe)."""
+    if not filters.get("physical_cell"):
+        return []
 
-    return columns, rows, None, None, summary
+    params = {"physical_cell": filters["physical_cell"]}
+    wo_conds = ["wo.docstatus = 1"]
+    wo_where = " AND ".join(wo_conds)
+    soi_date_conds = _build_date_conditions(filters, params, alias="soi")
+    soi_date_where = " AND ".join(soi_date_conds) if soi_date_conds else "1=1"
+
+    return frappe.db.sql(
+        f"""
+        SELECT
+            wo.name AS wo_number,
+            wo.qty AS wo_quantity,
+            COALESCE(sa.completed_units, 0) AS completed_units,
+            COALESCE(sa.rejected_units, 0) AS rejected_units,
+            GREATEST(
+                wo.qty - COALESCE(sa.completed_units, 0) - COALESCE(sa.rejected_units, 0),
+                0
+            ) AS pending_units
+        FROM `tabWork Order` wo
+        INNER JOIN (
+            SELECT parent AS work_order, sales_order
+            FROM `tabWork Order Sales Orders`
+            WHERE sales_order IS NOT NULL
+            GROUP BY parent, sales_order
+        ) woso ON woso.work_order = wo.name
+        INNER JOIN (
+            SELECT DISTINCT soi.parent AS sales_order, soi.item_code
+            FROM `tabSales Order Item` soi
+            INNER JOIN `tabItem` itm ON itm.name = soi.item_code
+            WHERE soi.custom_ex_fty_date IS NOT NULL
+              AND itm.custom_select_master = 'Finished Goods'
+              AND {soi_date_where}
+        ) soi_ok ON soi_ok.sales_order = woso.sales_order AND soi_ok.item_code = wo.production_item
+        LEFT JOIN (
+            SELECT 
+                tbc.work_order,
+                SUM(CASE 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('Counted','Activated','Pass') 
+                    THEN pi.quantity ELSE 0 
+                END) AS completed_units,
+                COUNT(CASE 
+                    WHEN isl.log_status = 'Completed'
+                     AND isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
+                    THEN 1
+                END) AS rejected_units
+            FROM `tabTracking Order Bundle Configuration` tbc
+            INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
+                ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
+            INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = topclo.operation
+            INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed' AND isl.operation = opm.operation
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.work_order IS NOT NULL
+            GROUP BY tbc.work_order
+        ) sa ON sa.work_order = wo.name
+        WHERE {wo_where}
+        HAVING wo_quantity > 0
+        ORDER BY wo.name
+        """,
+        params,
+        as_dict=True,
+    )
+
+
+def get_detail_so_by_cell(so_name):
+    if not so_name:
+        return {}
+
+    # Basic SO details
+    so_details = frappe.db.sql("""
+        SELECT 
+            so.name AS so_number,
+            so.total_qty AS so_quantity,
+            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY soi.item_code SEPARATOR ' | ') AS ex_factory_date,
+            GROUP_CONCAT(DISTINCT itm.brand ORDER BY itm.item_name SEPARATOR ' | ') AS fty_client,
+            GROUP_CONCAT(DISTINCT itm.item_name ORDER BY itm.item_name SEPARATOR ' | ') AS product_family,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY itm.item_name SEPARATOR ' | ') AS fty_prod_id,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY itm.item_name SEPARATOR ' | ') AS style,
+            GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY itm.item_name SEPARATOR ' | ') AS color,
+            GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY itm.item_name SEPARATOR ' | ') AS material
+        FROM `tabSales Order` so
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+        INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
+        WHERE so.name = %s AND so.docstatus = 1
+        GROUP BY so.name, so.total_qty
+    """, (so_name,), as_dict=True)
+
+    if not so_details:
+        return {}
+
+    # Get size-wise quantities
+    size_qty_list = frappe.db.sql("""
+        SELECT custom_size, SUM(qty) AS qty
+        FROM `tabSales Order Item`
+        WHERE parent = %s
+        GROUP BY custom_size
+    """, (so_name,), as_dict=True)
+    size_qty_map = {row.custom_size or "": row.qty for row in size_qty_list}
+    sizes = list(size_qty_map.keys())
+
+    if not sizes:
+        return {"details": so_details[0], "metrics_by_cell": []}
+
+    # Get ALL physical cells mapped to this SO
+    cells = frappe.db.sql("""
+        SELECT DISTINCT topclo.physical_cell, topclo.operation
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+    """, (so_name,), as_dict=True)
+
+    if not cells:
+        return {"details": so_details[0], "metrics_by_cell": []}
+
+    # Fetch LATEST scan per (PI, Operation) — deduplicated!
+    scan_logs = frappe.db.sql("""
+        SELECT
+            topclo.physical_cell,
+            tbc.size,
+            pi.quantity AS pi_qty,
+            isl.status
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = topclo.operation
+        INNER JOIN `tabProduction Item` pi 
+            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+        INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN (
+            SELECT production_item, operation, MAX(creation) AS max_creation
+            FROM `tabItem Scan Log`
+            WHERE log_status = 'Completed'
+              AND status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+            GROUP BY production_item, operation
+        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
+        INNER JOIN `tabItem Scan Log` isl 
+            ON isl.production_item = pi.name 
+            AND isl.operation = opm.operation
+            AND isl.creation = latest_scan.max_creation
+        WHERE tbc.sales_order = %s
+          AND tbc.parentfield = 'component_bundle_configurations'
+    """, (so_name,), as_dict=True)
+
+    # Initialize all (cell, size) combos
+    metrics = {}
+    for cell_row in cells:
+        cell = cell_row.physical_cell
+        size_key = (cell, cell_row.operation)  # we group by cell; operation is implied
+        for size in sizes:
+            key = (cell, size)
+            metrics[key] = {
+                "completed": 0,
+                "rejected": 0,
+                "size_qty": size_qty_map[size]
+            }
+
+    # Apply scan data
+    for log in scan_logs:
+        key = (log.physical_cell, log.size or "")
+        if key in metrics:
+            if log.status in ('Counted', 'Activated', 'Pass'):
+                metrics[key]["completed"] += log.pi_qty or 0
+            elif log.status in ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject'):
+                metrics[key]["rejected"] += 1
+
+    # Build final list
+    metrics_by_cell = []
+    for (cell, size), vals in metrics.items():
+        total = vals["size_qty"]
+        completed = vals["completed"]
+        rejected = vals["rejected"]
+        pending = max(total - completed - rejected, 0)
+        completion_pct = min((completed / total) * 100, 100.0) if total > 0 else 0.0
+
+        metrics_by_cell.append({
+            "physical_cell": cell,
+            "size": size,
+            "size_qty": total,
+            "completed_units": completed,
+            "rejected_units": rejected,
+            "pending_units": pending,
+            "completion_pct": round(completion_pct, 1)
+        })
+
+    metrics_by_cell.sort(key=lambda x: (x["physical_cell"], x["size"]))
+    return {
+        "details": so_details[0],
+        "metrics_by_cell": metrics_by_cell
+    }
+
+
+def get_detail_wo_by_cell(wo_name):
+    if not wo_name:
+        return {}
+
+    # WO details
+    wo_details = frappe.db.sql("""
+        SELECT 
+            wo.name AS wo_number,
+            wo.qty AS wo_quantity,        
+            GROUP_CONCAT(DISTINCT woli.sales_order ORDER BY woli.sales_order SEPARATOR ' | ') AS sales_order,
+            GROUP_CONCAT(DISTINCT CONVERT(woli.wo_allocated_qty, SIGNED) ORDER BY woli.sales_order SEPARATOR ' | ') AS wo_allocated_qty,
+            GROUP_CONCAT(DISTINCT DATE(soi.custom_ex_fty_date) ORDER BY woli.sales_order SEPARATOR ' | ') AS ex_factory_date,
+            GROUP_CONCAT(DISTINCT itm.brand ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_client,
+            GROUP_CONCAT(DISTINCT itm.item_name ORDER BY woli.sales_order SEPARATOR ' | ') AS product_family,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS fty_prod_id,
+            GROUP_CONCAT(DISTINCT itm.name ORDER BY woli.sales_order SEPARATOR ' | ') AS style,
+            GROUP_CONCAT(DISTINCT itm.custom_colour_code ORDER BY woli.sales_order SEPARATOR ' | ') AS color,
+            GROUP_CONCAT(DISTINCT itm.custom_material_composition ORDER BY woli.sales_order SEPARATOR ' | ') AS material
+        FROM `tabWork Order` wo
+        INNER JOIN (
+            SELECT parent AS work_order, sales_order, SUM(work_order_allocated_qty) AS wo_allocated_qty
+            FROM `tabWork Order Line Item`
+            GROUP BY parent, sales_order
+        ) woli ON woli.work_order = wo.name
+        INNER JOIN (
+            SELECT parent, custom_ex_fty_date, item_code
+            FROM `tabSales Order Item`
+            GROUP BY parent, custom_ex_fty_date, item_code
+        ) soi ON soi.parent = woli.sales_order AND soi.item_code = wo.production_item
+        INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
+        WHERE wo.name = %s AND wo.docstatus = 1
+        GROUP BY wo.name, wo.qty
+    """, (wo_name,), as_dict=True)
+
+    if not wo_details:
+        return {}
+
+    # Size-wise quantities
+    size_qty_list = frappe.db.sql("""
+        SELECT size, SUM(work_order_allocated_qty) AS qty
+        FROM `tabWork Order Line Item`
+        WHERE parent = %s
+        GROUP BY size
+    """, (wo_name,), as_dict=True)
+    size_qty_map = {row.size or "": row.qty for row in size_qty_list}
+    sizes = list(size_qty_map.keys())
+
+    if not sizes:
+        return {"details": wo_details[0], "metrics_by_cell": []}
+
+    # Get ALL physical cells mapped to this WO
+    cells = frappe.db.sql("""
+        SELECT DISTINCT topclo.physical_cell, topclo.operation
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+    """, (wo_name,), as_dict=True)
+
+    if not cells:
+        return {"details": wo_details[0], "metrics_by_cell": []}
+
+    # Fetch LATEST scan per (PI, Operation)
+    scan_logs = frappe.db.sql("""
+        SELECT
+            topclo.physical_cell,
+            tbc.size,
+            pi.quantity AS pi_qty,
+            isl.status
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = topclo.operation
+        INNER JOIN `tabProduction Item` pi 
+            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+        INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN (
+            SELECT production_item, operation, MAX(creation) AS max_creation
+            FROM `tabItem Scan Log`
+            WHERE log_status = 'Completed'
+              AND status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+            GROUP BY production_item, operation
+        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
+        INNER JOIN `tabItem Scan Log` isl 
+            ON isl.production_item = pi.name 
+            AND isl.operation = opm.operation
+            AND isl.creation = latest_scan.max_creation
+        WHERE tbc.work_order = %s
+          AND tbc.parentfield = 'component_bundle_configurations'
+    """, (wo_name,), as_dict=True)
+
+    # Initialize all (cell, size) combos
+    metrics = {}
+    for cell_row in cells:
+        cell = cell_row.physical_cell
+        for size in sizes:
+            key = (cell, size)
+            metrics[key] = {
+                "completed": 0,
+                "rejected": 0,
+                "size_qty": size_qty_map[size]
+            }
+
+    # Apply scan data
+    for log in scan_logs:
+        key = (log.physical_cell, log.size or "")
+        if key in metrics:
+            if log.status in ('Counted', 'Activated', 'Pass'):
+                metrics[key]["completed"] += log.pi_qty or 0
+            elif log.status in ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject'):
+                metrics[key]["rejected"] += 1
+
+    # Build final list
+    metrics_by_cell = []
+    for (cell, size), vals in metrics.items():
+        total = vals["size_qty"]
+        completed = vals["completed"]
+        rejected = vals["rejected"]
+        pending = max(total - completed - rejected, 0)
+        completion_pct = min((completed / total) * 100, 100.0) if total > 0 else 0.0
+
+        metrics_by_cell.append({
+            "physical_cell": cell,
+            "size": size,
+            "size_qty": total,
+            "completed_units": completed,
+            "rejected_units": rejected,
+            "pending_units": pending,
+            "completion_pct": round(completion_pct, 1)
+        })
+
+    metrics_by_cell.sort(key=lambda x: (x["physical_cell"], x["size"]))
+    return {
+        "details": wo_details[0],
+        "metrics_by_cell": metrics_by_cell
+    }

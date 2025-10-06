@@ -6,6 +6,15 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 		} catch {}
 	}
 
+	// Call the shared helper
+	CX.mountBreadcrumb({
+		wrapper,
+		trail: [
+		{ label: "KPI Hub", href: "/app/kpi-hub" },
+		{ label: "SO WO Status by Physical Cell" }
+		]
+	}); 
+
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: "SO WO Status by Physical Cell",
@@ -156,12 +165,6 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 	// ========== LAYOUT ==========
 	$mount.html(`
-    <div class="breadcrumb-bar" style="padding: 8px 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; font-size: 14px; margin-bottom: 16px;">
-      <a href="/app/kpi-hub" style="color: #1f2937; text-decoration: none;">KPI Hub</a>
-      <span style="margin: 0 8px;">></span>
-      <span style="color: #6b7280;">SO WO Status by Physical Cell</span>
-    </div>
-
     <div class="kpi-tabs">
       <button class="kpi-tab active" data-tab="so">Sales Order Status</button>
       <button class="kpi-tab" data-tab="wo">Work Order Status</button>
