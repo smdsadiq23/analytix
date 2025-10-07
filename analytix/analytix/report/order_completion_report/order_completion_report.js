@@ -15,21 +15,28 @@ frappe.query_reports["Order Completion Report"] = {
     const currentField = editableFields.find(f => f.fieldname === column.fieldname);
     if (!currentField) return html;
 
-	// ✅ Extract RAW numeric value (especially for Currency)
-	let rawValue = value;
-	if (column.fieldtype === "Currency" && typeof value === "string") {
-		// Remove HTML tags and currency symbols
-		const temp = document.createElement("div");
-		temp.innerHTML = value;
-		const text = temp.textContent || temp.innerText || "";
-		// Extract number from "₹ 1,250.50" → "1250.50"
-		rawValue = text.replace(/[^\d.-]/g, "");
-		if (rawValue === "") rawValue = null;
-	}	
+    let rawValue = value;
+    if (column.fieldtype === "Currency" && typeof value === "string") {
+      const temp = document.createElement("div");
+      temp.innerHTML = value;
+      const text = temp.textContent || temp.innerText || "";
+      rawValue = text.replace(/[^\d.-]/g, "");
+      if (rawValue === "") rawValue = null;
+    }
 
-	const safeValue = rawValue != null ? rawValue : "";
-	const docname = data.ocn;
-	const itemCode = data.style;
+    const safeValue = rawValue != null ? rawValue : "";
+    const docname = data.ocn;
+    const itemCode = data.style;
+
+    // ✅ Embed data for FOB field only
+    let extraAttrs = "";
+    if (currentField.fieldname === "fob") {
+      extraAttrs = `
+        data-order-qty-plus="${flt(data.order_qty_plus)}"
+        data-cut-qty="${flt(data.cut_qty)}"
+        data-ship-qty="${flt(data.ship_qty)}"
+      `;
+    }
 
     let inputType = "number";
     if (column.fieldtype === "Currency") {
@@ -44,37 +51,77 @@ frappe.query_reports["Order Completion Report"] = {
         data-item-code="${itemCode}"
         data-custom-field="${currentField.custom_field}"
         data-fieldtype="${column.fieldtype}"
-        value="${safeValue}"
+        ${extraAttrs}
+        value="${frappe.utils.escape_html(String(safeValue))}"
         style="width:100%; box-sizing:border-box; padding:4px 6px;"
       />
     `;
   },
 
   onload(report) {
-	CX.mountBreadcrumb({
-	wrapper: report.page.wrapper || report.page.$wrapper,
-	trail: [
-		{ label: "KPI Hub", href: "/app/kpi-hub" },
-		{ label: "Order Completion Report" }
-	]
-	});
+    if (window.CX && CX.mountBreadcrumb) {
+      CX.mountBreadcrumb({
+        wrapper: report.page.wrapper || report.page.$wrapper,
+        trail: [
+          { label: "KPI Hub", href: "/app/kpi-hub" },
+          { label: "Order Completion Report" }
+        ]
+      });
+    }
 
     const $wrap = report.page.wrapper;
 
-    (report.columns || []).forEach(col => {
-      if (["good_garments", "missing_units", "fob"].includes(col.fieldname)) {
-        col.fieldtype = col.fieldtype || "Float";
+    // ✅ COLUMN INDICES FOR DATATABLE v2 (1-based)
+    const SHORT_CUTTING_LOSS_COL = 23; // adjust if needed
+    const VALUE_LOSS_COL = 24;        // adjust if needed
+
+    const updateLossCell = ($row, colIndex, value) => {
+      const $cell = $row.find(`.dt-cell__content--col-${colIndex}`);
+      if ($cell.length) {
+        if (value !== null && !isNaN(value)) {
+          $cell.html(frappe.format(value, { fieldtype: "Currency" }));
+        } else {
+          $cell.html("");
+        }
       }
-    });
+    };
+
+    const recalculateLosses = ($input) => {
+      try {
+        const order_qty_plus = flt($input.attr("data-order-qty-plus"));
+        const cut_qty = flt($input.attr("data-cut-qty"));
+        const ship_qty = flt($input.attr("data-ship-qty"));
+        const fobStr = $input.val();
+        const fob = fobStr ? flt(fobStr.replace(/,/g, "")) : null;
+
+        let short_cutting_loss = null;
+        let value_loss = null;
+
+        if (fob > 0) {
+          if (cut_qty > 0) {
+            short_cutting_loss = Math.max(0, (order_qty_plus - cut_qty) * fob);
+          }
+          if (ship_qty > 0) {
+            value_loss = Math.max(0, (cut_qty - ship_qty) * fob);
+          }
+        }
+
+        const $row = $input.closest('.dt-row'); // DataTable v2 uses .dt-row
+        updateLossCell($row, SHORT_CUTTING_LOSS_COL, short_cutting_loss);
+        updateLossCell($row, VALUE_LOSS_COL, value_loss);
+      } catch (e) {
+        console.warn("Recalc failed:", e);
+      }
+    };
 
     const save = frappe.utils.debounce(async function (e) {
       const $el = $(e.currentTarget);
+      const $row = $el.closest('.dt-row');
       const salesOrder = $el.attr("data-sales-order");
       const itemCode = $el.attr("data-item-code");
       const customField = $el.attr("data-custom-field");
       let value = $el.val();
 
-      // Parse value
       if ($el.attr("data-fieldtype") === "Float" || $el.attr("data-fieldtype") === "Int") {
         value = value === "" ? null : flt(value);
       } else if ($el.attr("data-fieldtype") === "Currency") {
@@ -89,10 +136,7 @@ frappe.query_reports["Order Completion Report"] = {
       $el.css("opacity", 0.6);
 
       try {
-        // ✅ STEP 1: Fetch the full Sales Order
         const soDoc = await frappe.db.get_doc("Sales Order", salesOrder);
-        
-        // ✅ STEP 2: Find and update the correct item row
         let itemFound = false;
         for (let item of soDoc.items) {
           if (item.item_code === itemCode) {
@@ -107,15 +151,17 @@ frappe.query_reports["Order Completion Report"] = {
           return;
         }
 
-        // ✅ STEP 3: Save the ENTIRE parent document (this updates child table)
         await frappe.call({
           method: "frappe.client.save",
-          args: {
-            doc: soDoc
-          }
+          args: { doc: soDoc }
         });
 
         frappe.show_alert({ message: __("Value saved"), indicator: "green" });
+        
+        if (customField === "custom_fob") {
+          $el.val(value);
+          recalculateLosses($el);
+        }
       } catch (error) {
         console.error("Save failed:", error);
         frappe.show_alert({ 
@@ -126,6 +172,11 @@ frappe.query_reports["Order Completion Report"] = {
         $el.css("opacity", 1);
       }
     }, 800);
+
+    // ✅ Live update
+    $wrap.on("input", '.report-editable-input[data-custom-field="custom_fob"]', function() {
+      recalculateLosses($(this));
+    });
 
     $wrap.on("input", ".report-editable-input", save);
     $wrap.on("blur", ".report-editable-input", save);
