@@ -37,7 +37,8 @@ def get_data(filters):
     
     # Build lookup maps
     cut_map = {(d["style"], d["sales_order"]): flt(d["cut_qty"]) for d in cut_data}
-    ship_map = {d["ocn"]: flt(d["ship_qty"]) for d in ship_data}
+    # ✅ Now key is (style, ocn) for ship data too
+    ship_map = {(d["style"], d["ocn"]): flt(d["ship_qty"]) for d in ship_data}
     
     result = []
     for row in order_data:
@@ -51,7 +52,7 @@ def get_data(filters):
         key = (row["style"], row["ocn"])
         order_qty_plus = flt(row["order_qty_plus"])
         cut_qty = cut_map.get(key, 0.0)
-        ship_qty = ship_map.get(row["ocn"], 0.0)
+        ship_qty = ship_map.get(key, 0.0)  # ✅ Now uses (style, ocn) key
         
         # Compute percentages safely
         cut_percent = (cut_qty / order_qty_plus * 100) if order_qty_plus else 0.0
@@ -118,14 +119,15 @@ def get_cut_summary():
     """, as_dict=1)
 
 def get_ship_summary():
-    """Get Ship Qty from the LAST operation (max idx in Operation Map)"""
+    """Get Ship Qty per Sales Order + Item from the LAST operation, using item from Tracking Order"""
     return frappe.db.sql("""
         SELECT
             so.name AS ocn,
-            COALESCE(sa.completed_units, 0) AS ship_qty
+            sa.item AS style,
+            COALESCE(SUM(sa.completed_units), 0) AS ship_qty
         FROM `tabSales Order` so
         INNER JOIN (
-            SELECT DISTINCT soi.parent
+            SELECT DISTINCT soi.parent, soi.item_code
             FROM `tabSales Order Item` soi
             INNER JOIN `tabItem` itm ON itm.name = soi.item_code
             WHERE soi.custom_ex_fty_date IS NOT NULL
@@ -134,6 +136,7 @@ def get_ship_summary():
         LEFT JOIN (
             SELECT 
                 tbc.sales_order,
+                tor.item,
                 SUM(
                     CASE 
                         WHEN isl.log_status = 'Completed'
@@ -143,7 +146,9 @@ def get_ship_summary():
                     END
                 ) AS completed_units
             FROM `tabTracking Order Bundle Configuration` tbc
-            INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+            INNER JOIN `tabTracking Order` tor 
+                ON tor.name = tbc.parent
+                AND tor.item IS NOT NULL
             INNER JOIN (
                 SELECT parent, MAX(idx) AS max_idx
                 FROM `tabOperation Map`
@@ -164,9 +169,10 @@ def get_ship_summary():
             WHERE 
                 tbc.parentfield = 'component_bundle_configurations' 
                 AND tbc.sales_order IS NOT NULL
-            GROUP BY tbc.sales_order
-        ) sa ON sa.sales_order = so.name
+            GROUP BY tbc.sales_order, tor.item  -- ✅ Group by item from Tracking Order
+        ) sa ON sa.sales_order = so.name AND sa.item = valid_so.item_code
         WHERE so.docstatus = 1
+        GROUP BY so.name, valid_so.item_code
     """, as_dict=1)
 
 # --- Helper Functions ---
