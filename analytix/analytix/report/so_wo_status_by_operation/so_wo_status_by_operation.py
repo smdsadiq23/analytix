@@ -73,7 +73,7 @@ def get_summary_so(filters):
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.sales_order IS NOT NULL
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
         WHERE so.docstatus = 1
@@ -144,7 +144,7 @@ def get_summary_wo(filters):
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.work_order IS NOT NULL
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
         WHERE wo.docstatus = 1
@@ -201,7 +201,7 @@ def get_detail_so(so_name):
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     # Build next_to_prev map and collect all operations
@@ -269,7 +269,7 @@ def get_detail_so(so_name):
             AND isl.operation = opm.operation
             AND isl.creation = latest_scan.max_creation
         WHERE tbc.sales_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations'
+          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     # Aggregate completed and rejected units per (operation, size)
@@ -379,7 +379,7 @@ def get_detail_wo(wo_name):
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     # Build next_to_prev map and collect all operations
@@ -447,7 +447,7 @@ def get_detail_wo(wo_name):
             AND isl.operation = opm.operation
             AND isl.creation = latest_scan.max_creation
         WHERE tbc.work_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations'
+          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     # Aggregate completed and rejected units per (operation, size)

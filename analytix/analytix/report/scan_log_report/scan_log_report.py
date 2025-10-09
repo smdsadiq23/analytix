@@ -53,6 +53,7 @@ def get_data(filters):
     conditions = [
         "isl.log_status = 'Completed'",
         "tbc.parentfield = 'component_bundle_configurations'",
+        "tbc.activation_status = 'Completed'",
         "tbc.bc_name LIKE '%%-A'" # Temporary Condition. Need to check with Hassan about ths column and modify
     ]
 
@@ -115,9 +116,7 @@ def get_data(filters):
         LEFT JOIN `tabTracking Order` tor ON tc.parent = tor.name
         LEFT JOIN `tabTracking Tag` tt ON pi.tracking_tag = tt.name 
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
-            ON tor.name = tbc.parent 
-            AND pi.size = tbc.size 
-            AND tc.name = tbc.component
+            ON pi.bundle_configuration = tbc.name
         LEFT JOIN `tabItem` itm ON tor.item = itm.name
         LEFT JOIN `tabSales Order` so ON tbc.sales_order = so.name
         LEFT JOIN `tabSales Order Item` soi 

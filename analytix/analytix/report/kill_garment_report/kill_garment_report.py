@@ -60,9 +60,7 @@ def get_data(filters):
         LEFT JOIN `tabTracking Order` tor ON tc.parent = tor.name
         LEFT JOIN `tabTracking Tag` tt ON pi.tracking_tag = tt.name 
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
-            ON tor.name = tbc.parent 
-            AND pi.size = tbc.size 
-            AND tc.name = tbc.component
+            ON pi.bundle_configuration = tbc.name
         LEFT JOIN `tabItem` itm ON tor.item = itm.name
         LEFT JOIN `tabSales Order` so ON tbc.sales_order = so.name
         LEFT JOIN `tabSales Order Item` soi 
@@ -73,6 +71,7 @@ def get_data(filters):
             isl.log_status = 'Completed' 
             AND isl.Status LIKE '%Reject%' 
             AND tbc.parentfield = 'component_bundle_configurations' 
+            AND tbc.activation_status = 'Completed'
             AND tbc.bc_name LIKE '%-A'
             AND isld.defect_description IS NOT NULL
     """

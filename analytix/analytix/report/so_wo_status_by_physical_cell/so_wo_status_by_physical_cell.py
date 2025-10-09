@@ -85,7 +85,7 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed' AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.sales_order IS NOT NULL
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
         WHERE {so_where}
@@ -155,7 +155,7 @@ def get_summary_wo_by_cell(filters):
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.log_status = 'Completed' AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.work_order IS NOT NULL
+            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
         WHERE {wo_where}
@@ -212,7 +212,7 @@ def get_detail_so_by_cell(so_name):
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     if not cells:
@@ -244,7 +244,7 @@ def get_detail_so_by_cell(so_name):
             AND isl.operation = opm.operation
             AND isl.creation = latest_scan.max_creation
         WHERE tbc.sales_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations'
+          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     # Initialize all (cell, size) combos
@@ -351,7 +351,7 @@ def get_detail_wo_by_cell(wo_name):
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations'
+        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     if not cells:
@@ -383,7 +383,7 @@ def get_detail_wo_by_cell(wo_name):
             AND isl.operation = opm.operation
             AND isl.creation = latest_scan.max_creation
         WHERE tbc.work_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations'
+          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     # Initialize all (cell, size) combos
