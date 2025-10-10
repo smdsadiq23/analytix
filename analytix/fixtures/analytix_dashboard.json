@@ -127,20 +127,6 @@
  },
  {
   "dashboard": null,
-  "description": "Cutting Completion Report",
-  "docstatus": 0,
-  "doctype": "Analytix Dashboard",
-  "icon": null,
-  "is_enabled": 1,
-  "kpi_group": "Reports",
-  "modified": "2025-10-06 21:59:15.727761",
-  "name": "gokjmkik0s",
-  "route_override": "/app/query-report/Cutting%20Completion%20Report",
-  "sort_order": 1,
-  "title": "Cutting Completion Report"
- },
- {
-  "dashboard": null,
   "description": "Size Set Follow-up Report",
   "docstatus": 0,
   "doctype": "Analytix Dashboard",
@@ -155,16 +141,30 @@
  },
  {
   "dashboard": null,
-  "description": "Order Completion Report",
+  "description": "Order Status Report",
   "docstatus": 0,
   "doctype": "Analytix Dashboard",
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Reports",
-  "modified": "2025-10-07 12:01:49.263269",
-  "name": "ebbvkl1hg5",
-  "route_override": "/app/query-report/Order%20Completion%20Report",
+  "modified": "2025-10-10 17:14:30.634729",
+  "name": "p5me5kg7f7",
+  "route_override": "/app/query-report/OSR",
   "sort_order": 4,
-  "title": "Order Completion Report"
+  "title": "OSR"
+ },
+ {
+  "dashboard": null,
+  "description": "Cutting Completion Report",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2025-10-10 17:14:07.891916",
+  "name": "r66tagadfa",
+  "route_override": "/app/query-report/Cutting%20Completion%20Report",
+  "sort_order": 1,
+  "title": "Cutting Completion Report"
  }
 ]
