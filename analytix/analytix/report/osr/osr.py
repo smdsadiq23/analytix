@@ -71,6 +71,7 @@ def get_data(filters):
         order_qty = flt(row["order_qty"])
         fit_order_qty = order_qty * 1.02
         fob = flt(row.get("fob")) if row.get("fob") is not None else 0.0
+        order_value = order_qty * fob
 
         # Use item_code for lookups (internal key)
         key = (row["item_code"], row["ocn"])
@@ -104,7 +105,7 @@ def get_data(filters):
             "iapl_fob": "",
             "iapl_margin": "",
             "fob": fob or "",
-            "order_value": "",
+            "order_value": order_value or "",
             "fit_order_qty": fit_order_qty,
             "unit": "",
             "cut_qty": cut_qty,
