@@ -10,10 +10,10 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 	CX.mountBreadcrumb({
 		wrapper,
 		trail: [
-		{ label: "KPI Hub", href: "/app/kpi-hub" },
-		{ label: "SO WO Status by Physical Cell" }
+			{ label: "KPI Hub", href: "/app/kpi-hub" },
+			{ label: "SO WO Status by Physical Cell" }
 		]
-	}); 
+	});
 
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -59,14 +59,14 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
     .rejected { background: #EF4444; color: white; }
     @media (max-width: 1100px) { .kpi-filter-row { flex-direction: column; align-items: stretch; } .kpi-dashboard-grid { grid-template-columns: 1fr; } }
     .awesomplete {
-    z-index: 10000 !important;
-	}
-	.awesomplete > ul {
-		z-index: 10000 !important;
-		position: absolute !important;
-		top: auto !important;
-		bottom: auto !important;
-	}
+      z-index: 10000 !important;
+    }
+    .awesomplete > ul {
+      z-index: 10000 !important;
+      position: absolute !important;
+      top: auto !important;
+      bottom: auto !important;
+    }
   </style>`).appendTo(document.head);
 
 	// ========== CLEAR BUTTON HELPER ==========
@@ -215,6 +215,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
+                        <th>WIP</th>
                         <th>Completion %</th>
                       </tr>
                     </thead>
@@ -277,6 +278,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
+                        <th>WIP</th>
                         <th>Completion %</th>
                       </tr>
                     </thead>
@@ -449,7 +451,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Sales Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="7">Select a Sales Order to view metrics</td></tr>`);
+			$opTbody.append(`<tr><td colspan="8">Select a Sales Order to view metrics</td></tr>`); // ✅ colspan=8
 			const ctx = document.getElementById("so-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -472,11 +474,12 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		const metrics = detail.metrics_by_cell || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="7">No physical cell data found</td></tr>`);
+			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`); // ✅
 		} else {
 			metrics.forEach((r) => {
 				const tot = Number(r.size_qty || 0);
 				const cmp = Number(r.completed_units || 0);
+				const wip = Number(r.wip || 0); // ✅
 				$opTbody.append(`
           <tr>
             <td>${r.physical_cell || "-"}</td>
@@ -485,6 +488,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
             <td class="completed">${cmp}</td>
             <td class="pending">${r.pending_units || 0}</td>
             <td class="rejected">${r.rejected_units || 0}</td>
+            <td class="pending">${wip}</td> <!-- ✅ WIP -->
             <td>${pct(cmp, tot)}</td>
           </tr>`);
 			});
@@ -517,7 +521,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Work Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="7">Select a Work Order to view metrics</td></tr>`);
+			$opTbody.append(`<tr><td colspan="8">Select a Work Order to view metrics</td></tr>`); // ✅
 			const ctx = document.getElementById("wo-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -544,11 +548,12 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		const metrics = detail.metrics_by_cell || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="7">No physical cell data found</td></tr>`);
+			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`); // ✅
 		} else {
 			metrics.forEach((r) => {
 				const tot = Number(r.size_qty ?? 0);
 				const cmp = Number(r.completed_units ?? 0);
+				const wip = Number(r.wip ?? 0); // ✅
 				$opTbody.append(`
           <tr>
             <td>${r.physical_cell || "-"}</td>
@@ -557,6 +562,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
             <td class="completed">${cmp}</td>
             <td class="pending">${r.pending_units ?? 0}</td>
             <td class="rejected">${r.rejected_units ?? 0}</td>
+            <td class="pending">${wip}</td> <!-- ✅ -->
             <td>${pct(cmp, tot)}</td>
           </tr>`);
 			});
@@ -573,6 +579,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 		const completed = labels.map((c) => sum(c, "completed_units"));
 		const pending = labels.map((c) => sum(c, "pending_units"));
 		const rejected = labels.map((c) => sum(c, "rejected_units"));
+		const wip = labels.map((c) => sum(c, "wip")); // ✅
 
 		loadChartJs().then(() => {
 			const canvas = document.getElementById(canvasId);
@@ -587,6 +594,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
 						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
 						{ label: "Rejected", data: rejected, backgroundColor: "#EF4444" },
+						{ label: "WIP", data: wip, backgroundColor: "#3B82F6" }, // ✅ Blue for WIP
 					],
 				},
 				options: {
