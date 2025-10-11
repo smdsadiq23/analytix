@@ -78,70 +78,68 @@ frappe.query_reports["OSR"] = {
   onload(report) {
     const $wrap = report.page.wrapper;
 
-    const save = frappe.utils.debounce(async function (e) {
-      const $el = $(e.currentTarget);
-      const ocn = $el.attr("data-ocn");
-      const style_ref = $el.attr("data-style-ref");
-      const customField = $el.attr("data-custom-field");
-      const fieldType = $el.attr("data-fieldtype");
+	const save = frappe.utils.debounce(async function (e) {
+		const $el = $(e.currentTarget);
+		const ocn = $el.attr("data-ocn");
+		const style_ref = $el.attr("data-style-ref");
+		const customField = $el.attr("data-custom-field");
+		const fieldType = $el.attr("data-fieldtype");
 
-      if (!ocn || !style_ref) {
-        frappe.throw(__("Missing OCN or Style Reference"));
-        return;
-      }
+		if (!ocn || !style_ref) {
+			frappe.throw(__("Missing OCN or Style Reference"));
+			return;
+		}
 
-      let value = $el.is("select") ? $el.val() : $el.val();
+		let value = $el.is("select") ? $el.val() : $el.val();
+		if (fieldType === "Currency") {
+			value = value ? flt(value.replace(/,/g, "")) : null;
+		} else if (fieldType === "Date") {
+			value = value || null;
+		}
 
-      if (fieldType === "Currency") {
-        value = value ? flt(value.replace(/,/g, "")) : null;
-      } else if (fieldType === "Date") {
-        value = value || null;
-      }
+		$el.css("opacity", 0.6);
 
-      $el.css("opacity", 0.6);
+		try {
+			// ✅ Use get_list to safely fetch existing record
+			const records = await frappe.db.get_list("Order Style Tracker", {
+			filters: {
+				sales_order: ocn,
+				style: style_ref
+			},
+			fields: ["name"],
+			limit: 1
+			});
 
-      try {
-        // ✅ v15-safe: use count + get_value
-        const count = await frappe.db.count("Order Style Tracker", {
-          sales_order: ocn,
-          style: style_ref
-        });
+			let doc;
+			if (records.length > 0) {
+			doc = await frappe.db.get_doc("Order Style Tracker", records[0].name);
+			} else {
+			doc = {
+				doctype: "Order Style Tracker",
+				sales_order: ocn,
+				style: style_ref
+			};
+			}
 
-        let doc;
-        if (count > 0) {
-          const res = await frappe.db.get_value("Order Style Tracker", {
-            sales_order: ocn,
-            style: style_ref
-          }, "name");
-          const name = res.message?.name;
-          doc = await frappe.db.get_doc("Order Style Tracker", name);
-        } else {
-          doc = {
-            doctype: "Order Style Tracker",
-            sales_order: ocn,
-            style: style_ref
-          };
-        }
+			doc[customField] = value;
 
-        doc[customField] = value;
+			await frappe.call({
+			method: "frappe.client.save",
+			args: { doc: doc }
+			});
 
-        await frappe.call({
-          method: "frappe.client.save",
-          args: { doc: doc }
-        });
+			frappe.show_alert({ message: __("Saved"), indicator: "green" });
 
-        frappe.show_alert({ message: __("Saved"), indicator: "green" });
-
-      } catch (error) {
-        console.error("Save failed:", error);
-        frappe.show_alert({
-          message: __("Save failed: {0}", [error.message || "Unknown error"]),
-          indicator: "red"
-        });
-      } finally {
-        $el.css("opacity", 1);
-      }
-    }, 800);
+		} catch (error) {
+			console.error("Save failed:", error);
+			frappe.show_alert({
+			message: __("Save failed: {0}", [error.message || "Unknown error"]),
+			indicator: "red"
+			});
+		} finally {
+			$el.css("opacity", 1);
+		}
+	}, 800);
 
     $wrap.on("change", ".report-editable-input", save);
     $wrap.on("blur", "input.report-editable-input", save);
