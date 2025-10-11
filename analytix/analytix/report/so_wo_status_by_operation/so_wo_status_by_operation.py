@@ -195,16 +195,17 @@ def get_detail_so(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Get operation links to build sequence and previous map
+    # ====== ONLY FOR WIP: Get operation sequence from Operation Map ======
     op_links = frappe.db.sql("""
         SELECT DISTINCT opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.sales_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
+        WHERE tbc.sales_order = %s 
+          AND tbc.parentfield = 'component_bundle_configurations' 
+          AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
-    # Build next_to_prev map and collect all operations
     next_to_prev = {}
     all_ops_set = set()
     op_to_next = {}
@@ -220,10 +221,9 @@ def get_detail_so(so_name):
     if not all_ops_set:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Build operation sequence (handle multiple chains if needed)
+    # Build operation sequence
     next_ops = set(op_to_next.values())
     first_ops = [op for op in all_ops_set if op not in next_ops]
-    
     operation_sequence = []
     for start in first_ops:
         current = start
@@ -231,61 +231,53 @@ def get_detail_so(so_name):
             operation_sequence.append(current)
             current = op_to_next.get(current)
     
-    # Remove duplicates while preserving order
     seen = set()
     ordered_ops = []
     for op in operation_sequence:
         if op not in seen:
             ordered_ops.append(op)
             seen.add(op)
-    
-    # Create sort order map
     sort_order_map = {op: idx for idx, op in enumerate(ordered_ops)}
+    # ===================================================================
 
-    # Fetch latest scan per (Production Item, Operation) — deduplicated
+    # ====== FETCH SCAN LOGS WITHOUT Operation Map JOIN ======
     scan_logs = frappe.db.sql("""
         SELECT
-            opm.operation,
+            isl.operation,
             tbc.size,
             pi.quantity AS pi_qty,
             isl.status
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
         INNER JOIN `tabProduction Item` pi 
             ON pi.tracking_order = tor.name 
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
             ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN (
-            SELECT production_item, operation, MAX(creation) AS max_creation
-            FROM `tabItem Scan Log`
-            WHERE log_status = 'Completed'
-              AND status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
-            GROUP BY production_item, operation
-        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
         INNER JOIN `tabItem Scan Log` isl 
-            ON isl.production_item = pi.name 
-            AND isl.operation = opm.operation
-            AND isl.creation = latest_scan.max_creation
+            ON isl.production_item = pi.name
+            AND isl.log_status = 'Completed'
+            AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
         WHERE tbc.sales_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
+          AND tbc.parentfield = 'component_bundle_configurations' 
+          AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
+    # =========================================================
 
-    # Aggregate completed and rejected units per (operation, size)
     from collections import defaultdict
     op_size_data = defaultdict(lambda: {"completed": 0, "rejected": 0})
 
     for log in scan_logs:
+        if log.operation not in all_ops_set:
+            continue  # only consider ops in the defined chain
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
         elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
             op_size_data[key]["rejected"] += 1
 
-    # Build final metrics with WIP and sort_order
     metrics_by_op = []
-    for op in ordered_ops:  # iterate in correct sequence
+    for op in ordered_ops:
         for size in sizes:
             key = (op, size)
             total_qty = size_qty_map[size]
@@ -294,14 +286,14 @@ def get_detail_so(so_name):
             pending = max(total_qty - completed - rejected, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-            # 🔑 Calculate WIP (backlog)
+            # WIP: only place using Operation Map logic
             prev_op = next_to_prev.get(op)
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
                 wip = max(0, completed_prev - completed)
             else:
-                wip = 0  # First operation has no upstream
+                wip = 0
 
             metrics_by_op.append({
                 "operation": op,
@@ -315,7 +307,6 @@ def get_detail_so(so_name):
                 "sort_order": sort_order_map[op]
             })
 
-    # Sort by operation sequence then size
     metrics_by_op.sort(key=lambda x: (x["sort_order"], x["size"]))
     return {
         "details": so_details[0],
@@ -373,16 +364,17 @@ def get_detail_wo(wo_name):
     if not sizes:
         return {"details": wo_details[0], "metrics_by_op": []}
 
-    # Get operation links to build sequence and previous map
+    # ====== ONLY FOR WIP: Get operation sequence from Operation Map ======
     op_links = frappe.db.sql("""
         SELECT DISTINCT opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.work_order = %s AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
+        WHERE tbc.work_order = %s 
+          AND tbc.parentfield = 'component_bundle_configurations' 
+          AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
-    # Build next_to_prev map and collect all operations
     next_to_prev = {}
     all_ops_set = set()
     op_to_next = {}
@@ -398,10 +390,9 @@ def get_detail_wo(wo_name):
     if not all_ops_set:
         return {"details": wo_details[0], "metrics_by_op": []}
 
-    # Build operation sequence (handle multiple chains if needed)
+    # Build operation sequence
     next_ops = set(op_to_next.values())
     first_ops = [op for op in all_ops_set if op not in next_ops]
-    
     operation_sequence = []
     for start in first_ops:
         current = start
@@ -409,61 +400,53 @@ def get_detail_wo(wo_name):
             operation_sequence.append(current)
             current = op_to_next.get(current)
     
-    # Remove duplicates while preserving order
     seen = set()
     ordered_ops = []
     for op in operation_sequence:
         if op not in seen:
             ordered_ops.append(op)
             seen.add(op)
-    
-    # Create sort order map
     sort_order_map = {op: idx for idx, op in enumerate(ordered_ops)}
+    # ===================================================================
 
-    # Fetch latest scan per (Production Item, Operation) — deduplicated
+    # ====== FETCH SCAN LOGS WITHOUT Operation Map JOIN ======
     scan_logs = frappe.db.sql("""
         SELECT
-            opm.operation,
+            isl.operation,
             tbc.size,
             pi.quantity AS pi_qty,
             isl.status
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
         INNER JOIN `tabProduction Item` pi 
             ON pi.tracking_order = tor.name 
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
             ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN (
-            SELECT production_item, operation, MAX(creation) AS max_creation
-            FROM `tabItem Scan Log`
-            WHERE log_status = 'Completed'
-              AND status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
-            GROUP BY production_item, operation
-        ) latest_scan ON latest_scan.production_item = pi.name AND latest_scan.operation = opm.operation
         INNER JOIN `tabItem Scan Log` isl 
-            ON isl.production_item = pi.name 
-            AND isl.operation = opm.operation
-            AND isl.creation = latest_scan.max_creation
+            ON isl.production_item = pi.name
+            AND isl.log_status = 'Completed'
+            AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
         WHERE tbc.work_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed'
+          AND tbc.parentfield = 'component_bundle_configurations' 
+          AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
+    # =========================================================
 
-    # Aggregate completed and rejected units per (operation, size)
     from collections import defaultdict
     op_size_data = defaultdict(lambda: {"completed": 0, "rejected": 0})
 
     for log in scan_logs:
+        if log.operation not in all_ops_set:
+            continue  # only consider ops in the defined chain
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
         elif log.status in ('QC Reject', 'QC Recut', 'SP Recut', 'SP Reject'):
             op_size_data[key]["rejected"] += 1
 
-    # Build final metrics with WIP and sort_order
     metrics_by_op = []
-    for op in ordered_ops:  # iterate in correct sequence
+    for op in ordered_ops:
         for size in sizes:
             key = (op, size)
             total_qty = size_qty_map[size]
@@ -472,14 +455,14 @@ def get_detail_wo(wo_name):
             pending = max(total_qty - completed - rejected, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-            # 🔑 Calculate WIP (backlog)
+            # WIP: only place using Operation Map logic
             prev_op = next_to_prev.get(op)
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
                 wip = max(0, completed_prev - completed)
             else:
-                wip = 0  # First operation has no upstream
+                wip = 0
 
             metrics_by_op.append({
                 "operation": op,
@@ -493,7 +476,6 @@ def get_detail_wo(wo_name):
                 "sort_order": sort_order_map[op]
             })
 
-    # Sort by operation sequence then size
     metrics_by_op.sort(key=lambda x: (x["sort_order"], x["size"]))
     return {
         "details": wo_details[0],
