@@ -34,11 +34,10 @@ def _build_date_conditions(filters, params, alias="soi"):
 
 
 # ======================
-# SUMMARY QUERIES (NO WIP, NO OPERATION MAP)
+# SUMMARY QUERIES (NO WIP)
 # ======================
 
 def get_summary_so_by_cell(filters):
-    """Per-Sales Order summary for a given Physical Cell (last operation only)."""
     if not filters.get("physical_cell"):
         return []
 
@@ -105,7 +104,6 @@ def get_summary_so_by_cell(filters):
 
 
 def get_summary_wo_by_cell(filters):
-    """Per-Work Order summary for a given Physical Cell (last operation only)."""
     if not filters.get("physical_cell"):
         return []
 
@@ -199,9 +197,9 @@ def get_detail_so_by_cell(so_name):
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
         INNER JOIN `tabItem` itm ON itm.name = soi.item_code AND itm.custom_select_master = 'Finished Goods'
-        WHERE so.name = %s AND so.docstatus = 1
+        WHERE so.name = %(so_name)s AND so.docstatus = 1
         GROUP BY so.name, so.total_qty
-    """, (so_name,), as_dict=True)
+    """, {"so_name": so_name}, as_dict=True)
 
     if not so_details:
         return {}
@@ -209,25 +207,24 @@ def get_detail_so_by_cell(so_name):
     size_qty_list = frappe.db.sql("""
         SELECT custom_size, SUM(qty) AS qty
         FROM `tabSales Order Item`
-        WHERE parent = %s
+        WHERE parent = %(so_name)s
         GROUP BY custom_size
-    """, (so_name,), as_dict=True)
+    """, {"so_name": so_name}, as_dict=True)
     size_qty_map = {row.custom_size or "": row.qty for row in size_qty_list}
     sizes = list(size_qty_map.keys())
 
     if not sizes:
         return {"details": so_details[0], "metrics_by_cell": []}
 
-    # Get operation sequences per tracking order
     op_links = frappe.db.sql("""
         SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.sales_order = %s 
+        WHERE tbc.sales_order = %(so_name)s 
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
-    """, (so_name,), as_dict=True)
+    """, {"so_name": so_name}, as_dict=True)
 
     tor_ops = {}
     for row in op_links:
@@ -256,16 +253,15 @@ def get_detail_so_by_cell(so_name):
                 cur = op_to_next.get(cur)
         tor_seq[tor] = seq
 
-    # Map physical_cell → (first, last) operation
     cell_ops = frappe.db.sql("""
         SELECT DISTINCT topclo.physical_cell, topclo.parent AS tracking_order
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.sales_order = %s 
+        WHERE tbc.sales_order = %(so_name)s 
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
-    """, (so_name,), as_dict=True)
+    """, {"so_name": so_name}, as_dict=True)
 
     cell_first_last = {}
     for row in cell_ops:
@@ -283,34 +279,35 @@ def get_detail_so_by_cell(so_name):
     for ops in cell_first_last.values():
         all_operations.update([ops["first"], ops["last"]])
 
-    # Fetch scan logs for all relevant operations
-    scan_logs = frappe.db.sql("""
-        SELECT
-            topclo.physical_cell,
-            tbc.size,
-            pi.quantity AS pi_qty,
-            isl.status,
-            isl.operation
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        INNER JOIN `tabProduction Item` pi 
-            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-        INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabItem Scan Log` isl 
-            ON isl.production_item = pi.name
-            AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
-            AND isl.operation IN %(operations)s
-        WHERE tbc.sales_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
-    """, {
-        "operations": list(all_operations),
-        "sales_order": so_name
-    }, as_dict=True)
+    if not all_operations:
+        scan_logs = []
+    else:
+        scan_logs = frappe.db.sql("""
+            SELECT
+                topclo.physical_cell,
+                tbc.size,
+                pi.quantity AS pi_qty,
+                isl.status,
+                isl.operation
+            FROM `tabTracking Order Bundle Configuration` tbc
+            INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+            INNER JOIN `tabProduction Item` pi 
+                ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabItem Scan Log` isl 
+                ON isl.production_item = pi.name
+                AND isl.log_status = 'Completed'
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.operation IN %(operations)s
+            WHERE tbc.sales_order = %(sales_order)s
+              AND tbc.parentfield = 'component_bundle_configurations' 
+              AND tbc.activation_status = 'Completed'
+        """, {
+            "operations": list(all_operations),
+            "sales_order": so_name
+        }, as_dict=True)
 
-    # Aggregate completed units per (cell, operation, size)
     from collections import defaultdict
     cell_op_size_completed = defaultdict(int)
     for log in scan_logs:
@@ -318,7 +315,6 @@ def get_detail_so_by_cell(so_name):
             key = (log.physical_cell, log.operation, log.size or "")
             cell_op_size_completed[key] += log.pi_qty or 0
 
-    # Build final metrics with WIP
     metrics_by_cell = []
     for cell in cells:
         first_op = cell_first_last[cell]["first"]
@@ -380,9 +376,9 @@ def get_detail_wo_by_cell(wo_name):
             GROUP BY parent, custom_ex_fty_date, item_code
         ) soi ON soi.parent = woli.sales_order AND soi.item_code = wo.production_item
         INNER JOIN `tabItem` itm ON itm.name = wo.production_item AND itm.custom_select_master = 'Finished Goods'
-        WHERE wo.name = %s AND wo.docstatus = 1
+        WHERE wo.name = %(wo_name)s AND wo.docstatus = 1
         GROUP BY wo.name, wo.qty
-    """, (wo_name,), as_dict=True)
+    """, {"wo_name": wo_name}, as_dict=True)
 
     if not wo_details:
         return {}
@@ -390,25 +386,24 @@ def get_detail_wo_by_cell(wo_name):
     size_qty_list = frappe.db.sql("""
         SELECT size, SUM(work_order_allocated_qty) AS qty
         FROM `tabWork Order Line Item`
-        WHERE parent = %s
+        WHERE parent = %(wo_name)s
         GROUP BY size
-    """, (wo_name,), as_dict=True)
+    """, {"wo_name": wo_name}, as_dict=True)
     size_qty_map = {row.size or "": row.qty for row in size_qty_list}
     sizes = list(size_qty_map.keys())
 
     if not sizes:
         return {"details": wo_details[0], "metrics_by_cell": []}
 
-    # Get operation sequences per tracking order
     op_links = frappe.db.sql("""
         SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
-        WHERE tbc.work_order = %s 
+        WHERE tbc.work_order = %(wo_name)s 
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
-    """, (wo_name,), as_dict=True)
+    """, {"wo_name": wo_name}, as_dict=True)
 
     tor_ops = {}
     for row in op_links:
@@ -437,16 +432,15 @@ def get_detail_wo_by_cell(wo_name):
                 cur = op_to_next.get(cur)
         tor_seq[tor] = seq
 
-    # Map physical_cell → (first, last) operation
     cell_ops = frappe.db.sql("""
         SELECT DISTINCT topclo.physical_cell, topclo.parent AS tracking_order
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.work_order = %s 
+        WHERE tbc.work_order = %(wo_name)s 
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
-    """, (wo_name,), as_dict=True)
+    """, {"wo_name": wo_name}, as_dict=True)
 
     cell_first_last = {}
     for row in cell_ops:
@@ -464,34 +458,35 @@ def get_detail_wo_by_cell(wo_name):
     for ops in cell_first_last.values():
         all_operations.update([ops["first"], ops["last"]])
 
-    # Fetch scan logs
-    scan_logs = frappe.db.sql("""
-        SELECT
-            topclo.physical_cell,
-            tbc.size,
-            pi.quantity AS pi_qty,
-            isl.status,
-            isl.operation
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        INNER JOIN `tabProduction Item` pi 
-            ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-        INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabItem Scan Log` isl 
-            ON isl.production_item = pi.name
-            AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
-            AND isl.operation IN %(operations)s
-        WHERE tbc.work_order = %s
-          AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
-    """, {
-        "operations": list(all_operations),
-        "work_order": wo_name
-    }, as_dict=True)
+    if not all_operations:
+        scan_logs = []
+    else:
+        scan_logs = frappe.db.sql("""
+            SELECT
+                topclo.physical_cell,
+                tbc.size,
+                pi.quantity AS pi_qty,
+                isl.status,
+                isl.operation
+            FROM `tabTracking Order Bundle Configuration` tbc
+            INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
+            INNER JOIN `tabProduction Item` pi 
+                ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabItem Scan Log` isl 
+                ON isl.production_item = pi.name
+                AND isl.log_status = 'Completed'
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.operation IN %(operations)s
+            WHERE tbc.work_order = %(work_order)s
+              AND tbc.parentfield = 'component_bundle_configurations' 
+              AND tbc.activation_status = 'Completed'
+        """, {
+            "operations": list(all_operations),
+            "work_order": wo_name
+        }, as_dict=True)
 
-    # Aggregate
     from collections import defaultdict
     cell_op_size_completed = defaultdict(int)
     for log in scan_logs:
@@ -499,7 +494,6 @@ def get_detail_wo_by_cell(wo_name):
             key = (log.physical_cell, log.operation, log.size or "")
             cell_op_size_completed[key] += log.pi_qty or 0
 
-    # Build metrics
     metrics_by_cell = []
     for cell in cells:
         first_op = cell_first_last[cell]["first"]
