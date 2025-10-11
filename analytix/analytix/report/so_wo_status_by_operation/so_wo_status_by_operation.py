@@ -58,22 +58,25 @@ def get_summary_so(filters):
             SELECT 
                 tbc.sales_order,
                 SUM(CASE 
-                    WHEN isl.log_status = 'Completed'
-                     AND isl.status IN ('Counted','Activated','Pass')
+                    WHEN isl.status IN ('Counted','Activated','Pass')
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.log_status = 'Completed'
-                     AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = %(op)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-            INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.sales_order IS NOT NULL
+            INNER JOIN `tabItem Scan Log` isl 
+                ON isl.production_item = pi.name 
+                AND isl.operation = %(op)s
+                AND isl.log_status = 'Completed'
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+            WHERE tbc.parentfield = 'component_bundle_configurations' 
+              AND tbc.activation_status = 'Completed' 
+              AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
         WHERE so.docstatus = 1
@@ -129,22 +132,25 @@ def get_summary_wo(filters):
             SELECT 
                 tbc.work_order,
                 SUM(CASE 
-                    WHEN isl.log_status = 'Completed'
-                     AND isl.status IN ('Counted','Activated','Pass')
+                    WHEN isl.status IN ('Counted','Activated','Pass')
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.log_status = 'Completed'
-                     AND isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name AND opm.operation = %(op)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
-            INNER JOIN `tabItem Scan Log` isl ON isl.production_item = pi.name AND isl.operation = opm.operation
-            WHERE tbc.parentfield = 'component_bundle_configurations' AND tbc.activation_status = 'Completed' AND tbc.work_order IS NOT NULL
+            INNER JOIN `tabItem Scan Log` isl 
+                ON isl.production_item = pi.name 
+                AND isl.operation = %(op)s
+                AND isl.log_status = 'Completed'
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+            WHERE tbc.parentfield = 'component_bundle_configurations' 
+              AND tbc.activation_status = 'Completed' 
+              AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
         WHERE wo.docstatus = 1
@@ -160,7 +166,6 @@ def get_detail_so(so_name):
     if not so_name:
         return {}
 
-    # Fetch SO header details
     so_details = frappe.db.sql("""
         SELECT 
             so.name AS so_number,
@@ -182,7 +187,6 @@ def get_detail_so(so_name):
     if not so_details:
         return {}
 
-    # Get size-wise quantities
     size_qty_list = frappe.db.sql("""
         SELECT custom_size, SUM(qty) AS qty
         FROM `tabSales Order Item`
@@ -195,7 +199,7 @@ def get_detail_so(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # ====== ONLY FOR WIP: Get operation sequence from Operation Map ======
+    # ====== ONLY FOR WIP: Operation Map for sequencing ======
     op_links = frappe.db.sql("""
         SELECT DISTINCT opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -221,7 +225,6 @@ def get_detail_so(so_name):
     if not all_ops_set:
         return {"details": so_details[0], "metrics_by_op": []}
 
-    # Build operation sequence
     next_ops = set(op_to_next.values())
     first_ops = [op for op in all_ops_set if op not in next_ops]
     operation_sequence = []
@@ -238,9 +241,9 @@ def get_detail_so(so_name):
             ordered_ops.append(op)
             seen.add(op)
     sort_order_map = {op: idx for idx, op in enumerate(ordered_ops)}
-    # ===================================================================
+    # ========================================================
 
-    # ====== FETCH SCAN LOGS WITHOUT Operation Map JOIN ======
+    # ====== SCAN LOGS WITHOUT Operation Map ======
     scan_logs = frappe.db.sql("""
         SELECT
             isl.operation,
@@ -262,14 +265,14 @@ def get_detail_so(so_name):
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
-    # =========================================================
+    # =============================================
 
     from collections import defaultdict
     op_size_data = defaultdict(lambda: {"completed": 0, "rejected": 0})
 
     for log in scan_logs:
         if log.operation not in all_ops_set:
-            continue  # only consider ops in the defined chain
+            continue
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
@@ -286,14 +289,12 @@ def get_detail_so(so_name):
             pending = max(total_qty - completed - rejected, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-            # WIP: only place using Operation Map logic
             prev_op = next_to_prev.get(op)
+            wip = 0
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
                 wip = max(0, completed_prev - completed)
-            else:
-                wip = 0
 
             metrics_by_op.append({
                 "operation": op,
@@ -318,7 +319,6 @@ def get_detail_wo(wo_name):
     if not wo_name:
         return {}
 
-    # Fetch WO header details
     wo_details = frappe.db.sql("""
         SELECT 
             wo.name AS wo_number,
@@ -351,7 +351,6 @@ def get_detail_wo(wo_name):
     if not wo_details:
         return {}
 
-    # Get size-wise quantities
     size_qty_list = frappe.db.sql("""
         SELECT size, SUM(work_order_allocated_qty) AS qty
         FROM `tabWork Order Line Item`
@@ -364,7 +363,7 @@ def get_detail_wo(wo_name):
     if not sizes:
         return {"details": wo_details[0], "metrics_by_op": []}
 
-    # ====== ONLY FOR WIP: Get operation sequence from Operation Map ======
+    # ====== ONLY FOR WIP: Operation Map for sequencing ======
     op_links = frappe.db.sql("""
         SELECT DISTINCT opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -390,7 +389,6 @@ def get_detail_wo(wo_name):
     if not all_ops_set:
         return {"details": wo_details[0], "metrics_by_op": []}
 
-    # Build operation sequence
     next_ops = set(op_to_next.values())
     first_ops = [op for op in all_ops_set if op not in next_ops]
     operation_sequence = []
@@ -407,9 +405,9 @@ def get_detail_wo(wo_name):
             ordered_ops.append(op)
             seen.add(op)
     sort_order_map = {op: idx for idx, op in enumerate(ordered_ops)}
-    # ===================================================================
+    # ========================================================
 
-    # ====== FETCH SCAN LOGS WITHOUT Operation Map JOIN ======
+    # ====== SCAN LOGS WITHOUT Operation Map ======
     scan_logs = frappe.db.sql("""
         SELECT
             isl.operation,
@@ -431,14 +429,14 @@ def get_detail_wo(wo_name):
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
-    # =========================================================
+    # =============================================
 
     from collections import defaultdict
     op_size_data = defaultdict(lambda: {"completed": 0, "rejected": 0})
 
     for log in scan_logs:
         if log.operation not in all_ops_set:
-            continue  # only consider ops in the defined chain
+            continue
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
@@ -455,14 +453,12 @@ def get_detail_wo(wo_name):
             pending = max(total_qty - completed - rejected, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
-            # WIP: only place using Operation Map logic
             prev_op = next_to_prev.get(op)
+            wip = 0
             if prev_op:
                 prev_key = (prev_op, size)
                 completed_prev = op_size_data[prev_key]["completed"]
                 wip = max(0, completed_prev - completed)
-            else:
-                wip = 0
 
             metrics_by_op.append({
                 "operation": op,
