@@ -3,7 +3,8 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, formatdate
+from frappe.utils import flt, formatdate, cstr
+import math
 
 def execute(filters=None):
     columns = get_columns()
@@ -16,14 +17,14 @@ def get_columns():
         {"label": _("OCN Created Date"), "fieldname": "ocn_created_date", "fieldtype": "Date", "width": 120},
         {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Data", "width": 120},
         {"label": _("Order to Company"), "fieldname": "order_to_company", "fieldtype": "Data", "width": 120},
-        {"label": _("Style Ref"), "fieldname": "style_ref", "fieldtype": "Data", "width": 120},  # Not a Link to Item
+        {"label": _("Style Ref"), "fieldname": "style_ref", "fieldtype": "Data", "width": 120},
         {"label": _("OCN"), "fieldname": "ocn", "fieldtype": "Link", "options": "Sales Order", "width": 130},
         {"label": _("Order Qty"), "fieldname": "order_qty", "fieldtype": "Float", "width": 100},
         {"label": _("IAPL FOB"), "fieldname": "iapl_fob", "fieldtype": "Currency", "width": 100},
         {"label": _("IAPL Margin"), "fieldname": "iapl_margin", "fieldtype": "Currency", "width": 100},
         {"label": _("FOB"), "fieldname": "fob", "fieldtype": "Currency", "width": 100},
         {"label": _("Order Value"), "fieldname": "order_value", "fieldtype": "Currency", "width": 120},
-        {"label": _("Fit Order Qty"), "fieldname": "fit_order_qty", "fieldtype": "Float", "width": 120},
+        {"label": _("Fit Order Qty"), "fieldname": "fit_order_qty", "fieldtype": "Int", "width": 120},
         {"label": _("Unit"), "fieldname": "unit", "fieldtype": "Data", "width": 80},
         {"label": _("Cut Qty"), "fieldname": "cut_qty", "fieldtype": "Float", "width": 90},
         {"label": _("Cut %"), "fieldname": "cut_percent", "fieldtype": "Percent", "width": 80},
@@ -39,6 +40,7 @@ def get_columns():
         {"label": _("Customer Order to Ship Gain/Loss Value"), "fieldname": "gain_loss_value", "fieldtype": "Currency", "width": 180},
         {"label": _("Remarks Sandeep"), "fieldname": "remarks_sandeep", "fieldtype": "Data", "width": 150},
         {"label": _("Remarks Logesh"), "fieldname": "remarks_logesh", "fieldtype": "Data", "width": 150},
+        {"label": _("Approved by Muthu"), "fieldname": "approved_by_muthu", "fieldtype": "Data", "width": 150},
     ]
 
 def get_data(filters):
@@ -46,20 +48,38 @@ def get_data(filters):
     cut_data = get_cut_summary_with_date()
     ship_data = get_ship_summary_with_factory_ocr()
     deviation_data = get_deviation_summary()
+    manual_data = get_manual_style_data()
 
-    # Build lookup maps
-    cut_map = {(d["style"], d["sales_order"]): {
-        "cut_qty": flt(d["cut_qty"]),
-        "cutting_month": get_month_label(d["cut_date"]) if d.get("cut_date") else ""
-    } for d in cut_data}
+    # Build lookup maps with string keys
+    cut_map = {
+        (str(d.get("style") or ""), str(d.get("sales_order") or "")): {
+            "cut_qty": flt(d["cut_qty"]),
+            "cutting_month": get_month_label(d["cut_date"]) if d.get("cut_date") else ""
+        }
+        for d in cut_data
+    }
 
-    ship_map = {(d["ocn"], d["style"]): {
-        "shipped_qty": flt(d["shipped_qty"]),
-        "shipped_date": d.get("shipped_date"),
-        "shipment_status": "Approved" if d.get("docstatus") == 1 else ""
-    } for d in ship_data}
+    ship_map = {
+        (str(d.get("ocn") or ""), str(d.get("style") or "")): {
+            "shipped_qty": flt(d["shipped_qty"]),
+            "shipped_date": d.get("shipped_date"),
+            "shipment_status": "Approved" if d.get("docstatus") == 1 else ""
+        }
+        for d in ship_data
+    }
 
-    deviation_map = {(d["sales_order"], d["style"]): d["deviation_under"] for d in deviation_data}
+    deviation_map = {
+        (str(d.get("sales_order") or ""), str(d.get("style") or "")): {
+            "deviation_under": d["deviation_under"],
+            "fit_deviation_value": flt(d["profit_loss_value"])
+        }
+        for d in deviation_data
+    }
+
+    manual_map = {
+        (str(d.get("sales_order") or ""), str(d.get("style") or "")): d
+        for d in manual_data
+    }
 
     result = []
     for row in order_data:
@@ -67,27 +87,33 @@ def get_data(filters):
         if not fty_date:
             continue
 
+        # Skip if fty_date is not a valid date string
+        if isinstance(fty_date, (list, tuple)):
+            continue
+
         month = get_month_label(fty_date)
         order_qty = flt(row["order_qty"])
-        fit_order_qty = order_qty * 1.02
+        fit_order_qty = math.ceil(order_qty * 1.02)
         fob = flt(row.get("fob")) if row.get("fob") is not None else 0.0
-        order_value = order_qty * fob
 
-        # Use item_code for lookups (internal key)
-        key = (row["item_code"], row["ocn"])
+        item_code = str(row.get("item_code") or "")
+        style_ref = str(row.get("style_ref") or item_code)
+        ocn = str(row.get("ocn") or "")
 
-        cut_info = cut_map.get(key, {"cut_qty": 0.0, "cutting_month": ""})
-        ship_info = ship_map.get((row["ocn"], row["item_code"]), {
+        cut_info = cut_map.get((item_code, ocn), {"cut_qty": 0.0, "cutting_month": ""})
+        ship_info = ship_map.get((ocn, item_code), {
             "shipped_qty": 0.0,
             "shipped_date": None,
             "shipment_status": ""
         })
-        deviation_under = deviation_map.get((row["ocn"], row["item_code"]), "")
+        dev_info = deviation_map.get((ocn, item_code), {})
+        manual_info = manual_map.get((ocn, style_ref), {})
 
         cut_qty = cut_info["cut_qty"]
         shipped_qty = ship_info["shipped_qty"]
+        deviation_under = dev_info.get("deviation_under", "")
+        fit_deviation_value = dev_info.get("fit_deviation_value", "")
 
-        # Percentages
         cut_percent = (cut_qty / fit_order_qty * 100) if fit_order_qty else 0.0
         cut_to_ship_percent = (shipped_qty / cut_qty * 100) if cut_qty else 0.0
         order_to_ship_percent = (shipped_qty / fit_order_qty * 100) if fit_order_qty else 0.0
@@ -97,31 +123,32 @@ def get_data(filters):
         result.append({
             "month": month,
             "ocn_created_date": row.get("ocn_created_date"),
-            "customer": row.get("customer") or "",
+            "customer": cstr(row.get("customer") or ""),
             "order_to_company": "IAPL",
-            "style_ref": row.get("style_ref") or row["item_code"],
-            "ocn": row["ocn"],
+            "style_ref": style_ref,
+            "ocn": ocn,
             "order_qty": order_qty,
-            "iapl_fob": "",
-            "iapl_margin": "",
+            "iapl_fob": manual_info.get("iapl_fob") or "",
+            "iapl_margin": manual_info.get("iapl_margin") or "",
             "fob": fob or "",
-            "order_value": order_value or "",
+            "order_value": "",
             "fit_order_qty": fit_order_qty,
             "unit": "",
             "cut_qty": cut_qty,
             "cut_percent": flt(cut_percent, 2),
             "cutting_month": cut_info["cutting_month"],
-            "fit_deviation_value": "",
+            "fit_deviation_value": fit_deviation_value or "",
             "deviation_under": deviation_under,
             "shipped_qty": shipped_qty,
-            "shipped_date": ship_info["shipped_date"],
-            "shipment_status": ship_info["shipment_status"],
+            "shipped_date": manual_info.get("shipped_date") or ship_info["shipped_date"],
+            "shipment_status": manual_info.get("shipment_status") or "",
             "cut_to_ship_percent": flt(cut_to_ship_percent, 2),
             "order_to_ship_percent": flt(order_to_ship_percent, 2),
             "osr_customer_order": flt(osr_customer_order, 2),
             "gain_loss_value": flt(gain_loss_value, 2) if gain_loss_value else "",
-            "remarks_sandeep": "",
-            "remarks_logesh": "",
+            "remarks_sandeep": cstr(manual_info.get("remarks_sandeep") or ""),
+            "remarks_logesh": cstr(manual_info.get("remarks_logesh") or ""),
+            "approved_by_muthu": cstr(manual_info.get("approved_by_muthu") or ""),
         })
 
     return result
@@ -179,7 +206,7 @@ def get_ship_summary_with_factory_ocr():
         SELECT
             foc.ocn,
             foci.style,
-            SUM(foci.ship_quantity) AS shipped_qty,  -- ✅ Confirm this field name
+            SUM(foci.ship_quantity) AS shipped_qty,
             MAX(foc.creation) AS shipped_date,
             foc.docstatus
         FROM `tabFactory OCR` foc
@@ -192,11 +219,11 @@ def get_ship_summary_with_factory_ocr():
     """, as_dict=1)
 
 def get_deviation_summary():
-    """Fetch deviation_under from Cut Kit Plan linked by sales_order + style (item_code)"""
     return frappe.db.sql("""
         SELECT
             cc.sales_order,
             cc.style,
+            cc.profit_loss_value,
             cc.deviation_under
         FROM `tabCan Cut` cc
         WHERE cc.sales_order IS NOT NULL
@@ -204,7 +231,21 @@ def get_deviation_summary():
           AND cc.deviation_under IS NOT NULL
     """, as_dict=1)
 
-# --- Helper Functions ---
+def get_manual_style_data():
+    return frappe.db.sql("""
+        SELECT
+            sales_order,
+            style,
+            iapl_fob,
+            iapl_margin,
+            shipped_date,
+            shipment_status,
+            remarks_sandeep,
+            remarks_logesh,
+            approved_by_muthu
+        FROM `tabOrder Style Tracker`
+        WHERE sales_order IS NOT NULL AND style IS NOT NULL
+    """, as_dict=1)
 
 def get_month_label(date):
     return formatdate(date, "MMM yyyy")

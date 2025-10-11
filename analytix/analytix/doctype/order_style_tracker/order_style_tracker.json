@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-10-11 10:34:44.591304",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_order",
+  "style",
+  "iapl_fob",
+  "iapl_margin",
+  "shipped_date",
+  "shipment_status",
+  "remarks_sandeep",
+  "remarks_logesh",
+  "approved_by_muthu"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "style",
+   "fieldtype": "Link",
+   "label": "Style",
+   "options": "Style Master"
+  },
+  {
+   "fieldname": "iapl_fob",
+   "fieldtype": "Currency",
+   "label": "IAPL FOB"
+  },
+  {
+   "fieldname": "iapl_margin",
+   "fieldtype": "Currency",
+   "label": "IAPL Margin"
+  },
+  {
+   "fieldname": "shipped_date",
+   "fieldtype": "Date",
+   "label": "Shipped Date"
+  },
+  {
+   "fieldname": "remarks_sandeep",
+   "fieldtype": "Small Text",
+   "label": "Remarks Sandeep"
+  },
+  {
+   "fieldname": "remarks_logesh",
+   "fieldtype": "Small Text",
+   "label": "Remarks Logesh"
+  },
+  {
+   "fieldname": "approved_by_muthu",
+   "fieldtype": "Select",
+   "label": "Approved by Muthu",
+   "options": "\nApproved"
+  },
+  {
+   "fieldname": "shipment_status",
+   "fieldtype": "Select",
+   "label": "Shipment Status",
+   "options": "\nCompleted"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-11 10:47:24.050672",
+ "modified_by": "Administrator",
+ "module": "AnalytiX",
+ "name": "Order Style Tracker",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
