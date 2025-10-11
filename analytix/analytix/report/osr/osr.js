@@ -76,6 +76,16 @@ frappe.query_reports["OSR"] = {
   },
 
   onload(report) {
+    if (window.CX && CX.mountBreadcrumb) {
+      CX.mountBreadcrumb({
+        wrapper: report.page.wrapper || report.page.$wrapper,
+        trail: [
+          { label: "KPI Hub", href: "/app/kpi-hub" },
+          { label: "OSR" }
+        ]
+      });
+    }
+
     const $wrap = report.page.wrapper;
 
 	const save = frappe.utils.debounce(async function (e) {
