@@ -57,6 +57,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
     .completed { background: #96BE37; color: white; }
     .pending { background: #ECAD4B; color: black; }
     .rejected { background: #EF4444; color: white; }
+    .wip { background: #3B82F6; color: white; } /* ✅ WIP styling — MATCHES OPERATION REPORT */
     @media (max-width: 1100px) { .kpi-filter-row { flex-direction: column; align-items: stretch; } .kpi-dashboard-grid { grid-template-columns: 1fr; } }
     .awesomplete {
       z-index: 10000 !important;
@@ -215,8 +216,8 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
-                        <th>WIP</th>
                         <th>Completion %</th>
+                        <th>WIP</th> <!-- ✅ WIP as LAST column, like Operation report -->
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -278,8 +279,8 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
                         <th>Completed Units</th>
                         <th>Pending Units</th>
                         <th>Rejected Units</th>
-                        <th>WIP</th>
                         <th>Completion %</th>
+                        <th>WIP</th> <!-- ✅ LAST column -->
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -352,7 +353,6 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 			filters: { docstatus: 1 },
 		});
 
-		// Append inside this page only (scoped)
 		$mount.find("#so-summary-filters").append($("<div>").append(fSODateRange.$wrapper));
 		$mount.find("#so-summary-filters").append($("<div>").append(fSOPhysicalCell.$wrapper));
 		$mount.find("#so-detail-filters").append($("<div>").append(fSOSO.$wrapper));
@@ -365,7 +365,6 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 			f.$wrapper.hide()
 		);
 
-		// clear buttons + trigger reload on clear
 		attachClearButton(fSODateRange, debouncedLoad);
 		attachClearButton(fSOPhysicalCell, debouncedLoad);
 		attachClearButton(fSOSO, debouncedLoad);
@@ -451,7 +450,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Sales Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="8">Select a Sales Order to view metrics</td></tr>`); // ✅ colspan=8
+			$opTbody.append(`<tr><td colspan="8">Select a Sales Order to view metrics</td></tr>`); // ✅ 8 columns
 			const ctx = document.getElementById("so-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -474,7 +473,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		const metrics = detail.metrics_by_cell || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`); // ✅
+			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`);
 		} else {
 			metrics.forEach((r) => {
 				const tot = Number(r.size_qty || 0);
@@ -488,8 +487,8 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
             <td class="completed">${cmp}</td>
             <td class="pending">${r.pending_units || 0}</td>
             <td class="rejected">${r.rejected_units || 0}</td>
-            <td class="pending">${wip}</td> <!-- ✅ WIP -->
             <td>${pct(cmp, tot)}</td>
+            <td class="wip">${wip}</td> <!-- ✅ class="wip", LAST column -->
           </tr>`);
 			});
 		}
@@ -521,7 +520,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		if (!detail || !Object.keys(detail).length) {
 			$detTbody.append(`<tr><td colspan="2">Select a Work Order to view details</td></tr>`);
-			$opTbody.append(`<tr><td colspan="8">Select a Work Order to view metrics</td></tr>`); // ✅
+			$opTbody.append(`<tr><td colspan="8">Select a Work Order to view metrics</td></tr>`);
 			const ctx = document.getElementById("wo-chart")?.getContext("2d");
 			if (ctx?.chart) ctx.chart.destroy();
 			return;
@@ -548,7 +547,7 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 
 		const metrics = detail.metrics_by_cell || [];
 		if (!metrics.length) {
-			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`); // ✅
+			$opTbody.append(`<tr><td colspan="8">No physical cell data found</td></tr>`);
 		} else {
 			metrics.forEach((r) => {
 				const tot = Number(r.size_qty ?? 0);
@@ -562,8 +561,8 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
             <td class="completed">${cmp}</td>
             <td class="pending">${r.pending_units ?? 0}</td>
             <td class="rejected">${r.rejected_units ?? 0}</td>
-            <td class="pending">${wip}</td> <!-- ✅ -->
             <td>${pct(cmp, tot)}</td>
+            <td class="wip">${wip}</td> <!-- ✅ -->
           </tr>`);
 			});
 		}
@@ -591,10 +590,10 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 				data: {
 					labels,
 					datasets: [
-						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
-						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
-						{ label: "Rejected", data: rejected, backgroundColor: "#EF4444" },
-						{ label: "WIP", data: wip, backgroundColor: "#3B82F6" }, // ✅ Blue for WIP
+						{ label: "Completed",  completed, backgroundColor: "#96BE37" },
+						{ label: "Pending",  pending, backgroundColor: "#ECAD4B" },
+						{ label: "Rejected",  rejected, backgroundColor: "#EF4444" },
+						{ label: "WIP",  wip, backgroundColor: "#3B82F6" }, // ✅
 					],
 				},
 				options: {
