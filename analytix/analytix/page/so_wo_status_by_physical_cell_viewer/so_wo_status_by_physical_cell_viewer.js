@@ -572,28 +572,35 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 	// chart
 	function renderChart(canvasId, metrics, title) {
 		if (!metrics || !metrics.length) return;
-		const labels = [...new Set(metrics.map((r) => r.physical_cell))];
+
+		// Get unique physical cells from the data (not from a global list)
+		const labels = [...new Set(metrics.map(r => r.physical_cell))].sort();
+
+		// Helper: sum all values for a given cell and key
 		const sum = (cell, key) =>
-			metrics.filter((r) => r.physical_cell === cell).reduce((s, r) => s + (r[key] || 0), 0);
-		const completed = labels.map((c) => sum(c, "completed_units"));
-		const pending = labels.map((c) => sum(c, "pending_units"));
-		const rejected = labels.map((c) => sum(c, "rejected_units"));
-		const wip = labels.map((c) => sum(c, "wip")); // ✅
+			metrics.filter(r => r.physical_cell === cell).reduce((s, r) => s + (r[key] || 0), 0);
+
+		// Calculate aggregated values per cell
+		const completed = labels.map(c => sum(c, "completed_units"));
+		const pending = labels.map(c => sum(c, "pending_units"));
+		const rejected = labels.map(c => sum(c, "rejected_units"));
+		const wip = labels.map(c => sum(c, "wip"));
 
 		loadChartJs().then(() => {
 			const canvas = document.getElementById(canvasId);
 			if (!canvas) return;
 			const ctx = canvas.getContext("2d");
 			if (ctx.chart) ctx.chart.destroy();
+
 			ctx.chart = new Chart(ctx, {
 				type: "bar",
 				data: {
 					labels,
 					datasets: [
-						{ label: "Completed",  completed, backgroundColor: "#96BE37" },
-						{ label: "Pending",  pending, backgroundColor: "#ECAD4B" },
-						{ label: "Rejected",  rejected, backgroundColor: "#EF4444" },
-						{ label: "WIP",  wip, backgroundColor: "#3B82F6" }, // ✅
+						{ label: "Completed", data: completed, backgroundColor: "#96BE37" },
+						{ label: "Pending", data: pending, backgroundColor: "#ECAD4B" },
+						{ label: "Rejected", data: rejected, backgroundColor: "#EF4444" },
+						{ label: "WIP", data: wip, backgroundColor: "#3B82F6" },
 					],
 				},
 				options: {
@@ -604,8 +611,17 @@ frappe.pages["so-wo-status-by-physical-cell-viewer"].on_page_load = function (wr
 						title: { display: true, text: `${title} - Units by Physical Cell` },
 					},
 					scales: {
-						y: { beginAtZero: true, title: { display: true, text: "Units" } },
-						x: { title: { display: true, text: "Physical Cell" } },
+						y: {
+							beginAtZero: true,
+							title: { display: true, text: "Units" },
+							// Optional: if values are large, scale to avoid tiny bars
+							// suggestedMax: Math.max(...[...completed, ...pending, ...rejected, ...wip]) * 1.1
+						},
+						x: {
+							title: { display: true, text: "Physical Cell" },
+							// Optional: rotate labels if too many
+							// ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 }
+						},
 					},
 				},
 			});
