@@ -75,7 +75,7 @@ def get_summary_so_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -88,7 +88,7 @@ def get_summary_so_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
@@ -147,7 +147,7 @@ def get_summary_wo_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
+                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -160,7 +160,7 @@ def get_summary_wo_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
@@ -297,7 +297,7 @@ def get_detail_so_by_cell(so_name):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
                 AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.sales_order = %(sales_order)s
@@ -311,10 +311,13 @@ def get_detail_so_by_cell(so_name):
 
     from collections import defaultdict
     cell_op_size_completed = defaultdict(int)
+    cell_op_size_rejected = defaultdict(int)
     for log in scan_logs:
+        key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
-            key = (log.physical_cell, log.operation, log.size or "")
             cell_op_size_completed[key] += log.pi_qty or 0
+        elif log.status in ('QC Reject','QC Recut','SP Recut','SP Reject'):  # NEW
+            cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
     for cell in cells:
@@ -326,7 +329,7 @@ def get_detail_so_by_cell(so_name):
             completed_last = cell_op_size_completed.get((cell, last_op, size), 0)
             wip = max(0, completed_first - completed_last)
             completed = completed_last
-            rejected = 0
+            rejected = cell_op_size_rejected.get((cell, last_op, size), 0)
             pending = max(total_qty - completed, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
@@ -477,7 +480,7 @@ def get_detail_wo_by_cell(wo_name):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
                 AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.work_order = %(work_order)s
@@ -491,10 +494,13 @@ def get_detail_wo_by_cell(wo_name):
 
     from collections import defaultdict
     cell_op_size_completed = defaultdict(int)
+    cell_op_size_rejected = defaultdict(int)
     for log in scan_logs:
+        key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
-            key = (log.physical_cell, log.operation, log.size or "")
             cell_op_size_completed[key] += log.pi_qty or 0
+        elif log.status in ('QC Reject','QC Recut','SP Recut','SP Reject'):  # NEW
+            cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
     for cell in cells:
@@ -506,7 +512,7 @@ def get_detail_wo_by_cell(wo_name):
             completed_last = cell_op_size_completed.get((cell, last_op, size), 0)
             wip = max(0, completed_first - completed_last)
             completed = completed_last
-            rejected = 0
+            rejected = cell_op_size_rejected.get((cell, last_op, size), 0)
             pending = max(total_qty - completed, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
