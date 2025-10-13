@@ -284,14 +284,13 @@ def get_detail_so_by_cell(so_name):
     else:
         scan_logs = frappe.db.sql("""
             SELECT
-                topclo.physical_cell,
+                isl.physical_cell,
                 tbc.size,
                 pi.quantity AS pi_qty,
                 isl.status,
                 isl.operation
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
@@ -300,11 +299,13 @@ def get_detail_so_by_cell(so_name):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
                 AND isl.operation IN %(operations)s
+                AND isl.physical_cell IN %(cells)s
             WHERE tbc.sales_order = %(sales_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed'
         """, {
             "operations": list(all_operations),
+            "cells": cells,
             "sales_order": so_name
         }, as_dict=True)
 
@@ -463,14 +464,13 @@ def get_detail_wo_by_cell(wo_name):
     else:
         scan_logs = frappe.db.sql("""
             SELECT
-                topclo.physical_cell,
+                isl.physical_cell,
                 tbc.size,
                 pi.quantity AS pi_qty,
                 isl.status,
                 isl.operation
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
@@ -479,11 +479,13 @@ def get_detail_wo_by_cell(wo_name):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
                 AND isl.operation IN %(operations)s
+                AND isl.physical_cell IN %(cells)s
             WHERE tbc.work_order = %(work_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed'
         """, {
             "operations": list(all_operations),
+            "cells": cells,
             "work_order": wo_name
         }, as_dict=True)
 
