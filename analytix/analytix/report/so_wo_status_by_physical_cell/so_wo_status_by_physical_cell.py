@@ -3,7 +3,6 @@
 
 import frappe
 from frappe.utils import now_datetime
-from collections import defaultdict
 
 
 def execute(filters=None):
@@ -13,43 +12,12 @@ def execute(filters=None):
     detail_so = get_detail_so_by_cell(filters.get("sales_order"))
     detail_wo = get_detail_wo_by_cell(filters.get("work_order"))
 
-    # Prepare chart data from summary (example: SO completion % by cell)
-    chart = None
-    if summary_so:
-        chart = prepare_chart_data(summary_so)
-
-    return [], [], None, chart, [
+    return [], [], None, None, [
         {"name": "summary_so", "data": summary_so or []},
         {"name": "summary_wo", "data": summary_wo or []},
         {"name": "detail_so", "data": detail_so or {}},
         {"name": "detail_wo", "data": detail_wo or {}},
     ]
-
-
-def prepare_chart_data(summary_data):
-    """Simple bar chart: Completion % per Sales Order"""
-    labels = [row.get("so_number") for row in summary_data if row.get("so_quantity")]
-    datasets = [
-        {
-            "name": "Completion %",
-            "values": [
-                round(
-                    (row.get("completed_units", 0) / row.get("so_quantity")) * 100, 1
-                )
-                if row.get("so_quantity") > 0
-                else 0
-                for row in summary_data
-            ],
-        }
-    ]
-    return {
-        "data": {
-            "labels": labels,
-            "datasets": datasets,
-        },
-        "type": "bar",
-        "colors": ["#7cd6fd"],
-    }
 
 
 def _build_date_conditions(filters, params, alias="soi"):
@@ -66,7 +34,7 @@ def _build_date_conditions(filters, params, alias="soi"):
 
 
 # ======================
-# SUMMARY QUERIES
+# SUMMARY QUERIES (NO WIP)
 # ======================
 
 def get_summary_so_by_cell(filters):
@@ -107,7 +75,7 @@ def get_summary_so_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','SP Reject')
+                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -120,8 +88,7 @@ def get_summary_so_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
-                AND isl.physical_cell = %(physical_cell)s
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
@@ -180,7 +147,7 @@ def get_summary_wo_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','SP Reject')
+                    WHEN isl.status IN ('QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject') 
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -193,8 +160,7 @@ def get_summary_wo_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
-                AND isl.physical_cell = %(physical_cell)s
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
@@ -210,7 +176,7 @@ def get_summary_wo_by_cell(filters):
 
 
 # ======================
-# DETAIL QUERIES
+# DETAIL QUERIES (WITH WIP)
 # ======================
 
 def get_detail_so_by_cell(so_name):
@@ -250,7 +216,6 @@ def get_detail_so_by_cell(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_cell": []}
 
-    # Get operation sequence per tracking order
     op_links = frappe.db.sql("""
         SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -288,7 +253,6 @@ def get_detail_so_by_cell(so_name):
                 cur = op_to_next.get(cur)
         tor_seq[tor] = seq
 
-    # Get physical cells and their first/last ops
     cell_ops = frappe.db.sql("""
         SELECT DISTINCT topclo.physical_cell, topclo.parent AS tracking_order
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -315,9 +279,9 @@ def get_detail_so_by_cell(so_name):
     for ops in cell_first_last.values():
         all_operations.update([ops["first"], ops["last"]])
 
-    # Fetch scan logs from LAST OPERATION ONLY, with physical_cell
-    scan_logs = []
-    if all_operations and cells:
+    if not all_operations:
+        scan_logs = []
+    else:
         scan_logs = frappe.db.sql("""
             SELECT
                 isl.physical_cell,
@@ -327,45 +291,43 @@ def get_detail_so_by_cell(so_name):
                 isl.operation
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo 
-                ON topclo.parent = tor.name AND topclo.physical_cell = isl.physical_cell
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
-                AND isl.operation = topclo.operation  -- ONLY LAST OPERATION
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.sales_order = %(sales_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed'
         """, {
+            "operations": list(all_operations),
             "cells": cells,
             "sales_order": so_name
         }, as_dict=True)
 
-    # Aggregate completed (qty) and rejected (count of rows)
-    cell_size_completed = defaultdict(int)
-    cell_size_rejected_count = defaultdict(int)  # count of reject rows
-
+    from collections import defaultdict
+    cell_op_size_completed = defaultdict(int)
     for log in scan_logs:
-        key = (log.physical_cell, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
-            cell_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject', 'SP Reject'):
-            cell_size_rejected_count[key] += 1  # COUNT rows, not quantity
+            key = (log.physical_cell, log.operation, log.size or "")
+            cell_op_size_completed[key] += log.pi_qty or 0
 
     metrics_by_cell = []
     for cell in cells:
+        first_op = cell_first_last[cell]["first"]
         last_op = cell_first_last[cell]["last"]
         for size in sizes:
             total_qty = size_qty_map[size]
-            completed = cell_size_completed.get((cell, size), 0)
-            rejected = cell_size_rejected_count.get((cell, size), 0)  # count
-            pending = max(total_qty - completed - rejected, 0)
-            wip = 0  # WIP not tracked in last-op-only view
+            completed_first = cell_op_size_completed.get((cell, first_op, size), 0)
+            completed_last = cell_op_size_completed.get((cell, last_op, size), 0)
+            wip = max(0, completed_first - completed_last)
+            completed = completed_last
+            rejected = 0
+            pending = max(total_qty - completed, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
             metrics_by_cell.append({
@@ -373,7 +335,7 @@ def get_detail_so_by_cell(so_name):
                 "size": size,
                 "size_qty": total_qty,
                 "completed_units": completed,
-                "rejected_units": rejected,  # now populated
+                "rejected_units": rejected,
                 "pending_units": pending,
                 "completion_pct": round(completion_pct, 1),
                 "wip": wip
@@ -493,8 +455,13 @@ def get_detail_wo_by_cell(wo_name):
         return {"details": wo_details[0], "metrics_by_cell": []}
 
     cells = list(cell_first_last.keys())
-    scan_logs = []
-    if cells:
+    all_operations = set()
+    for ops in cell_first_last.values():
+        all_operations.update([ops["first"], ops["last"]])
+
+    if not all_operations:
+        scan_logs = []
+    else:
         scan_logs = frappe.db.sql("""
             SELECT
                 isl.physical_cell,
@@ -504,42 +471,43 @@ def get_detail_wo_by_cell(wo_name):
                 isl.operation
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-            INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo 
-                ON topclo.parent = tor.name AND topclo.physical_cell = isl.physical_cell
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
             INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
-                AND isl.operation = topclo.operation
+                AND isl.status IN ('Counted','Activated','Pass','QC Rework','QC Reject','QC Recut','SP Rework','SP Recut','SP Reject')
+                AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.work_order = %(work_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed'
         """, {
+            "operations": list(all_operations),
             "cells": cells,
             "work_order": wo_name
         }, as_dict=True)
 
-    cell_size_completed = defaultdict(int)
-    cell_size_rejected_count = defaultdict(int)
-
+    from collections import defaultdict
+    cell_op_size_completed = defaultdict(int)
     for log in scan_logs:
-        key = (log.physical_cell, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
-            cell_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject', 'SP Reject'):
-            cell_size_rejected_count[key] += 1
+            key = (log.physical_cell, log.operation, log.size or "")
+            cell_op_size_completed[key] += log.pi_qty or 0
 
     metrics_by_cell = []
     for cell in cells:
+        first_op = cell_first_last[cell]["first"]
+        last_op = cell_first_last[cell]["last"]
         for size in sizes:
             total_qty = size_qty_map[size]
-            completed = cell_size_completed.get((cell, size), 0)
-            rejected = cell_size_rejected_count.get((cell, size), 0)
-            pending = max(total_qty - completed - rejected, 0)
+            completed_first = cell_op_size_completed.get((cell, first_op, size), 0)
+            completed_last = cell_op_size_completed.get((cell, last_op, size), 0)
+            wip = max(0, completed_first - completed_last)
+            completed = completed_last
+            rejected = 0
+            pending = max(total_qty - completed, 0)
             completion_pct = min((completed / total_qty) * 100, 100.0) if total_qty > 0 else 0.0
 
             metrics_by_cell.append({
@@ -550,7 +518,7 @@ def get_detail_wo_by_cell(wo_name):
                 "rejected_units": rejected,
                 "pending_units": pending,
                 "completion_pct": round(completion_pct, 1),
-                "wip": 0
+                "wip": wip
             })
 
     metrics_by_cell.sort(key=lambda x: (x["physical_cell"], x["size"]))
