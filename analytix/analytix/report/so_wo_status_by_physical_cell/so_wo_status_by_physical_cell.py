@@ -75,7 +75,7 @@ def get_summary_so_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject')
+                    WHEN isl.status IN ('QC Reject','SP Reject')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -88,7 +88,7 @@ def get_summary_so_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
@@ -147,7 +147,7 @@ def get_summary_wo_by_cell(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','QC Recut','SP Recut','SP Reject') 
+                    WHEN isl.status IN ('QC Reject','SP Reject') 
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -160,7 +160,7 @@ def get_summary_wo_by_cell(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
               AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
@@ -297,7 +297,7 @@ def get_detail_so_by_cell(so_name):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
                 AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.sales_order = %(sales_order)s
@@ -316,7 +316,7 @@ def get_detail_so_by_cell(so_name):
         key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             cell_op_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject','QC Recut','SP Recut','SP Reject'):  # NEW
+        elif log.status in ('QC Reject','SP Reject'):  # NEW
             cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
@@ -480,7 +480,7 @@ def get_detail_wo_by_cell(wo_name):
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','QC Recut','SP Recut','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
                 AND isl.operation IN %(operations)s
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.work_order = %(work_order)s
@@ -499,7 +499,7 @@ def get_detail_wo_by_cell(wo_name):
         key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             cell_op_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject','QC Recut','SP Recut','SP Reject'):  # NEW
+        elif log.status in ('QC Reject','SP Reject'):  # NEW
             cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
