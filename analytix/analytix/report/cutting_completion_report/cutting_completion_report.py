@@ -134,7 +134,7 @@ def get_data(filters):
                 cc.fabric_ordered,
                 cc.fabric_issued,
                 cc.folding,
-                cc.end_bit,
+                clr.end_bit_quantity AS end_bit,
                 cc.file_consumption,
                 cc.actual_consumption,
                 cc.name AS can_cut_name,
@@ -177,6 +177,12 @@ def get_data(filters):
             LEFT JOIN `tabCan Cut` cc 
                 ON cc.sales_order = so.name 
                 AND cc.colour = sod.custom_color
+
+            LEFT JOIN `tabCutting Lay Record` clr
+                ON clr.ocn = so.name
+                AND clr.colour = sod.custom_color
+                AND clr.docstatus = 1
+
             WHERE so.docstatus = 1
             {conditions}
 

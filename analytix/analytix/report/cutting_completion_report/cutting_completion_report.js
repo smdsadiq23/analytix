@@ -10,27 +10,27 @@ frappe.query_reports["Cutting Completion Report"] = {
     },
 
     formatter(value, row, column, data, default_formatter) {
-        const html = default_formatter(value, row, column, data, default_formatter);
+        const safeValueForDefault = (value == null || value === '') ? '' : String(value);
+        const html = default_formatter(safeValueForDefault, row, column, data, default_formatter);
         if (!data) return html;
 
         const fieldname = (column.fieldname || "").toLowerCase();
         const isStatus = fieldname === "status";
         const isFolding = fieldname === "folding";
-        const isEndBit = fieldname === "end_bit";
 
-        // Handle Folding and End Bit
-        if (isFolding || isEndBit) {
+        // Handle Folding only
+        if (isFolding) {
             const docname = data.can_cut_name;
-            if (!docname) return html;  // ← Will be empty if no Can Cut exists
+            if (!docname) return html;
 
             const safeValue = frappe.utils.escape_html(value || "");
             return `
                 <textarea class="report-editable-field"
-                          data-docname="${docname}"
-                          data-doctype="Can Cut"
-                          data-fieldname="${fieldname}"
-                          rows="1"
-                          style="width:100%; padding:4px; resize:vertical;">${safeValue}</textarea>
+                        data-docname="${docname}"
+                        data-doctype="Can Cut"
+                        data-fieldname="folding"
+                        rows="1"
+                        style="width:100%; padding:4px; resize:vertical;">${safeValue}</textarea>
             `;
         }
 
@@ -77,9 +77,9 @@ frappe.query_reports["Cutting Completion Report"] = {
         const $wrap = report.page.wrapper;
 
         setTimeout(() => {
-            const columns = report.get_columns() || [];
+            const columns = report.columns() || [];
             columns.forEach(c => {
-                if (["status", "folding", "end_bit"].includes((c.fieldname || "").toLowerCase())) {
+                if (["status", "folding"].includes((c.fieldname || "").toLowerCase())) {
                     c.editable = 1;
                 }
             });
