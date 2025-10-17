@@ -164,7 +164,7 @@ def get_data(filters):
                     AND cci.docstatus = 1
                 ), 0) - SUM(sod.custom_order_qty)) AS difference,
 
-                COALESCE(so.custom_consumption_status, 'Pending for Approval') AS status,
+                COALESCE(so.custom_consumption_status, 'Prepared') AS status,
 
                 so.custom_approved_by,
                 so.custom_approved_on,                
