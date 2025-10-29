@@ -9,9 +9,10 @@ from analytix.utils.company import resolve_company, add_company_condition
 def execute(filters=None):
     """
     Output vs Target (Hourly)
-    - Output = SUM(pi.quantity) per hour
-    - Target = SUM(hourly_target.target) grouped by hour range
-    - Returns only columns and rows (no chart)
+    - Output = SUM(pi.quantity) per hour from tabItem Scan Log
+    - Target = SUM(target) per hour from tabHourly Target
+    - Merges both sets in Python (no SQL join)
+    - Always shows targets even if no scans exist
     Supports:
       - physical_cell_csv: "CellA,CellB,..."
       - operation_csv:     "Op1,Op2,..."
@@ -62,8 +63,10 @@ def execute(filters=None):
 
     where_clause = " AND ".join(conds)
 
-    # ---- Main query (Output) ----
-    rows = frappe.db.sql(
+    # =====================================================
+    # 1️⃣  MAIN QUERY: OUTPUT DATA (tabItem Scan Log)
+    # =====================================================
+    output_rows = frappe.db.sql(
         f"""
         SELECT
             DATE(isl.logged_time) AS date,
@@ -90,7 +93,9 @@ def execute(filters=None):
         as_dict=True,
     )
 
-    # ---- Secondary query (Hourly Targets) ----
+    # =====================================================
+    # 2️⃣  SECOND QUERY: TARGET DATA (tabHourly Target)
+    # =====================================================
     target_rows = frappe.db.sql(
         """
         SELECT
@@ -109,24 +114,55 @@ def execute(filters=None):
         as_dict=True,
     )
 
-    # ---- Transform target rows into lookup dict ----
-    # Keyed by (date, hour, physical_cell, operation)
+    # =====================================================
+    # 3️⃣  BUILD LOOKUP MAPS
+    # =====================================================
+    # Output Map (key = date, hour, cell, operation)
+    output_map = {
+        (r["date"], r["hour_num"], r["physical_cell"], r["operation"]): r
+        for r in output_rows
+    }
+
+    # Target Map (keyed per hour bucket)
     target_map = {}
     for t in target_rows:
-        try:
-            # Parse from_time to get hour bucket
-            from_hour = t["from_time"].hour
-            key = (t["date"], from_hour, t["physical_cell"], t["operation"])
-            target_map[key] = target_map.get(key, 0) + (t["target"] or 0)
-        except Exception:
+        if not (t.get("from_time") and t.get("to_time")):
             continue
+        from_hour = t["from_time"].hour
+        to_hour = t["to_time"].hour
 
-    # ---- Merge targets with main rows ----
-    for r in rows:
-        key = (r["date"], r["hour_num"], r["physical_cell"], r["operation"])
-        r["target"] = target_map.get(key, 0)
+        # Cover all hours between from_time and to_time
+        for hour in range(from_hour, to_hour + 1):
+            key = (t["date"], hour, t["physical_cell"], t["operation"])
+            target_map[key] = target_map.get(key, 0) + (t["target"] or 0)
 
-    # ---- Columns / Summary ----
+    # =====================================================
+    # 4️⃣  MERGE OUTPUTS & TARGETS (FULL UNION)
+    # =====================================================
+    combined_keys = set(output_map.keys()) | set(target_map.keys())
+    merged_rows = []
+
+    for key in sorted(combined_keys):
+        date, hour_num, physical_cell, operation = key
+        hour_label = f"{hour_num:02d}:00 - {hour_num:02d}:59"
+
+        output_val = output_map.get(key, {}).get("output", 0)
+        target_val = target_map.get(key, 0)
+
+        merged_rows.append({
+            "date": date,
+            "hour_label": hour_label,
+            "physical_cell": physical_cell,
+            "operation": operation,
+            "output": output_val,
+            "target": target_val,
+        })
+
+    rows = merged_rows
+
+    # =====================================================
+    # 5️⃣  DEFINE COLUMNS & SUMMARY
+    # =====================================================
     columns = [
         {"label": "Date",                   "fieldname": "date",            "fieldtype": "Date",    "width": 100},
         {"label": "Hour (HH:MM - HH:MM)",   "fieldname": "hour_label",      "fieldtype": "Data",    "width": 160},
