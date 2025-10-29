@@ -258,18 +258,18 @@ app_license = "mit"
 #     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
 # ]
 
-fixtures = [
-    {"dt": "Analytix Dashboard"},
-    {
-        "doctype": "Role",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                "KPI Viewers"
-                ]
-            ]
-        ]
-    }
-]
+# fixtures = [
+#     {"dt": "Analytix Dashboard"},
+#     {
+#         "doctype": "Role",
+#         "filters": [
+#             [
+#                 "name",
+#                 "in",
+#                 [
+#                 "KPI Viewers"
+#                 ]
+#             ]
+#         ]
+#     }
+#]
