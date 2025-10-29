@@ -29,7 +29,9 @@ def execute(filters=None):
     # ---- Company scoping ----
     company = resolve_company(explicit=filters.get("company"))
 
-    # ---- Base conditions ----
+    # =====================================================
+    # 1️⃣  BUILD COMMON FILTERS
+    # =====================================================
     conds = [
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Activated', 'Pass')",
@@ -40,31 +42,28 @@ def execute(filters=None):
 
     add_company_condition(conds, params, table_alias="tor", company=company)
 
-    # ---- Filters: single value (back-compat) ----
-    if filters.get("physical_cell"):
-        conds.append("isl.physical_cell = %(physical_cell)s")
-        params["physical_cell"] = filters["physical_cell"]
-
-    if filters.get("operation"):
-        conds.append("isl.operation = %(operation)s")
-        params["operation"] = filters["operation"]
-
-    # ---- Filters: multi-select CSV ----
+    # ---- Filters (Scan Log side) ----
     pc_csv = (filters.get("physical_cell_csv") or "").strip().strip(",")
     op_csv = (filters.get("operation_csv") or "").strip().strip(",")
 
     if pc_csv:
         conds.append("FIND_IN_SET(isl.physical_cell, %(pc_csv)s)")
         params["pc_csv"] = pc_csv
+    elif filters.get("physical_cell"):
+        conds.append("isl.physical_cell = %(physical_cell)s")
+        params["physical_cell"] = filters["physical_cell"]
 
     if op_csv:
         conds.append("FIND_IN_SET(isl.operation, %(op_csv)s)")
         params["op_csv"] = op_csv
+    elif filters.get("operation"):
+        conds.append("isl.operation = %(operation)s")
+        params["operation"] = filters["operation"]
 
     where_clause = " AND ".join(conds)
 
     # =====================================================
-    # 1️⃣  MAIN QUERY: OUTPUT DATA (tabItem Scan Log)
+    # 2️⃣  MAIN QUERY: OUTPUT DATA
     # =====================================================
     output_rows = frappe.db.sql(
         f"""
@@ -94,10 +93,30 @@ def execute(filters=None):
     )
 
     # =====================================================
-    # 2️⃣  SECOND QUERY: TARGET DATA (tabHourly Target)
+    # 3️⃣  SECOND QUERY: TARGET DATA
     # =====================================================
+    # Build a consistent WHERE for Hourly Target
+    target_conds = ["DATE(creation) = %(date)s"]
+    target_params = {"date": day}
+
+    if pc_csv:
+        target_conds.append("FIND_IN_SET(physical_cell, %(pc_csv)s)")
+        target_params["pc_csv"] = pc_csv
+    elif filters.get("physical_cell"):
+        target_conds.append("physical_cell = %(physical_cell)s")
+        target_params["physical_cell"] = filters["physical_cell"]
+
+    if op_csv:
+        target_conds.append("FIND_IN_SET(operation, %(op_csv)s)")
+        target_params["op_csv"] = op_csv
+    elif filters.get("operation"):
+        target_conds.append("operation = %(operation)s")
+        target_params["operation"] = filters["operation"]
+
+    target_where = " AND ".join(target_conds)
+
     target_rows = frappe.db.sql(
-        """
+        f"""
         SELECT
             DATE(creation) AS date,
             physical_cell,
@@ -107,37 +126,33 @@ def execute(filters=None):
             to_time,
             SUM(target) AS target
         FROM `tabHourly Target`
-        WHERE DATE(creation) = %(date)s
+        WHERE {target_where}
         GROUP BY DATE(creation), physical_cell, operation, workstation, from_time, to_time
         """,
-        {"date": day},
+        target_params,
         as_dict=True,
     )
 
     # =====================================================
-    # 3️⃣  BUILD LOOKUP MAPS
+    # 4️⃣  BUILD LOOKUP MAPS
     # =====================================================
-    # Output Map (key = date, hour, cell, operation)
     output_map = {
         (r["date"], r["hour_num"], r["physical_cell"], r["operation"]): r
         for r in output_rows
     }
 
-    # Target Map (keyed per hour bucket)
     target_map = {}
     for t in target_rows:
         if not (t.get("from_time") and t.get("to_time")):
             continue
         from_hour = t["from_time"].hour
         to_hour = t["to_time"].hour
-
-        # Cover all hours between from_time and to_time
         for hour in range(from_hour, to_hour + 1):
             key = (t["date"], hour, t["physical_cell"], t["operation"])
             target_map[key] = target_map.get(key, 0) + (t["target"] or 0)
 
     # =====================================================
-    # 4️⃣  MERGE OUTPUTS & TARGETS (FULL UNION)
+    # 5️⃣  MERGE BOTH (FULL UNION)
     # =====================================================
     combined_keys = set(output_map.keys()) | set(target_map.keys())
     merged_rows = []
@@ -145,7 +160,6 @@ def execute(filters=None):
     for key in sorted(combined_keys):
         date, hour_num, physical_cell, operation = key
         hour_label = f"{hour_num:02d}:00 - {hour_num:02d}:59"
-
         output_val = output_map.get(key, {}).get("output", 0)
         target_val = target_map.get(key, 0)
 
@@ -161,7 +175,7 @@ def execute(filters=None):
     rows = merged_rows
 
     # =====================================================
-    # 5️⃣  DEFINE COLUMNS & SUMMARY
+    # 6️⃣  DEFINE COLUMNS & SUMMARY
     # =====================================================
     columns = [
         {"label": "Date",                   "fieldname": "date",            "fieldtype": "Date",    "width": 100},
