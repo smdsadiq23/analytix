@@ -41,7 +41,7 @@ def execute(filters: dict | None = None):
       - 10-minute buckets for selected date (labels HH:MM)
       - Hourly buckets for selected date (labels HH:00)
       - Output  = SUM(pi.quantity)
-      - Target  = 0 (placeholder)
+      - Target  = from `tabHourly Target`, distributed into 10-min buckets
       - Avg     = running average of Output
 
     Time window:
@@ -210,20 +210,7 @@ def execute(filters: dict | None = None):
         idx = int(r["h"]) * 6 + int(r["bin10"])  # 0..143
         slots_10[idx]["output"] = float(r.get("output") or 0)
 
-    # Trim 10-min series to [start .. end] inclusive
-    start_idx_10 = start_h * 6 + (start_m // 10)
-    end_idx_10_from_end_time = end_h * 6 + (end_m // 10)
-    last_idx_10 = (int(last_ts.hour) * 6 + int(last_ts.minute) // 10) if last_ts else 0
-    end_idx_10 = max(end_idx_10_from_end_time, last_idx_10)
-    end_idx_10 = max(start_idx_10, min(143, end_idx_10))
-    slots_10 = slots_10[start_idx_10 : end_idx_10 + 1]
-
-    # Recompute running average after trimming
-    ten_avg = _running_average([row["output"] for row in slots_10])
-    for i, v in enumerate(ten_avg):
-        slots_10[i]["avg_output"] = v
-
-    # ---- Query: hourly buckets ----
+    # Build all 24 hourly bins
     rows_hr = frappe.db.sql(
         f"""
         SELECT
@@ -248,7 +235,6 @@ def execute(filters: dict | None = None):
         as_dict=True,
     )
 
-    # Build 24 hour bins with start-of-bucket labels (HH:00)
     slots_hr = [
         {
             "level": "hour",
@@ -263,7 +249,104 @@ def execute(filters: dict | None = None):
         idx = int(r["h"])  # 0..23
         slots_hr[idx]["output"] = float(r.get("output") or 0)
 
-    # Trim hourly series to [start_hour .. end_hour] inclusive
+    # ====================================================================================
+    # >>>>>>>>>>>>>>>>>>>>>>>> TARGET INTEGRATION STARTS HERE <<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # ====================================================================================
+
+    # Determine if the report date is today (for "now" logic)
+    today = frappe.utils.today()
+    is_today = str(day) == today
+    current_now = datetime.now() if is_today else None
+
+    # Fetch Hourly Targets for the selected date and filters
+    target_params = {"target_date": day}
+    target_conds = ["DATE(ht.from_time) = %(target_date)s"]
+
+    if op_csv:
+        target_conds.append("FIND_IN_SET(ht.operation, %(op_csv)s)")
+        target_params["op_csv"] = op_csv
+    elif filters.get("operation"):
+        target_conds.append("ht.operation = %(operation)s")
+        target_params["operation"] = filters["operation"]
+
+    if pc_csv:
+        target_conds.append("FIND_IN_SET(ht.workstation, %(pc_csv)s)")
+        target_params["pc_csv"] = pc_csv
+    elif filters.get("physical_cell"):
+        target_conds.append("ht.workstation = %(physical_cell)s")
+        target_params["physical_cell"] = filters["physical_cell"]
+
+    target_where = " AND ".join(target_conds)
+
+    # Fetch all Hourly Target records for the day
+    all_targets = frappe.db.sql("""
+        SELECT
+            DATE(from_time) AS date,
+            HOUR(from_time) AS hour,
+            operation,
+            workstation,
+            target,
+            creation
+        FROM `tabHourly Target`
+        WHERE DATE(from_time) = %(target_date)s
+    """, {"target_date": day}, as_dict=True)
+
+    # Build lookup: (date, hour, operation, workstation) -> latest target
+    latest_target_map = {}
+    for t in all_targets:
+        key = (t.date, t.hour, t.operation, t.workstation)
+        if key not in latest_target_map or t.creation > latest_target_map[key]["creation"]:
+            latest_target_map[key] = {"target": t.target, "creation": t.creation}
+
+    # Aggregate total target per (date, hour)
+    hourly_total_target = {}
+    for (date, hour, op, ws), data in latest_target_map.items():
+        hourly_total_target.setdefault((date, hour), 0)
+        hourly_total_target[(date, hour)] += data["target"]
+
+    # Distribute into 10-minute buckets
+    ten_min_target = {}  # (date, hour, bin10) -> target
+    for (date, hour), total_tgt in hourly_total_target.items():
+        per_10min = total_tgt / 6.0
+        max_bin = 5  # assign to all 6 bins by default
+
+        # If reporting on today and this is the current hour, prorate
+        if is_today and hour == current_now.hour:
+            current_minute = current_now.minute
+            current_bin = current_minute // 10  # 0 to 5
+            max_bin = current_bin  # only assign up to current bucket
+
+        for bin10 in range(6):
+            ten_min_target[(date, hour, bin10)] = per_10min if bin10 <= max_bin else 0.0
+
+    # Assign targets to slots
+    for slot in slots_10:
+        h = slot["bucket_num"] // 6
+        bin10 = slot["bucket_num"] % 6
+        slot["target"] = ten_min_target.get((day, h, bin10), 0.0)
+
+    for slot in slots_hr:
+        h = slot["bucket_num"]
+        slot["target"] = hourly_total_target.get((day, h), 0.0)
+
+    # ====================================================================================
+    # >>>>>>>>>>>>>>>>>>>>>>>>>> TARGET INTEGRATION ENDS HERE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # ====================================================================================
+
+    # ---- Trim 10-min series to [start .. end] inclusive ----
+    start_idx_10 = start_h * 6 + (start_m // 10)
+    end_idx_10_from_end_time = end_h * 6 + (end_m // 10)
+    last_idx_10 = (int(last_ts.hour) * 6 + int(last_ts.minute) // 10) if last_ts else 0
+    end_idx_10 = max(end_idx_10_from_end_time, last_idx_10)
+    end_idx_10 = max(start_idx_10, min(143, end_idx_10))
+    slots_10 = slots_10[start_idx_10 : end_idx_10 + 1]
+
+    # Recompute running average after trimming
+    ten_avg = _running_average([row["output"] for row in slots_10])
+    for i, v in enumerate(ten_avg):
+        slots_10[i]["avg_output"] = v
+
+    # ---- Trim hourly series to [start_hour .. end_hour] inclusive ----
     start_idx_hr = start_h
     end_idx_hr_from_end_time = end_h
     last_idx_hr = int(last_ts.hour) if last_ts else 0
@@ -289,9 +372,10 @@ def execute(filters: dict | None = None):
     ]
 
     total_output = sum((r.get("output") or 0) for r in slots_hr)
+    total_target = sum((r.get("target") or 0) for r in slots_hr)
     summary = [
         {"label": "Total Output (Qty)", "value": total_output, "indicator": "green" if total_output else "gray"},
-        {"label": "Target (Daily)",     "value": 0,            "indicator": "blue"},
+        {"label": "Total Target (Qty)", "value": total_target, "indicator": "blue"},
     ]
 
     return columns, data, None, None, summary
