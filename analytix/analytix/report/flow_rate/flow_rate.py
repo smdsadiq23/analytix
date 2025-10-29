@@ -59,7 +59,7 @@ def execute(filters: dict | None = None):
     # ---- Company scoping ----
     company = resolve_company(explicit=filters.get("company"))
 
-    # ---- Base conditions ----
+    # ---- Base conditions for scan logs ----
     conds: list[str] = [
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Activated', 'Pass')",
@@ -69,7 +69,7 @@ def execute(filters: dict | None = None):
     params: dict = {"start_dt": start_dt, "end_dt": end_dt}
     add_company_condition(conds, params, table_alias="tor", company=company)
 
-    # ---- Filters ----
+    # ---- Filters for scan logs ----
     if filters.get("physical_cell"):
         conds.append("isl.physical_cell = %(physical_cell)s")
         params["physical_cell"] = filters["physical_cell"]
@@ -170,7 +170,7 @@ def execute(filters: dict | None = None):
     end_h = max(0, min(23, end_h))
     end_m = max(0, min(59, end_m))
 
-    # ---- Query: 10-minute buckets ----
+    # ---- Query: 10-minute buckets (output) ----
     rows_10 = frappe.db.sql(
         f"""
         SELECT
@@ -194,7 +194,7 @@ def execute(filters: dict | None = None):
         as_dict=True,
     )
 
-    # Build all 144 bins with start-of-bucket labels (HH:MM)
+    # Build all 144 ten-minute slots
     slots_10 = [
         {
             "level": "ten_min",
@@ -207,10 +207,10 @@ def execute(filters: dict | None = None):
         for b in range(6)
     ]
     for r in rows_10:
-        idx = int(r["h"]) * 6 + int(r["bin10"])  # 0..143
+        idx = int(r["h"]) * 6 + int(r["bin10"])
         slots_10[idx]["output"] = float(r.get("output") or 0)
 
-    # Build all 24 hourly bins
+    # ---- Query: hourly buckets (output) ----
     rows_hr = frappe.db.sql(
         f"""
         SELECT
@@ -246,19 +246,19 @@ def execute(filters: dict | None = None):
         for h in range(24)
     ]
     for r in rows_hr:
-        idx = int(r["h"])  # 0..23
+        idx = int(r["h"])
         slots_hr[idx]["output"] = float(r.get("output") or 0)
 
     # ====================================================================================
-    # >>>>>>>>>>>>>>>>>>>>>>>> TARGET INTEGRATION STARTS HERE <<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # >>>>>>>>>>>>>>>>>>>>>>>> TARGET INTEGRATION (WITH FILTER FIX) <<<<<<<<<<<<<<<<<<<<<<
     # ====================================================================================
 
-    # Determine if the report date is today (for "now" logic)
+    # Determine if reporting on today (for proration)
     today = frappe.utils.today()
     is_today = str(day) == today
     current_now = datetime.now() if is_today else None
 
-    # Fetch Hourly Targets for the selected date and filters
+    # Build target query conditions (MUST match scan filters)
     target_params = {"target_date": day}
     target_conds = ["DATE(ht.from_time) = %(target_date)s"]
 
@@ -278,8 +278,8 @@ def execute(filters: dict | None = None):
 
     target_where = " AND ".join(target_conds)
 
-    # Fetch all Hourly Target records for the day
-    all_targets = frappe.db.sql("""
+    # ✅ FIXED: Apply filters in SQL — this was missing before!
+    all_targets = frappe.db.sql(f"""
         SELECT
             DATE(from_time) AS date,
             HOUR(from_time) AS hour,
@@ -287,11 +287,11 @@ def execute(filters: dict | None = None):
             workstation,
             target,
             creation
-        FROM `tabHourly Target`
-        WHERE DATE(from_time) = %(target_date)s
-    """, {"target_date": day}, as_dict=True)
+        FROM `tabHourly Target` ht
+        WHERE {target_where}
+    """, target_params, as_dict=True)
 
-    # Build lookup: (date, hour, operation, workstation) -> latest target
+    # Build latest target per (date, hour, operation, workstation)
     latest_target_map = {}
     for t in all_targets:
         key = (t.date, t.hour, t.operation, t.workstation)
@@ -304,17 +304,15 @@ def execute(filters: dict | None = None):
         hourly_total_target.setdefault((date, hour), 0)
         hourly_total_target[(date, hour)] += data["target"]
 
-    # Distribute into 10-minute buckets
-    ten_min_target = {}  # (date, hour, bin10) -> target
+    # Distribute into 10-minute buckets with proration for current hour
+    ten_min_target = {}
     for (date, hour), total_tgt in hourly_total_target.items():
         per_10min = total_tgt / 6.0
-        max_bin = 5  # assign to all 6 bins by default
+        max_bin = 5  # assign to all 6 buckets by default
 
-        # If reporting on today and this is the current hour, prorate
         if is_today and hour == current_now.hour:
-            current_minute = current_now.minute
-            current_bin = current_minute // 10  # 0 to 5
-            max_bin = current_bin  # only assign up to current bucket
+            current_bin = current_now.minute // 10  # 0 to 5
+            max_bin = current_bin
 
         for bin10 in range(6):
             ten_min_target[(date, hour, bin10)] = per_10min if bin10 <= max_bin else 0.0
@@ -330,7 +328,7 @@ def execute(filters: dict | None = None):
         slot["target"] = hourly_total_target.get((day, h), 0.0)
 
     # ====================================================================================
-    # >>>>>>>>>>>>>>>>>>>>>>>>>> TARGET INTEGRATION ENDS HERE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # >>>>>>>>>>>>>>>>>>>>>>>>>> END TARGET INTEGRATION <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # ====================================================================================
 
     # ---- Trim 10-min series to [start .. end] inclusive ----
@@ -341,7 +339,6 @@ def execute(filters: dict | None = None):
     end_idx_10 = max(start_idx_10, min(143, end_idx_10))
     slots_10 = slots_10[start_idx_10 : end_idx_10 + 1]
 
-    # Recompute running average after trimming
     ten_avg = _running_average([row["output"] for row in slots_10])
     for i, v in enumerate(ten_avg):
         slots_10[i]["avg_output"] = v
@@ -354,12 +351,11 @@ def execute(filters: dict | None = None):
     end_idx_hr = max(start_idx_hr, min(23, end_idx_hr))
     slots_hr = slots_hr[start_idx_hr : end_idx_hr + 1]
 
-    # Recompute hourly running average after trimming
     hr_avg = _running_average([row["output"] for row in slots_hr])
     for i, v in enumerate(hr_avg):
         slots_hr[i]["avg_output"] = v
 
-    # ---- Combine rows for the report grid (viewer splits by 'level') ----
+    # ---- Combine and return ----
     data = slots_10 + slots_hr
 
     columns = [
