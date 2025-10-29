@@ -258,18 +258,21 @@ app_license = "mit"
 #     # {"dt": "Dashboard Chart", "filters": [["name", "in", ["Bookings vs Billings"]]]},
 # ]
 
-# fixtures = [
-#     {"dt": "Analytix Dashboard"},
-#     {
-#         "doctype": "Role",
-#         "filters": [
-#             [
-#                 "name",
-#                 "in",
-#                 [
-#                 "KPI Viewers"
-#                 ]
-#             ]
-#         ]
-#     }
-#]
+app_include_js = ["/assets/analytix/js/cx_ui.js"]
+app_include_css = ["/assets/analytix/css/cx_ui.css"]
+
+fixtures = [
+    {"dt": "Analytix Dashboard"},
+    {
+        "doctype": "Role",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                "KPI Viewers"
+                ]
+            ]
+        ]
+    }
+]

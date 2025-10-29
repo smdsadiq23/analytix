@@ -1,35 +1,34 @@
-// Viewer: Output vs Target (2 charts; preserves earlier working filter logic)
-// Route: /app/output-target-viewer
+// Viewer: Cell Output vs Plan (2 charts; preserves earlier working filter logic)
+// Route: /app/cell-plan-vs-output-viewer
 
-frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
+frappe.pages["cell-output-vs-plan-viewer"].on_page_load = function (wrapper) {
   const page = frappe.ui.make_app_page({
     parent: wrapper,
-    title: "Output vs Target",
+    title: "Cell Output vs Plan",
     single_column: true,
   });
 
-  // Call the shared helper
+   // Call the shared helper
   CX.mountBreadcrumb({
     wrapper,
     trail: [
       { label: "KPI Hub", href: "/app/kpi-hub" },
-      { label: "Output vs Target" }
+      { label: "Cell Output vs Plan" }
     ]
-  });
+  }); 
 
   const $root = $(wrapper).find(".layout-main-section");
 
   // ---------- CONFIG ----------
-  const DOCTYPES = { physical_cell: "Physical Cell", operation: "Operation" };
-  const APPLY_COMPANY_FILTER = true; // only if DocType actually has "company"
-  const COLORS = { output: "#96BE37", target: "#ECAD4B" };
-  const REPORT_NAME = "Output vs Target";
+  const DOCTYPES = { physical_cell: "Physical Cell" };
+  const APPLY_COMPANY_FILTER = true;
+  const COLORS = { output: "#96BE37", plan: "#ECAD4B" };
+  const REPORT_NAME = "Cell Output vs Plan";
   const MAX_RANGE_DAYS = 45;
 
-  // ---------- Meta detector (doctypes that actually have "company") ----------
+  // ---------- Meta detector ----------
   const DT_META = {
     physical_cell: { doctype: DOCTYPES.physical_cell, hasCompany: false },
-    operation:     { doctype: DOCTYPES.operation,     hasCompany: false },
   };
   (async () => {
     for (const key of Object.keys(DT_META)) {
@@ -66,21 +65,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     },
   });
 
-  const msOp = page.add_field({
-    fieldtype: "MultiSelectList",
-    fieldname: "operation_list",
-    label: "Operation",
-    reqd: 0,
-    get_data: async function (txt) {
-      const filters = {};
-      if (APPLY_COMPANY_FILTER && DT_META.operation.hasCompany) {
-        const company = frappe.defaults.get_default("Company");
-        if (company) filters.company = company;
-      }
-      return frappe.db.get_link_options(DOCTYPES.operation, txt, filters);
-    },
-  });
-
   // Date range for Daily chart
   const fFrom = page.add_field({
     fieldtype: "Date",
@@ -98,7 +82,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
   // ===== Overflow fix + date clear + 2-col grid =====
   $("#kpi-ms-overflow-fix").remove();
   msCell.$wrapper.addClass("kpi-ms");
-  msOp.$wrapper.addClass("kpi-ms");
   $(`<style id="kpi-ms-overflow-fix">
     .page-form .frappe-control { min-width: 0; }
     .kpi-ms .form-control.input-xs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -164,7 +147,6 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     });
   }
 
-  // NEW: dd-mm-yyyy formatter for daily labels
   function fmtDMY(iso) {
     if (!iso || typeof iso !== "string") return iso;
     const [y, m, d] = iso.split("-");
@@ -179,8 +161,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
   function getSharedCsvFilters() {
     const cells = normalizeMS(msCell.get_value ? msCell.get_value() : []);
-    const ops   = normalizeMS(msOp.get_value   ? msOp.get_value()   : []);
-    return { physical_cell_csv: cells.join(","), operation_csv: ops.join(",") };
+    return { physical_cell_csv: cells.join(",") };
   }
 
   function enumerateDates(from, to) {
@@ -217,7 +198,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
       const labels = result.map(r => r.hour_label || "");
       const output = result.map(r => Number(r.output || 0));
-      const target = result.map(r => Number(r.target || 0));
+      const plan = result.map(r => Number(r.plan || 0)); // ✅ CHANGED: target → plan
 
       await loadChartJs();
       if ($canvas1[0]._chart) $canvas1[0]._chart.destroy();
@@ -230,8 +211,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
           datasets: [
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
-            { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: "transparent",
+            { type: "line", label: "Plan (Qty)", data: plan, // ✅ CHANGED: Target → Plan
+              borderColor: COLORS.plan, backgroundColor: "transparent",
               borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ],
         },
@@ -240,7 +221,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },
-            title:  { display: true, text: "Output vs Target (Hourly)" },
+            title:  { display: true, text: "Cell Output vs Plan (Hourly)" },
             tooltip: {
               callbacks: {
                 label: (ctx) => {
@@ -289,15 +270,15 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
 
       const labels = [];
       const output = [];
-      const target = [];
+      const plan = []; // ✅ CHANGED: target → plan
 
       results.forEach((resp, idx) => {
         const rows = ((resp || {}).message || {}).result || [];
         const totalOut = rows.reduce((s, r) => s + Number(r.output || 0), 0);
-        const totalTgt = rows.reduce((s, r) => s + Number(r.target || 0), 0);
-        labels.push(fmtDMY(dates[idx]));  // <-- dd-mm-yyyy labels
+        const totalPlan = rows.reduce((s, r) => s + Number(r.plan || 0), 0); // ✅ CHANGED: target → plan
+        labels.push(fmtDMY(dates[idx]));
         output.push(totalOut);
-        target.push(totalTgt);
+        plan.push(totalPlan); // ✅ CHANGED: target → plan
       });
 
       await loadChartJs();
@@ -311,8 +292,8 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
           datasets: [
             { type: "bar",  label: "Output (Qty)", data: output,
               backgroundColor: COLORS.output, borderColor: COLORS.output, borderWidth: 1 },
-            { type: "line", label: "Target (Qty)", data: target,
-              borderColor: COLORS.target, backgroundColor: "transparent",
+            { type: "line", label: "Plan (Qty)", data: plan, // ✅ CHANGED: Target → Plan
+              borderColor: COLORS.plan, backgroundColor: "transparent",
               borderWidth: 2, pointRadius: 2, tension: 0.25 },
           ],
         },
@@ -321,10 +302,10 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
           interaction: { mode: "index", intersect: false },
           plugins: {
             legend: { position: "bottom", align: "center", labels: { boxWidth: 12, padding: 12 } },
-            title:  { display: true, text: "Output vs Target (Daily)" },
+            title:  { display: true, text: "Cell Output vs Plan (Daily)" },
             tooltip: {
               callbacks: {
-                title: (items) => items?.[0]?.label ?? "", // already dd-mm-yyyy
+                title: (items) => items?.[0]?.label ?? "",
                 label: (ctx) => {
                   const v = Number(ctx.parsed.y ?? 0);
                   const txt = Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0";
@@ -372,7 +353,7 @@ frappe.pages["output-target-viewer"].on_page_load = function (wrapper) {
     }
   }
   bindMultiSelect(msCell);
-  bindMultiSelect(msOp);
+  // ✅ Removed: bindMultiSelect(msOp)
 
   fFrom.$input && fFrom.$input.on("change", runDailyDebounced);
   fTo.$input   && fTo.$input.on("change", runDailyDebounced);

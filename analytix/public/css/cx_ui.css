@@ -1,0 +1,39 @@
+/* Breadcrumb bar */
+.cx-breadcrumb-bar{
+  padding: 8px 16px;
+  background: var(--bg-color, #f9fafb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-size: 14px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Links / text / separators */
+.cx-breadcrumb-bar .cx-bc-link{
+  color: var(--text-color, #1f2937);
+  text-decoration: none;
+}
+.cx-breadcrumb-bar .cx-bc-text,
+.cx-breadcrumb-bar .cx-bc-last{
+  color: var(--text-muted, #6b7280);
+}
+.cx-breadcrumb-bar .cx-bc-sep{
+  color: var(--text-muted, #9ca3af);
+}
+
+/* Optional variants */
+.cx-breadcrumb--compact{ margin-bottom: 8px; }
+.cx-breadcrumb--spacious{ margin-bottom: 16px; padding-top: 10px; padding-bottom: 10px; }
+
+/* Dark mode (if your theme sets .dark on body) */
+body.dark .cx-breadcrumb-bar{
+  background: var(--bg-color, #0f172a);
+  border-bottom-color: var(--border-color, #1f2937);
+}
+body.dark .cx-breadcrumb-bar .cx-bc-link{ color: var(--text-color, #e5e7eb); }
+body.dark .cx-breadcrumb-bar .cx-bc-text,
+body.dark .cx-breadcrumb-bar .cx-bc-last,
+body.dark .cx-breadcrumb-bar .cx-bc-sep{ color: var(--text-muted, #9ca3af); }

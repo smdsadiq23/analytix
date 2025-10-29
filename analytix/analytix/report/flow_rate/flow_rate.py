@@ -62,7 +62,7 @@ def execute(filters: dict | None = None):
     # ---- Base conditions ----
     conds: list[str] = [
         "isl.log_status = 'Completed'",
-        "isl.status IN ('Counted', 'Activated', 'Passed')",
+        "isl.status IN ('Counted', 'Activated', 'Pass')",
         "isl.logged_time >= %(start_dt)s",
         "isl.logged_time < %(end_dt)s",
     ]

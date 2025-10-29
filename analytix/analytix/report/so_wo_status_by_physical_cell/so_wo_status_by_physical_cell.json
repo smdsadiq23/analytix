@@ -2,7 +2,7 @@
  "add_total_row": 0,
  "add_translate_data": 0,
  "columns": [],
- "creation": "2025-09-23 09:48:06.567661",
+ "creation": "2025-09-29 11:08:51.270250",
  "disabled": 0,
  "docstatus": 0,
  "doctype": "Report",
@@ -10,21 +10,21 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-10-06 22:01:48.047043",
+ "modified": "2025-10-06 22:00:53.125241",
  "modified_by": "Administrator",
  "module": "AnalytiX",
- "name": "Output vs Target",
+ "name": "SO WO Status by Physical Cell",
  "owner": "Administrator",
  "prepared_report": 0,
  "ref_doctype": "Item Scan Log",
- "report_name": "Output vs Target",
+ "report_name": "SO WO Status by Physical Cell",
  "report_type": "Script Report",
  "roles": [
   {
-   "role": "KPI Viewers"
+   "role": "System Manager"
   },
   {
-   "role": "System Manager"
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0
