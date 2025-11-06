@@ -6,7 +6,9 @@ import frappe
 from datetime import datetime, timedelta
 from frappe.utils import nowdate, getdate
 
-ALLOWED_STATUSES = ("Counted", "Activated", "Pass", "QC Reject", "SP Reject")
+# Count only "good" progress scans for TPT timing.
+# If you also want to count rejects as having "reached" last op, add them here.
+ALLOWED_STATUSES = ("Counted", "Activated", "Pass")
 
 
 def execute(filters=None):
@@ -14,8 +16,12 @@ def execute(filters=None):
     Unit Throughput Time (no complex SQL; Python does the work)
 
     Returns message payload with two datasets:
-      - {"name": "by_cell",   "data": [{ physical_cell, first_ts, last_op, last_ts, tpt_seconds, tpt_hhmm }]}
-      - {"name": "overall",   "data": [{ tracking_order, first_op, first_ts, last_op, last_ts, tpt_seconds, tpt_hhmm }]}
+      - {"name": "by_cell", "data": [
+            { physical_cell, first_ts, last_op, last_ts, tpt_seconds, tpt_hhmm }
+        ]}
+      - {"name": "overall", "data": [
+            { tracking_order, first_op, first_ts, last_op, last_ts, tpt_seconds, tpt_hhmm }
+        ]}
 
     Filters (all optional):
       - date (YYYY-MM-DD) OR date_range = [from_date, to_date]   (date_range has precedence)
@@ -45,24 +51,24 @@ def execute(filters=None):
     # 2) Last operation per (tracking_order, physical_cell)
     topclo_rows = _load_last_ops_per_cell()
     # 3) Operation graph (operation -> next_operation) per tracking_order
-    opmap_rows  = _load_operation_map()
+    opmap_rows = _load_operation_map()
 
     # --------- Build indices in Python ---------
-    # scans_by_cell, scans_by_tor, scans_by_tor_op, scans_by_cell_tor_op, etc.
     idx = _index_scans(scan_rows)
 
     # mapping (tracking_order, physical_cell) -> last_operation
-    last_op_map = {}
-    for r in topclo_rows:
-        last_op_map[(r["tracking_order"], r["physical_cell"])] = r["last_operation"]
+    last_op_map = {(r["tracking_order"], r["physical_cell"]): r["last_operation"]
+                   for r in topclo_rows}
 
     # operation graph per TOR
     graph_by_tor = _graph_by_tracking_order(opmap_rows)
 
     # --------- 1) TPT by PHYSICAL CELL (Python) ---------
+    # Only include PIs that actually reached the cell's last operation.
     by_cell = _compute_tpt_by_cell(idx, last_op_map)
 
     # --------- 2) TPT for WHOLE PROCESS MAP (by TOR) (Python) ---------
+    # Only include PIs that actually reached at least one "last op" (sink).
     overall = _compute_tpt_overall(idx, graph_by_tor)
 
     return [], [], None, None, [
@@ -104,7 +110,8 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter):
           isl.physical_cell,
           isl.operation,
           isl.logged_time,
-          tc.parent AS tracking_order
+          tc.parent AS tracking_order,
+          pi.name   AS pi_name
         FROM `tabItem Scan Log` isl
         LEFT JOIN `tabProduction Item`  pi ON pi.name = isl.production_item
         LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
@@ -158,18 +165,23 @@ def _index_scans(scan_rows):
     """
     from collections import defaultdict
 
-    scans_by_cell = defaultdict(list)              # cell -> [row,...]
-    scans_by_tor  = defaultdict(list)              # tor  -> [row,...]
-    scans_by_tor_op = defaultdict(list)            # (tor, op) -> [row,...]
-    scans_by_cell_tor_op = defaultdict(list)       # (cell, tor, op) -> [row,...]
+    scans_by_cell = defaultdict(list)                     # cell -> [row,...]
+    scans_by_tor = defaultdict(list)                      # tor  -> [row,...]
+    scans_by_tor_op = defaultdict(list)                   # (tor, op) -> [row,...]
+    scans_by_cell_tor_op = defaultdict(list)              # (cell, tor, op) -> [row,...]
+
+    # New (needed to filter to PIs that reached last ops):
+    scans_by_tor_pi = defaultdict(list)                   # (tor, pi) -> [row,...]
+    scans_by_cell_tor_op_pi = defaultdict(list)           # (cell, tor, op, pi) -> [row,...]
 
     for r in scan_rows:
         cell = r["physical_cell"]
-        op   = r["operation"]
-        tor  = r["tracking_order"]
-        ts   = r["logged_time"]
+        op = r["operation"]
+        tor = r["tracking_order"]
+        ts = r["logged_time"]
+        pi = r["pi_name"]
 
-        if not (cell and op and tor and ts):
+        if not (cell and op and tor and ts and pi):
             # skip incomplete rows
             continue
 
@@ -178,8 +190,19 @@ def _index_scans(scan_rows):
         scans_by_tor_op[(tor, op)].append(r)
         scans_by_cell_tor_op[(cell, tor, op)].append(r)
 
+        scans_by_tor_pi[(tor, pi)].append(r)
+        scans_by_cell_tor_op_pi[(cell, tor, op, pi)].append(r)
+
     # Sort each list by timestamp once (ascending)
-    for d in (scans_by_cell, scans_by_tor, scans_by_tor_op, scans_by_cell_tor_op):
+    to_sort = (
+        scans_by_cell,
+        scans_by_tor,
+        scans_by_tor_op,
+        scans_by_cell_tor_op,
+        scans_by_tor_pi,
+        scans_by_cell_tor_op_pi,
+    )
+    for d in to_sort:
         for k in d.keys():
             d[k].sort(key=lambda x: x["logged_time"] or datetime.min)
 
@@ -188,6 +211,8 @@ def _index_scans(scan_rows):
         scans_by_tor=scans_by_tor,
         scans_by_tor_op=scans_by_tor_op,
         scans_by_cell_tor_op=scans_by_cell_tor_op,
+        scans_by_tor_pi=scans_by_tor_pi,
+        scans_by_cell_tor_op_pi=scans_by_cell_tor_op_pi,
     )
 
 
@@ -202,7 +227,7 @@ def _graph_by_tracking_order(opmap_rows):
     from collections import defaultdict
 
     next_map = defaultdict(dict)
-    ops_set  = defaultdict(set)
+    ops_set = defaultdict(set)
 
     for r in opmap_rows:
         tor = r["tracking_order"]
@@ -212,7 +237,7 @@ def _graph_by_tracking_order(opmap_rows):
             ops_set[tor].add(op)
         if nxt:
             ops_set[tor].add(nxt)
-        # Only one next per row; last ops will either be absent in values or have nxt None
+        # One row = one edge; last ops have nxt NULL/empty
         next_map[tor][op] = nxt
 
     out = {}
@@ -231,46 +256,64 @@ def _graph_by_tracking_order(opmap_rows):
 def _compute_tpt_by_cell(idx, last_op_map):
     """
     Per physical cell:
-      first_ts := earliest scan in that cell (any op, any tor)
-      last_ts  := across all TORs that touched that cell, look up the last_operation configured
-                  for (tor, cell); then take the latest scan in that (cell, tor, last_operation)
-      tpt      := last_ts - first_ts
+      Consider only PIs that actually reached the configured last operation
+      for some (tracking_order, cell). Then:
+        first_ts := earliest scan in that cell (any op) among those PIs
+        last_ts  := latest scan at (cell, tor, last_operation) among those PIs
+        tpt      := last_ts - first_ts
+      Cells with no PI reaching last_op are skipped.
     """
     result = []
+
     scans_by_cell = idx["scans_by_cell"]
     scans_by_cell_tor_op = idx["scans_by_cell_tor_op"]
+    scans_by_cell_tor_op_pi = idx["scans_by_cell_tor_op_pi"]
 
     for cell, rows in scans_by_cell.items():
-        # earliest in this cell
-        first_ts = rows[0]["logged_time"] if rows else None
+        if not rows:
+            continue
 
-        # find all TORs that touched this cell
-        tors = set(r["tracking_order"] for r in rows if r.get("tracking_order"))
+        # All TORs that touched this cell
+        tors = {r["tracking_order"] for r in rows if r.get("tracking_order")}
 
-        # for each TOR, find its configured last op for this cell, then get the latest scan at that op
-        last_ts_candidates = []
-        last_op_selected = None
+        pis_that_reached = set()
+        last_ts_candidates = []  # (ts, last_op)
 
+        # find PIs that have scans at (cell, tor, last_op)
         for tor in tors:
             last_op = last_op_map.get((tor, cell))
             if not last_op:
                 continue
-            k = (cell, tor, last_op)
-            logs = scans_by_cell_tor_op.get(k, [])
-            if logs:
-                # logs sorted asc by ts; pick latest
-                last = logs[-1]
-                last_ts_candidates.append((last["logged_time"], last_op))
 
+            # All PIs under this cell+tor (from the local rows list)
+            pis_in_tor = {r["pi_name"] for r in rows if r["tracking_order"] == tor}
+
+            for pi in pis_in_tor:
+                logs = scans_by_cell_tor_op_pi.get((cell, tor, last_op, pi), [])
+                if logs:
+                    pis_that_reached.add(pi)
+                    last_ts_candidates.append((logs[-1]["logged_time"], last_op))
+
+        if not pis_that_reached:
+            # No unit reached the configured last op → skip this cell
+            continue
+
+        # first_ts among ONLY those PIs in this cell (any op)
+        first_ts_candidates = [r["logged_time"] for r in rows if r["pi_name"] in pis_that_reached]
+        first_ts = min(first_ts_candidates) if first_ts_candidates else None
+
+        # latest last_ts (from last_op matches)
+        last_ts = None
+        last_op_selected = None
         if last_ts_candidates:
             last_ts_candidates.sort(key=lambda x: x[0] or datetime.min)
             last_ts, last_op_selected = last_ts_candidates[-1]
-        else:
-            last_ts, last_op_selected = (None, None)
 
-        tpt_seconds = None
-        if first_ts and last_ts:
-            tpt_seconds = (last_ts - first_ts).total_seconds()
+        if not (first_ts and last_ts):
+            # incomplete bounds → skip
+            continue
+
+        tpt_seconds = (last_ts - first_ts).total_seconds()
 
         result.append({
             "physical_cell": cell,
@@ -278,7 +321,7 @@ def _compute_tpt_by_cell(idx, last_op_map):
             "last_op": last_op_selected,
             "last_ts": last_ts,
             "tpt_seconds": tpt_seconds,
-            "tpt_hhmm": _fmt_hhmmss(tpt_seconds) if tpt_seconds is not None else "",
+            "tpt_hhmm": _fmt_hhmmss(tpt_seconds),
         })
 
     # stable order by cell
@@ -289,13 +332,16 @@ def _compute_tpt_by_cell(idx, last_op_map):
 def _compute_tpt_overall(idx, graph_by_tor):
     """
     For each TOR:
-      first_ops := ops that never appear as someone's next (i.e., sources)
-      last_ops  := ops whose next is NULL/None or missing (i.e., sinks)
-      first_ts  := earliest scan at any op in first_ops
-      last_ts   := latest  scan at any op in last_ops
+      first_ops := ops that never appear as someone's next (sources)
+      last_ops  := ops whose next is NULL/None or missing (sinks)
+      Keep only PIs that have a scan in ANY last_op.
+      first_ts  := earliest scan at any first_op among those PIs
+      last_ts   := latest  scan at any last_op  among those PIs
       tpt       := last_ts - first_ts
+      TORs with no PI reaching a last_op are skipped.
     """
     result = []
+
     scans_by_tor = idx["scans_by_tor"]
     scans_by_tor_op = idx["scans_by_tor_op"]
 
@@ -307,46 +353,55 @@ def _compute_tpt_overall(idx, graph_by_tor):
         ops = set(g.get("ops") or [])
         nxt = g.get("next") or {}
 
-        # derive first_ops (ops not present as any next_operation)
-        next_values = set([v for v in nxt.values() if v])
+        # derive first_ops (strict: ops not present as any next_operation)
+        next_values = {v for v in nxt.values() if v}
         first_ops = [op for op in ops if op and op not in next_values]
-        if not first_ops and ops:
-            # Fallback: if graph incomplete, use min(op) to have a deterministic seed
-            first_ops = [sorted(ops)[0]]
 
-        # derive last_ops (ops whose next is None or absent)
+        # derive last_ops (strict: ops whose next is None or absent)
         last_ops = [op for op in ops if not nxt.get(op)]
-        if not last_ops and ops:
-            last_ops = [sorted(ops)[-1]]
 
-        # compute first_ts = earliest across first_ops
+        # If the map is incomplete (no clear sources/sinks), skip
+        if not first_ops or not last_ops:
+            continue
+
+        # Only keep PIs that have a scan in ANY last_op
+        pis_that_reached = set()
+        for op in last_ops:
+            for r in scans_by_tor_op.get((tor, op), []):
+                pis_that_reached.add(r["pi_name"])
+
+        if not pis_that_reached:
+            continue
+
+        # first_ts: earliest scan at any first_op among those PIs
         first_ts_candidates = []
         for op in first_ops:
-            rows = scans_by_tor_op.get((tor, op), [])
-            if rows:
-                first_ts_candidates.append(rows[0]["logged_time"])
+            for r in scans_by_tor_op.get((tor, op), []):
+                if r["pi_name"] in pis_that_reached:
+                    first_ts_candidates.append(r["logged_time"])
         first_ts = min(first_ts_candidates) if first_ts_candidates else None
 
-        # compute last_ts = latest across last_ops
+        # last_ts: latest scan at any last_op among those PIs
         last_ts_candidates = []
         for op in last_ops:
-            rows = scans_by_tor_op.get((tor, op), [])
-            if rows:
-                last_ts_candidates.append(rows[-1]["logged_time"])
+            for r in scans_by_tor_op.get((tor, op), []):
+                if r["pi_name"] in pis_that_reached:
+                    last_ts_candidates.append(r["logged_time"])
         last_ts = max(last_ts_candidates) if last_ts_candidates else None
 
-        tpt_seconds = None
-        if first_ts and last_ts:
-            tpt_seconds = (last_ts - first_ts).total_seconds()
+        if not (first_ts and last_ts):
+            continue
+
+        tpt_seconds = (last_ts - first_ts).total_seconds()
 
         result.append({
             "tracking_order": tor,
-            "first_op": first_ops[0] if first_ops else None,
+            "first_op": first_ops[0],
             "first_ts": first_ts,
-            "last_op": last_ops[0] if last_ops else None,
+            "last_op": last_ops[0],
             "last_ts": last_ts,
             "tpt_seconds": tpt_seconds,
-            "tpt_hhmm": _fmt_hhmmss(tpt_seconds) if tpt_seconds is not None else "",
+            "tpt_hhmm": _fmt_hhmmss(tpt_seconds),
         })
 
     # stable order by TOR

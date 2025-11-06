@@ -166,5 +166,19 @@
   "route_override": "/app/query-report/Cutting%20Completion%20Report",
   "sort_order": 1,
   "title": "Cutting Completion Report"
+ },
+ {
+  "dashboard": "Accounts",
+  "description": "Unit Throughput Time by Cell and Over All",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Productivity",
+  "modified": "2025-11-06 14:33:30.391103",
+  "name": "qib9l7al5t",
+  "route_override": "/app/unit-throughtput-time-viewer",
+  "sort_order": 3,
+  "title": "Unit Throughput Time"
  }
 ]
