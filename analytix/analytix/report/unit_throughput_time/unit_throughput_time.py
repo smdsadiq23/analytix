@@ -7,13 +7,12 @@ from datetime import datetime, timedelta
 from frappe.utils import nowdate, getdate
 
 # Count only "good" progress scans for TPT timing.
-# If you also want to count rejects as having "reached" last op, add them here.
 ALLOWED_STATUSES = ("Counted", "Activated", "Pass")
 
 
 def execute(filters=None):
     """
-    Unit Throughput Time (no complex SQL; Python does the work)
+    Unit Throughput Time (Python aggregation)
 
     Returns message payload with two datasets:
       - {"name": "by_cell", "data": [
@@ -27,6 +26,9 @@ def execute(filters=None):
       - date (YYYY-MM-DD) OR date_range = [from_date, to_date]   (date_range has precedence)
       - physical_cell_csv (CSV list)
       - operation_csv     (CSV list)
+      - sales_order
+      - work_order
+      - style  (matches WO.production_item OR any SOI.item_code under the linked SO)
     """
     filters = filters or {}
 
@@ -37,9 +39,21 @@ def execute(filters=None):
     pc_filter = _csv_to_set(filters.get("physical_cell_csv"))
     op_filter = _csv_to_set(filters.get("operation_csv"))
 
+    # --------- Optional entity filters ---------
+    so_filter = (filters.get("sales_order") or "").strip()
+    wo_filter = (filters.get("work_order") or "").strip()
+    style_filter = (filters.get("style") or "").strip()
+
     # --------- Load data with simple queries ---------
     # 1) Scan rows
-    scan_rows = _load_scans(start_dt, end_dt, pc_filter, op_filter)
+    scan_rows = _load_scans(
+        start_dt, end_dt,
+        pc_filter=pc_filter,
+        op_filter=op_filter,
+        sales_order=so_filter,
+        work_order=wo_filter,
+        style=style_filter,
+    )
 
     if not scan_rows:
         # Empty datasets
@@ -50,6 +64,7 @@ def execute(filters=None):
 
     # 2) Last operation per (tracking_order, physical_cell)
     topclo_rows = _load_last_ops_per_cell()
+
     # 3) Operation graph (operation -> next_operation) per tracking_order
     opmap_rows = _load_operation_map()
 
@@ -63,12 +78,10 @@ def execute(filters=None):
     # operation graph per TOR
     graph_by_tor = _graph_by_tracking_order(opmap_rows)
 
-    # --------- 1) TPT by PHYSICAL CELL (Python) ---------
-    # Only include PIs that actually reached the cell's last operation.
+    # --------- 1) TPT by PHYSICAL CELL (only units that reached cell's last op) ---------
     by_cell = _compute_tpt_by_cell(idx, last_op_map)
 
-    # --------- 2) TPT for WHOLE PROCESS MAP (by TOR) (Python) ---------
-    # Only include PIs that actually reached at least one "last op" (sink).
+    # --------- 2) TPT for WHOLE PROCESS MAP (only units that reached any "last op") ----
     overall = _compute_tpt_overall(idx, graph_by_tor)
 
     return [], [], None, None, [
@@ -81,10 +94,21 @@ def execute(filters=None):
 #                             LOADERS
 # ======================================================================
 
-def _load_scans(start_dt, end_dt, pc_filter, op_filter):
+def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order, style):
     """
     Minimal query to fetch scan facts. We filter by date + statuses here.
     Optional FIND_IN_SET filters for cell/op if provided.
+    Optional entity filters via Tracking Order Bundle Configuration (tbc):
+
+      - sales_order: tbc.sales_order = %(sales_order)s
+      - work_order:  tbc.work_order  = %(work_order)s
+      - style: (wo.production_item = %(style)s
+                OR EXISTS (SELECT 1 FROM `tabSales Order Item` soi
+                           WHERE soi.parent = tbc.sales_order
+                             AND soi.item_code = %(style)s))
+
+    We join through Production Item -> Tracking Component (main) -> Tracking Order -> T.O. Bundle Config.
+    (pi.bundle_configuration == tbc.name and pi.tracking_order == tbc.parent)
     """
     conds = [
         "isl.log_status = 'Completed'",
@@ -102,6 +126,30 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter):
         conds.append("FIND_IN_SET(isl.operation, %(op_csv)s)")
         params["op_csv"] = ",".join(sorted(op_filter))
 
+    # Entity filters via tbc
+    if sales_order:
+        conds.append("tbc.sales_order = %(sales_order)s")
+        params["sales_order"] = sales_order
+
+    if work_order:
+        conds.append("tbc.work_order = %(work_order)s")
+        params["work_order"] = work_order
+
+    if style:
+        # Style can match WO.production_item OR any SOI.item_code tied to that SO
+        conds.append("""
+        (
+          wo.production_item = %(style)s
+          OR EXISTS (
+            SELECT 1
+            FROM `tabSales Order Item` soi2
+            WHERE soi2.parent = tbc.sales_order
+              AND soi2.item_code = %(style)s
+          )
+        )
+        """)
+        params["style"] = style
+
     where_sql = " AND ".join(conds)
 
     rows = frappe.db.sql(
@@ -113,8 +161,17 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter):
           tc.parent AS tracking_order,
           pi.name   AS pi_name
         FROM `tabItem Scan Log` isl
-        LEFT JOIN `tabProduction Item`  pi ON pi.name = isl.production_item
-        LEFT JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+        LEFT JOIN `tabProduction Item`  pi
+               ON pi.name = isl.production_item
+        LEFT JOIN `tabTracking Component` tc
+               ON tc.name = pi.component AND tc.is_main = 1
+        LEFT JOIN `tabTracking Order` tor
+               ON tor.name = tc.parent
+        LEFT JOIN `tabTracking Order Bundle Configuration` tbc
+               ON tbc.parent = tor.name
+              AND tbc.name   = pi.bundle_configuration
+        LEFT JOIN `tabWork Order` wo
+               ON wo.name = tbc.work_order
         WHERE {where_sql}
         """,
         params,
@@ -170,7 +227,7 @@ def _index_scans(scan_rows):
     scans_by_tor_op = defaultdict(list)                   # (tor, op) -> [row,...]
     scans_by_cell_tor_op = defaultdict(list)              # (cell, tor, op) -> [row,...]
 
-    # New (needed to filter to PIs that reached last ops):
+    # To filter to PIs that reached last ops:
     scans_by_tor_pi = defaultdict(list)                   # (tor, pi) -> [row,...]
     scans_by_cell_tor_op_pi = defaultdict(list)           # (cell, tor, op, pi) -> [row,...]
 
@@ -266,7 +323,6 @@ def _compute_tpt_by_cell(idx, last_op_map):
     result = []
 
     scans_by_cell = idx["scans_by_cell"]
-    scans_by_cell_tor_op = idx["scans_by_cell_tor_op"]
     scans_by_cell_tor_op_pi = idx["scans_by_cell_tor_op_pi"]
 
     for cell, rows in scans_by_cell.items():
@@ -285,7 +341,7 @@ def _compute_tpt_by_cell(idx, last_op_map):
             if not last_op:
                 continue
 
-            # All PIs under this cell+tor (from the local rows list)
+            # all PIs under this cell+tor
             pis_in_tor = {r["pi_name"] for r in rows if r["tracking_order"] == tor}
 
             for pi in pis_in_tor:
@@ -298,11 +354,11 @@ def _compute_tpt_by_cell(idx, last_op_map):
             # No unit reached the configured last op → skip this cell
             continue
 
-        # first_ts among ONLY those PIs in this cell (any op)
+        # earliest scan in this cell among those PIs (any op)
         first_ts_candidates = [r["logged_time"] for r in rows if r["pi_name"] in pis_that_reached]
         first_ts = min(first_ts_candidates) if first_ts_candidates else None
 
-        # latest last_ts (from last_op matches)
+        # latest last_ts across matches
         last_ts = None
         last_op_selected = None
         if last_ts_candidates:
@@ -310,7 +366,6 @@ def _compute_tpt_by_cell(idx, last_op_map):
             last_ts, last_op_selected = last_ts_candidates[-1]
 
         if not (first_ts and last_ts):
-            # incomplete bounds → skip
             continue
 
         tpt_seconds = (last_ts - first_ts).total_seconds()
@@ -353,18 +408,18 @@ def _compute_tpt_overall(idx, graph_by_tor):
         ops = set(g.get("ops") or [])
         nxt = g.get("next") or {}
 
-        # derive first_ops (strict: ops not present as any next_operation)
+        # strict sources: ops not present as any next_operation
         next_values = {v for v in nxt.values() if v}
         first_ops = [op for op in ops if op and op not in next_values]
 
-        # derive last_ops (strict: ops whose next is None or absent)
+        # strict sinks: ops whose next is None or absent
         last_ops = [op for op in ops if not nxt.get(op)]
 
-        # If the map is incomplete (no clear sources/sinks), skip
+        # require well-formed graph
         if not first_ops or not last_ops:
             continue
 
-        # Only keep PIs that have a scan in ANY last_op
+        # PIs that reached any sink op
         pis_that_reached = set()
         for op in last_ops:
             for r in scans_by_tor_op.get((tor, op), []):
@@ -373,7 +428,7 @@ def _compute_tpt_overall(idx, graph_by_tor):
         if not pis_that_reached:
             continue
 
-        # first_ts: earliest scan at any first_op among those PIs
+        # first_ts at any first_op among those PIs
         first_ts_candidates = []
         for op in first_ops:
             for r in scans_by_tor_op.get((tor, op), []):
@@ -381,7 +436,7 @@ def _compute_tpt_overall(idx, graph_by_tor):
                     first_ts_candidates.append(r["logged_time"])
         first_ts = min(first_ts_candidates) if first_ts_candidates else None
 
-        # last_ts: latest scan at any last_op among those PIs
+        # last_ts at any last_op among those PIs
         last_ts_candidates = []
         for op in last_ops:
             for r in scans_by_tor_op.get((tor, op), []):
@@ -404,7 +459,6 @@ def _compute_tpt_overall(idx, graph_by_tor):
             "tpt_hhmm": _fmt_hhmmss(tpt_seconds),
         })
 
-    # stable order by TOR
     result.sort(key=lambda r: (r["tracking_order"] or ""))
     return result
 
