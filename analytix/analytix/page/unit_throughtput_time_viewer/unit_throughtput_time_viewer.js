@@ -243,7 +243,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const date_range = Array.isArray(dr) ? dr : [];
     const cells = msNormalize(fCell.get_value && fCell.get_value());
     return {
-      date_range,                                 // <-- used by backend _resolve_datetime_window
+      date_range,                                 // backend uses this
       style:       fStyle.get_value && fStyle.get_value(),
       sales_order: fSO.get_value && fSO.get_value(),
       work_order:  fWO.get_value && fWO.get_value(),

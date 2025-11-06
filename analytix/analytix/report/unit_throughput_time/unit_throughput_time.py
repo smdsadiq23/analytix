@@ -94,20 +94,9 @@ def execute(filters=None):
 
 def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order, style):
     """
-    Minimal query to fetch scan facts, with real filtering:
-      - Date window + allowed statuses
-      - Optional FIND_IN_SET(physical_cell, csv) and FIND_IN_SET(operation, csv)
-      - Optional SO/WO via Tracking Order Bundle Configuration (tbc)
-      - Optional style:
-          * matches WO.production_item
-          * or any Sales Order Item under tbc.sales_order
-          * or (fallback) PI.item_code
-
-    Join chain:
-      Item Scan Log -> Production Item (pi)
-          -> Tracking Component (tc, is_main=1) -> Tracking Order (tor)
-          -> Tracking Order Bundle Configuration (tbc) (via pi.bundle_configuration)
-          -> Work Order (wo)
+    Fetch scan facts with strong, optional filters. We keep all joins LEFT so rows
+    that don't have SO/WO links still pass, but we apply SO/WO/style via EXISTS
+    subqueries (so null LEFT-joins won't neuter the filter).
     """
     conds = [
         "isl.log_status = 'Completed'",
@@ -117,6 +106,7 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order,
     ]
     params = {"start_dt": start_dt, "end_dt": end_dt}
 
+    # Physical Cell / Operation filters
     if pc_filter:
         conds.append("FIND_IN_SET(isl.physical_cell, %(pc_csv)s)")
         params["pc_csv"] = ",".join(sorted(pc_filter))
@@ -125,25 +115,58 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order,
         conds.append("FIND_IN_SET(isl.operation, %(op_csv)s)")
         params["op_csv"] = ",".join(sorted(op_filter))
 
-    # Entity filters via tbc/wo
+    # SO filter via EXISTS against TBC
     if sales_order:
-        conds.append("tbc.sales_order = %(sales_order)s")
+        conds.append("""
+            EXISTS (
+              SELECT 1
+              FROM `tabTracking Order Bundle Configuration` tbc_so
+              WHERE tbc_so.parent = tor.name
+                AND tbc_so.name = pi.bundle_configuration
+                AND tbc_so.parentfield = 'component_bundle_configurations'
+                AND tbc_so.activation_status = 'Completed'
+                AND tbc_so.sales_order = %(sales_order)s
+            )
+        """)
         params["sales_order"] = sales_order
 
+    # WO filter via EXISTS against TBC
     if work_order:
-        conds.append("tbc.work_order = %(work_order)s")
+        conds.append("""
+            EXISTS (
+              SELECT 1
+              FROM `tabTracking Order Bundle Configuration` tbc_wo
+              WHERE tbc_wo.parent = tor.name
+                AND tbc_wo.name = pi.bundle_configuration
+                AND tbc_wo.parentfield = 'component_bundle_configurations'
+                AND tbc_wo.activation_status = 'Completed'
+                AND tbc_wo.work_order = %(work_order)s
+            )
+        """)
         params["work_order"] = work_order
 
+    # Style filter: matches WO.production_item OR any SOI.item_code under that SO OR fallback to PI.item_code
     if style:
-        # Style can match WO.production_item OR any SOI.item_code under tbc.sales_order
-        # Fallback to PI.item_code when SO/WO links aren't applicable.
         conds.append("""
         (
-          wo.production_item = %(style)s
-          OR EXISTS (
+          EXISTS (
             SELECT 1
-            FROM `tabSales Order Item` soi2
-            WHERE soi2.parent = tbc.sales_order
+            FROM `tabTracking Order Bundle Configuration` tbc_st
+            JOIN `tabWork Order` wo_st ON wo_st.name = tbc_st.work_order
+            WHERE tbc_st.parent = tor.name
+              AND tbc_st.name   = pi.bundle_configuration
+              AND tbc_st.parentfield = 'component_bundle_configurations'
+              AND tbc_st.activation_status = 'Completed'
+              AND wo_st.production_item = %(style)s
+          )
+          OR EXISTS (
+            SELECT 1 FROM `tabTracking Order Bundle Configuration` tbc_st2
+            JOIN `tabSales Order Item` soi2
+              ON soi2.parent = tbc_st2.sales_order
+            WHERE tbc_st2.parent = tor.name
+              AND tbc_st2.name   = pi.bundle_configuration
+              AND tbc_st2.parentfield = 'component_bundle_configurations'
+              AND tbc_st2.activation_status = 'Completed'
               AND soi2.item_code = %(style)s
           )
           OR pi.item_code = %(style)s
@@ -168,13 +191,6 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order,
                ON tc.name = pi.component AND tc.is_main = 1
         LEFT JOIN `tabTracking Order` tor
                ON tor.name = tc.parent
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc
-               ON tbc.parent = tor.name
-              AND tbc.name   = pi.bundle_configuration
-              AND tbc.parentfield = 'component_bundle_configurations'
-              AND tbc.activation_status = 'Completed'
-        LEFT JOIN `tabWork Order` wo
-               ON wo.name = tbc.work_order
         WHERE {where_sql}
         """,
         params,
@@ -216,14 +232,14 @@ def _load_operation_map():
 def _index_scans(scan_rows):
     from collections import defaultdict
 
-    scans_by_cell = defaultdict(list)                     # cell -> [row,...]
-    scans_by_tor = defaultdict(list)                      # tor  -> [row,...]
-    scans_by_tor_op = defaultdict(list)                   # (tor, op) -> [row,...]
-    scans_by_cell_tor_op = defaultdict(list)              # (cell, tor, op) -> [row,...]
+    scans_by_cell = defaultdict(list)
+    scans_by_tor = defaultdict(list)
+    scans_by_tor_op = defaultdict(list)
+    scans_by_cell_tor_op = defaultdict(list)
 
     # To filter to PIs that reached last ops:
-    scans_by_tor_pi = defaultdict(list)                   # (tor, pi) -> [row,...]
-    scans_by_cell_tor_op_pi = defaultdict(list)           # (cell, tor, op, pi) -> [row,...]
+    scans_by_tor_pi = defaultdict(list)
+    scans_by_cell_tor_op_pi = defaultdict(list)
 
     for r in scan_rows:
         cell = r["physical_cell"]
@@ -232,6 +248,7 @@ def _index_scans(scan_rows):
         ts = r["logged_time"]
         pi = r["pi_name"]
 
+    # Skip incomplete rows
         if not (cell and op and tor and ts and pi):
             continue
 
@@ -244,15 +261,8 @@ def _index_scans(scan_rows):
         scans_by_cell_tor_op_pi[(cell, tor, op, pi)].append(r)
 
     # Sort by timestamp once
-    to_sort = (
-        scans_by_cell,
-        scans_by_tor,
-        scans_by_tor_op,
-        scans_by_cell_tor_op,
-        scans_by_tor_pi,
-        scans_by_cell_tor_op_pi,
-    )
-    for d in to_sort:
+    for d in (scans_by_cell, scans_by_tor, scans_by_tor_op, scans_by_cell_tor_op,
+              scans_by_tor_pi, scans_by_cell_tor_op_pi):
         for k in d.keys():
             d[k].sort(key=lambda x: x["logged_time"] or datetime.min)
 
@@ -281,13 +291,8 @@ def _graph_by_tracking_order(opmap_rows):
             ops_set[tor].add(nxt)
         next_map[tor][op] = nxt
 
-    out = {}
-    for tor in next_map:
-        out[tor] = {
-            "ops": ops_set.get(tor, set()),
-            "next": next_map[tor],
-        }
-    return out
+    return {tor: {"ops": ops_set.get(tor, set()), "next": next_map[tor]}
+            for tor in next_map}
 
 
 # ======================================================================
@@ -295,15 +300,6 @@ def _graph_by_tracking_order(opmap_rows):
 # ======================================================================
 
 def _compute_tpt_by_cell(idx, last_op_map):
-    """
-    Per physical cell:
-      Consider only PIs that actually reached the configured last operation
-      for some (tracking_order, cell). Then:
-        first_ts := earliest scan in that cell (any op) among those PIs
-        last_ts  := latest scan at (cell, tor, last_operation) among those PIs
-        tpt      := last_ts - first_ts
-      Cells with no PI reaching last_op are skipped.
-    """
     result = []
 
     scans_by_cell = idx["scans_by_cell"]
@@ -314,9 +310,8 @@ def _compute_tpt_by_cell(idx, last_op_map):
             continue
 
         tors = {r["tracking_order"] for r in rows if r.get("tracking_order")}
-
         pis_that_reached = set()
-        last_ts_candidates = []  # (ts, last_op)
+        last_ts_candidates = []
 
         for tor in tors:
             last_op = last_op_map.get((tor, cell))
@@ -346,7 +341,6 @@ def _compute_tpt_by_cell(idx, last_op_map):
             continue
 
         tpt_seconds = (last_ts - first_ts).total_seconds()
-
         result.append({
             "physical_cell": cell,
             "first_ts": first_ts,
@@ -361,16 +355,6 @@ def _compute_tpt_by_cell(idx, last_op_map):
 
 
 def _compute_tpt_overall(idx, graph_by_tor):
-    """
-    For each TOR:
-      first_ops := ops that never appear as someone's next (sources)
-      last_ops  := ops whose next is NULL/None or missing (sinks)
-      Keep only PIs that have a scan in ANY last_op.
-      first_ts  := earliest scan at any first_op among those PIs
-      last_ts   := latest  scan at any last_op  among those PIs
-      tpt       := last_ts - first_ts
-      TORs with no PI reaching a last_op are skipped.
-    """
     result = []
 
     scans_by_tor = idx["scans_by_tor"]
@@ -417,7 +401,6 @@ def _compute_tpt_overall(idx, graph_by_tor):
             continue
 
         tpt_seconds = (last_ts - first_ts).total_seconds()
-
         result.append({
             "tracking_order": tor,
             "first_op": first_ops[0],
@@ -463,10 +446,6 @@ def _resolve_datetime_window(filters):
 
 
 def sql_tuple(py_tuple):
-    """
-    Render a Python tuple of strings as a SQL-safe IN list without double quoting.
-    """
-    # e.g. ('A','B','C')
     return "(" + ",".join([frappe.db.escape(s) for s in py_tuple]) + ")"
 
 
