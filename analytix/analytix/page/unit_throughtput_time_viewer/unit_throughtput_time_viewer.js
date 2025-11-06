@@ -32,7 +32,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   // ===== Styles =====
   $("#ut-kpi-styles").remove();
   $(`<style id="ut-kpi-styles">
-    #${MOUNT_ID} .page-form .frappe-control { min_width: 0; }
+    #${MOUNT_ID} .page-form .frappe-control { min-width: 0; }
     .kpi-filter-row { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:12px; align-items:center; }
     .kpi-filter-row .frappe-control { min-width:220px; }
     .kpi-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
@@ -67,8 +67,8 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       <div class="kpi-card">
         <h6>Notes</h6>
         <div class="kpi-sub">
-          Includes only units that reached the last process. Style/SO/WO filters are
-          present for future server support and currently don’t affect the report.
+          Includes only units that reached the last process. All filters across the top
+          are applied server-side for every fetch.
         </div>
       </div>
     </div>
@@ -122,11 +122,9 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     get_data: async (txt) => frappe.db.get_link_options("Physical Cell", txt),
   });
 
-  // 👉 Append filters in the requested order (Physical Cell last)
+  // requested order (Physical Cell last)
   const $filters = $mount.find("#ut-filters");
   [fRange, fStyle, fSO, fWO, fCell].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
-
-  // styling for multi-select container
   fCell.$wrapper.addClass("kpi-ms");
 
   // ===== Helpers =====
@@ -239,30 +237,35 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     chartCell=null; chartDate=null;
   }
 
+  // Build ONE payload object that mirrors backend expectations
   function getPayload() {
     const dr = fRange.get_value() || [];
-    const from_date = dr[0] || null;
-    const to_date   = dr[1] || null;
+    const date_range = Array.isArray(dr) ? dr : [];
     const cells = msNormalize(fCell.get_value && fCell.get_value());
     return {
-      from_date, to_date,
-      physical_cell_csv: (cells || []).join(","),
-      _client_side: {
-        style: fStyle.get_value && fStyle.get_value(),
-        so:    fSO.get_value && fSO.get_value(),
-        wo:    fWO.get_value && fWO.get_value(),
-      }
+      date_range,                                 // <-- used by backend _resolve_datetime_window
+      style:       fStyle.get_value && fStyle.get_value(),
+      sales_order: fSO.get_value && fSO.get_value(),
+      work_order:  fWO.get_value && fWO.get_value(),
+      physical_cell_csv: (cells || []).join(",")
     };
   }
 
-  async function callReportSingle(dateISO, shared) {
-    const filters = { date: dateISO };
-    if (shared.physical_cell_csv) filters.physical_cell_csv = shared.physical_cell_csv;
+  // Call the report for a single day, but ALWAYS include the other filters too
+  async function callReportSingle(dateISO, sharedFilters) {
+    const filters = {
+      date: dateISO,
+      style: sharedFilters.style || "",
+      sales_order: sharedFilters.sales_order || "",
+      work_order: sharedFilters.work_order || "",
+      physical_cell_csv: sharedFilters.physical_cell_csv || ""
+    };
 
     const resp = await frappe.call({
       method: "frappe.desk.query_report.run",
       args: { report_name: REPORT_NAME, filters },
     });
+
     const list = resp?.message?.report_summary || [];
     const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
     return { by_cell: map.by_cell || [], overall: map.overall || [] };
@@ -271,7 +274,9 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   async function loadAll() {
     destroyCharts();
 
-    const { from_date, to_date, physical_cell_csv } = getPayload();
+    const payload = getPayload();
+    const [from_date, to_date] = payload.date_range || [];
+
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
       $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); return;
@@ -283,9 +288,10 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     }
 
     const dates = enumerateDates(from_date, to_date).slice(0, MAX_DAYS);
+
     let perDay = [];
     try {
-      perDay = await Promise.all(dates.map(d => callReportSingle(d, { physical_cell_csv })));
+      perDay = await Promise.all(dates.map(d => callReportSingle(d, payload)));
     } catch (e) {
       console.error("Unit TPT report error:", e);
       frappe.show_alert({ message: "Failed to load data", indicator: "red" }, 5);
@@ -299,7 +305,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
     });
 
-    // KPI value in MINUTES
+    // KPI value in MINUTES (overall)
     const kpiSeconds = mean(allOverall.map(r => Number(r.tpt_seconds || 0)));
     const kpiMinutes = (kpiSeconds != null) ? (kpiSeconds / 60) : null;
     $("#ut-avg-tpt").text(fmtMin(kpiMinutes));
@@ -344,7 +350,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       }
     });
 
-    // By Date (minutes)
+    // By Date (minutes) — from overall rows
     const byDate = new Map();
     (allOverall || []).forEach(r => {
       const k = r._date || "";
