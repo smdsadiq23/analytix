@@ -228,7 +228,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   async function loadChartJs() {
     if (window.Chart) return;
-    await new Promise((resolve) => frappe.require("https://cdn.jsdelivr.net/npm/chart.js  ", resolve));
+    await new Promise((resolve) => frappe.require("https://cdn.jsdelivr.net/npm/chart.js", resolve));
   }
 
   function destroyCharts(){

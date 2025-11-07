@@ -147,30 +147,39 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order,
         params["work_order"] = work_order
 
     # Style filter: matches WO.production_item OR any SOI.item_code under that SO OR fallback to PI.item_code
+# --- Style filter (via Item.custom_style_master through WO and SOI only) ---
     if style:
         conds.append("""
         (
-          EXISTS (
+        /* WO.production_item -> Item.custom_style_master */
+        EXISTS (
             SELECT 1
             FROM `tabTracking Order Bundle Configuration` tbc_st
-            JOIN `tabWork Order` wo_st ON wo_st.name = tbc_st.work_order
+            JOIN `tabWork Order` wo_st
+            ON wo_st.name = tbc_st.work_order
+            JOIN `tabItem` it_wo
+            ON it_wo.name = wo_st.production_item
             WHERE tbc_st.parent = tor.name
-              AND tbc_st.name   = pi.bundle_configuration
-              AND tbc_st.parentfield = 'component_bundle_configurations'
-              AND tbc_st.activation_status = 'Completed'
-              AND wo_st.production_item = %(style)s
-          )
-          OR EXISTS (
-            SELECT 1 FROM `tabTracking Order Bundle Configuration` tbc_st2
+            AND tbc_st.name   = pi.bundle_configuration
+            AND tbc_st.parentfield = 'component_bundle_configurations'
+            AND tbc_st.activation_status = 'Completed'
+            AND it_wo.custom_style_master = %(style)s
+        )
+        OR
+        /* Sales Order Items -> Item.custom_style_master */
+        EXISTS (
+            SELECT 1
+            FROM `tabTracking Order Bundle Configuration` tbc_st2
             JOIN `tabSales Order Item` soi2
-              ON soi2.parent = tbc_st2.sales_order
+            ON soi2.parent = tbc_st2.sales_order
+            JOIN `tabItem` it_so
+            ON it_so.name = soi2.item_code
             WHERE tbc_st2.parent = tor.name
-              AND tbc_st2.name   = pi.bundle_configuration
-              AND tbc_st2.parentfield = 'component_bundle_configurations'
-              AND tbc_st2.activation_status = 'Completed'
-              AND soi2.item_code = %(style)s
-          )
-          OR pi.item_code = %(style)s
+            AND tbc_st2.name   = pi.bundle_configuration
+            AND tbc_st2.parentfield = 'component_bundle_configurations'
+            AND tbc_st2.activation_status = 'Completed'
+            AND it_so.custom_style_master = %(style)s
+        )
         )
         """)
         params["style"] = style
