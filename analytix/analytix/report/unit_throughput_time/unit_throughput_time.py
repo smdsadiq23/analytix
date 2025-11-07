@@ -109,12 +109,10 @@ def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order,
 
     # Physical Cell / Operation filters
     if pc_filter:
-        conds.append("FIND_IN_SET(isl.physical_cell, %(pc_csv)s)")
-        params["pc_csv"] = ",".join(sorted(pc_filter))
-
-    if op_filter:
-        conds.append("FIND_IN_SET(isl.operation, %(op_csv)s)")
-        params["op_csv"] = ",".join(sorted(op_filter))
+        pc_list = tuple(sorted(pc_filter))
+        # Single-value tuples in Python need a trailing comma, but frappe handles both fine
+        conds.append("isl.physical_cell IN %(pc_list)s")
+        params["pc_list"] = pc_list
 
     # SO filter via EXISTS against TBC
     if sales_order:
