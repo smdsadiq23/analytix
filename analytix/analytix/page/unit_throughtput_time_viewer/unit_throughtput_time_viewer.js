@@ -242,15 +242,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const dr = fRange.get_value() || [];
     const date_range = Array.isArray(dr) ? dr : [];
     const cells = msNormalize(fCell.get_value && fCell.get_value());
-    const payload = {
+    return {
       date_range,                                 // backend uses this
       style:       fStyle.get_value && fStyle.get_value(),
       sales_order: fSO.get_value && fSO.get_value(),
       work_order:  fWO.get_value && fWO.get_value(),
       physical_cell_csv: (cells || []).join(",")
     };
-    try { console.log("[UT] payload", payload); } catch {}
-    return payload;
   }
 
   // Call the report for a single day, but ALWAYS include the other filters too
@@ -263,47 +261,25 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       physical_cell_csv: sharedFilters.physical_cell_csv || ""
     };
 
-    try { console.groupCollapsed(`[UT] report call ${dateISO}`); console.log("filters", filters); } catch {}
     const resp = await frappe.call({
       method: "frappe.desk.query_report.run",
       args: { report_name: REPORT_NAME, filters },
     });
-    try {
-      console.log("raw message", resp?.message);
-      console.log("report_summary", resp?.message?.report_summary);
-    } catch {}
 
     const list = resp?.message?.report_summary || [];
     const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
-    try {
-      console.log("keys", Object.keys(map));
-      console.log("by_cell[0]", (map.by_cell || [])[0]);
-      console.log("overall[0]", (map.overall || [])[0]);
-      console.groupEnd();
-    } catch {}
-    // expose for inspection
-    try {
-      window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
-      window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
-    } catch {}
-
     return { by_cell: map.by_cell || [], overall: map.overall || [] };
   }
 
   async function loadAll() {
-    try { console.groupCollapsed("[UT] loadAll start"); } catch {}
     destroyCharts();
 
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
 
-    try { console.log("date_range", from_date, "→", to_date); } catch {}
-
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
-      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); 
-      try { console.groupEnd(); } catch {}
-      return;
+      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); return;
     }
 
     const diff = frappe.datetime.get_day_diff(to_date, from_date) + 1;
@@ -312,16 +288,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     }
 
     const dates = enumerateDates(from_date, to_date).slice(0, MAX_DAYS);
-    try { console.log("dates", dates); } catch {}
 
     let perDay = [];
     try {
       perDay = await Promise.all(dates.map(d => callReportSingle(d, payload)));
-      try { console.log("perDay length", perDay.length, "sample", perDay[0]); } catch {}
     } catch (e) {
       console.error("Unit TPT report error:", e);
       frappe.show_alert({ message: "Failed to load data", indicator: "red" }, 5);
-      try { console.groupEnd(); } catch {}
       return;
     }
 
@@ -331,12 +304,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       (one.overall || []).forEach(r => allOverall.push({ ...r, _date: d }));
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
     });
-
-    try {
-      console.log("allOverall count", allOverall.length, "allByCell count", allByCell.length);
-      console.log("overall sample", allOverall[0]);
-      console.log("by_cell sample", allByCell[0]);
-    } catch {}
 
     // KPI value in MINUTES (overall)
     const kpiSeconds = mean(allOverall.map(r => Number(r.tpt_seconds || 0)));
@@ -357,7 +324,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       const avgSec = mean(byCell.get(k) || []);
       return avgSec != null ? avgSec / 60 : 0;
     });
-    try { console.log("chartCell labels", cellLabels); console.log("chartCell minutes", cellMinutes); } catch {}
 
     await loadChartJs();
     chartCell = new Chart(document.getElementById("ut-chart-cell").getContext("2d"), {
@@ -398,7 +364,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       const avgSec = mean(byDate.get(k) || []);
       return avgSec != null ? avgSec / 60 : 0;
     });
-    try { console.log("chartDate labels", dateLabels); console.log("chartDate minutes", dateMinutes); } catch {}
 
     chartDate = new Chart(document.getElementById("ut-chart-date").getContext("2d"), {
       type: "bar",
@@ -423,8 +388,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
         scales: { x: { title: { display: true, text: "Date (dd-mm-yyyy)" } }, y: { title: { display: true, text: "Minutes" }, beginAtZero: true } }
       }
     });
-
-    try { console.groupEnd(); } catch {}
   }
 
   const triggerReload = frappe.utils.debounce(loadAll, 350);
