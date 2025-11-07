@@ -37,8 +37,7 @@ def execute(filters=None):
     start_dt, end_dt = _resolve_datetime_window(filters)
 
     # --------- CSV filters -> sets ---------
-    pc_filter = _csv_to_set(filters.get("physical_cell_csv"))
-    op_filter = _csv_to_set(filters.get("operation_csv"))
+    pc_filter = _csv_to_set(filters.get("physical_cell_csv"))    
 
     # --------- Optional entity filters ---------
     so_filter = (filters.get("sales_order") or "").strip()
@@ -48,8 +47,7 @@ def execute(filters=None):
     # --------- Load data with simple queries ---------
     scan_rows = _load_scans(
         start_dt, end_dt,
-        pc_filter=pc_filter,
-        op_filter=op_filter,
+        pc_filter=pc_filter,        
         sales_order=so_filter,
         work_order=wo_filter,
         style=style_filter,
@@ -93,7 +91,7 @@ def execute(filters=None):
 #                             LOADERS
 # ======================================================================
 
-def _load_scans(start_dt, end_dt, pc_filter, op_filter, sales_order, work_order, style):
+def _load_scans(start_dt, end_dt, pc_filter, sales_order, work_order, style):
     """
     Fetch scan facts with strong, optional filters. We keep all joins LEFT so rows
     that don't have SO/WO links still pass, but we apply SO/WO/style via EXISTS

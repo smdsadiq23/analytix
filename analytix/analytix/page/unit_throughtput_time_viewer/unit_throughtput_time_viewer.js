@@ -180,7 +180,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   function msNormalize(val) {
     if (!val) return [];
-    if (!Array.isArray(val)) return [];
+    if (!Array.isArray(val) ) return [];
     return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
               .filter(Boolean);
   }
@@ -249,6 +249,12 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       work_order:  fWO.get_value && fWO.get_value(),
       physical_cell_csv: (cells || []).join(",")
     };
+    // ---- DEBUG ----
+    try {
+      console.groupCollapsed("[UT-KPI] getPayload");
+      console.log("payload", payload);
+      console.groupEnd();
+    } catch {}
     return payload;
   }
 
@@ -262,6 +268,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       physical_cell_csv: sharedFilters.physical_cell_csv || ""
     };
 
+    // ---- DEBUG (pre-call) ----
+    try {
+      console.groupCollapsed(`[UT-KPI] callReportSingle ${dateISO}`);
+      console.log("filters", filters);
+      console.groupEnd();
+    } catch {}
+
     const resp = await frappe.call({
       method: "frappe.desk.query_report.run",
       args: { report_name: REPORT_NAME, filters },
@@ -270,10 +283,16 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const list = resp?.message?.report_summary || [];
     const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
 
-    // expose for inspection
+    // expose for inspection + DEBUG
     try {
       window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
       window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
+      console.groupCollapsed(`[UT-KPI] resp ${dateISO}`);
+      console.log("raw.message keys", Object.keys(resp?.message || {}));
+      console.log("report_summary (array length):", Array.isArray(resp?.message?.report_summary) ? resp.message.report_summary.length : null);
+      if (map.by_cell) console.table(map.by_cell);
+      if (map.overall) console.table(map.overall);
+      console.groupEnd();
     } catch {}
 
     return { by_cell: map.by_cell || [], overall: map.overall || [] };
@@ -284,6 +303,15 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
+
+    // ---- DEBUG: entering loadAll ----
+    try {
+      console.groupCollapsed("[UT-KPI] loadAll");
+      console.log("date_range", payload.date_range);
+      console.log("style", payload.style, "sales_order", payload.sales_order, "work_order", payload.work_order);
+      console.log("physical_cell_csv", payload.physical_cell_csv);
+      console.groupEnd();
+    } catch {}
 
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
