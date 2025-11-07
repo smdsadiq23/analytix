@@ -4,28 +4,6 @@
 frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   if (wrapper.__ut_cleanup) { try { wrapper.__ut_cleanup(); } catch {} }
 
-  // ---------------------- Debug helpers ----------------------
-  const qp = frappe.utils.get_query_params();
-  const DEBUG = String(qp.debug || "").toLowerCase() === "1";
-  const dlog = (...a) => { if (DEBUG) try { console.log("[UT-KPI]", ...a); } catch {} };
-  const dwarn = (...a) => { if (DEBUG) try { console.warn("[UT-KPI]", ...a); } catch {} };
-  const derr = (...a) => { try { console.error("[UT-KPI]", ...a); } catch {} };
-
-  // IMPORTANT: async group helper MUST return awaited value
-  const dgroup = async (label, fn) => {
-    if (!DEBUG) {
-      // still return fn() result!
-      return await fn();
-    }
-    console.groupCollapsed("[UT-KPI] " + label);
-    try {
-      return await fn();
-    } finally {
-      try { console.groupEnd(); } catch {}
-    }
-  };
-
-  // ---------------------- Breadcrumb -------------------------
   if (window.CX && typeof CX.mountBreadcrumb === "function") {
     CX.mountBreadcrumb({
       wrapper,
@@ -51,7 +29,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   const MAX_DAYS = 60;
   let chartCell = null, chartDate = null;
 
-  // ---------------------- Styles -----------------------------
+  // ===== Styles =====
   $("#ut-kpi-styles").remove();
   $(`<style id="ut-kpi-styles">
     #${MOUNT_ID} .page-form .frappe-control { min-width: 0; }
@@ -76,7 +54,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     .awesomplete > ul { z-index:10000 !important; position:absolute !important; top:auto !important; bottom:auto !important; }
   </style>`).appendTo(document.head);
 
-  // ---------------------- Layout -----------------------------
+  // ===== Layout =====
   $mount.html(`
     <div class="kpi-filter-row" id="ut-filters"></div>
 
@@ -107,7 +85,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     </div>
   `);
 
-  // ---------------------- Controls ---------------------------
+  // ===== Controls =====
   const fRange = page.add_field({
     fieldtype: "DateRange",
     fieldname: "date_range",
@@ -149,7 +127,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   [fRange, fStyle, fSO, fWO, fCell].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
   fCell.$wrapper.addClass("kpi-ms");
 
-  // ---------------------- Helpers ----------------------------
+  // ===== Helpers =====
   function attachClearButton(field, onClear) {
     if (!field || !field.$wrapper) return;
     const fname = field.df.fieldname;
@@ -203,9 +181,8 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function msNormalize(val) {
     if (!val) return [];
     if (!Array.isArray(val)) return [];
-    return val
-      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-      .filter(Boolean);
+    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
+              .filter(Boolean);
   }
 
   function enumerateDates(from, to) {
@@ -215,7 +192,9 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const b = new Date(to + "T00:00:00");
     if (isNaN(a) || isNaN(b)) return out;
     for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
-      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
       out.push(`${y}-${m}-${dd}`);
     }
     return out;
@@ -224,7 +203,9 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function fmtHMS(sec) {
     if (sec == null || !isFinite(sec)) return "--:--:--";
     sec = Math.max(0, Math.round(sec));
-    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    const h = Math.floor(sec/3600);
+    const m = Math.floor((sec%3600)/60);
+    const s = sec%60;
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
   }
 
@@ -256,23 +237,23 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     chartCell=null; chartDate=null;
   }
 
-  // ---------------------- Data calls -------------------------
+  // Build ONE payload object that mirrors backend expectations
   function getPayload() {
     const dr = fRange.get_value() || [];
     const date_range = Array.isArray(dr) ? dr : [];
     const cells = msNormalize(fCell.get_value && fCell.get_value());
     const payload = {
-      date_range,
+      date_range,                                 // backend uses this
       style:       fStyle.get_value && fStyle.get_value(),
       sales_order: fSO.get_value && fSO.get_value(),
       work_order:  fWO.get_value && fWO.get_value(),
       physical_cell_csv: (cells || []).join(",")
     };
-    dlog("payload", payload);
+    try { console.log("[UT] payload", payload); } catch {}
     return payload;
   }
 
-  // fetch single day with all filters
+  // Call the report for a single day, but ALWAYS include the other filters too
   async function callReportSingle(dateISO, sharedFilters) {
     const filters = {
       date: dateISO,
@@ -282,37 +263,47 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       physical_cell_csv: sharedFilters.physical_cell_csv || ""
     };
 
-    return await dgroup(`report fetch for ${dateISO}`, async () => {
-      dlog("→ filters", filters);
-      const resp = await frappe.call({
-        method: "frappe.desk.query_report.run",
-        args: { report_name: REPORT_NAME, filters },
-      });
+    try { console.groupCollapsed(`[UT] report call ${dateISO}`); console.log("filters", filters); } catch {}
+    const resp = await frappe.call({
+      method: "frappe.desk.query_report.run",
+      args: { report_name: REPORT_NAME, filters },
+    });
+    try {
+      console.log("raw message", resp?.message);
+      console.log("report_summary", resp?.message?.report_summary);
+    } catch {}
 
-      const list = resp?.message?.report_summary || [];
-      const map = {};
-      list.forEach(it => { if (it?.name) map[it.name] = it.data; });
-
-      dlog("← report_summary keys", Object.keys(map));
-      dlog("← by_cell sample", (map.by_cell || [])[0]);
-      dlog("← overall sample", (map.overall || [])[0]);
-
+    const list = resp?.message?.report_summary || [];
+    const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
+    try {
+      console.log("keys", Object.keys(map));
+      console.log("by_cell[0]", (map.by_cell || [])[0]);
+      console.log("overall[0]", (map.overall || [])[0]);
+      console.groupEnd();
+    } catch {}
+    // expose for inspection
+    try {
       window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
       window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
+    } catch {}
 
-      return { by_cell: map.by_cell || [], overall: map.overall || [] };
-    });
+    return { by_cell: map.by_cell || [], overall: map.overall || [] };
   }
 
   async function loadAll() {
+    try { console.groupCollapsed("[UT] loadAll start"); } catch {}
     destroyCharts();
 
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
 
+    try { console.log("date_range", from_date, "→", to_date); } catch {}
+
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
-      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); return;
+      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); 
+      try { console.groupEnd(); } catch {}
+      return;
     }
 
     const diff = frappe.datetime.get_day_diff(to_date, from_date) + 1;
@@ -321,23 +312,31 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     }
 
     const dates = enumerateDates(from_date, to_date).slice(0, MAX_DAYS);
+    try { console.log("dates", dates); } catch {}
 
     let perDay = [];
     try {
       perDay = await Promise.all(dates.map(d => callReportSingle(d, payload)));
+      try { console.log("perDay length", perDay.length, "sample", perDay[0]); } catch {}
     } catch (e) {
-      derr("Unit TPT report error:", e);
+      console.error("Unit TPT report error:", e);
       frappe.show_alert({ message: "Failed to load data", indicator: "red" }, 5);
+      try { console.groupEnd(); } catch {}
       return;
     }
 
-    // flatten
     const allOverall = [], allByCell = [];
     dates.forEach((d, i) => {
       const one = perDay[i] || { overall: [], by_cell: [] };
       (one.overall || []).forEach(r => allOverall.push({ ...r, _date: d }));
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
     });
+
+    try {
+      console.log("allOverall count", allOverall.length, "allByCell count", allByCell.length);
+      console.log("overall sample", allOverall[0]);
+      console.log("by_cell sample", allByCell[0]);
+    } catch {}
 
     // KPI value in MINUTES (overall)
     const kpiSeconds = mean(allOverall.map(r => Number(r.tpt_seconds || 0)));
@@ -358,6 +357,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       const avgSec = mean(byCell.get(k) || []);
       return avgSec != null ? avgSec / 60 : 0;
     });
+    try { console.log("chartCell labels", cellLabels); console.log("chartCell minutes", cellMinutes); } catch {}
 
     await loadChartJs();
     chartCell = new Chart(document.getElementById("ut-chart-cell").getContext("2d"), {
@@ -398,6 +398,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       const avgSec = mean(byDate.get(k) || []);
       return avgSec != null ? avgSec / 60 : 0;
     });
+    try { console.log("chartDate labels", dateLabels); console.log("chartDate minutes", dateMinutes); } catch {}
 
     chartDate = new Chart(document.getElementById("ut-chart-date").getContext("2d"), {
       type: "bar",
@@ -422,6 +423,8 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
         scales: { x: { title: { display: true, text: "Date (dd-mm-yyyy)" } }, y: { title: { display: true, text: "Minutes" }, beginAtZero: true } }
       }
     });
+
+    try { console.groupEnd(); } catch {}
   }
 
   const triggerReload = frappe.utils.debounce(loadAll, 350);
