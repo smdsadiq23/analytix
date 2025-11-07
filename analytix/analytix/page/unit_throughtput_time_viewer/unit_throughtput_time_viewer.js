@@ -42,6 +42,18 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     .kpi-value { font-size:28px; font-weight:700; }
     .kpi-sub { color:#6b7280; font-size:12px; }
     .kpi-card canvas { width:100%; height:420px; max-height:420px; }
+
+    /* Clear button helpers (restored) */
+    .kpi-clear-host { position:relative !important; }
+    .kpi-clear-host input.input-with-feedback { padding-right: 28px; } /* leave room for the X */
+    .kpi-clear-btn {
+      position:absolute; right:10px; top:50%; transform:translateY(-50%);
+      display:inline-flex; align-items:center; justify-content:center;
+      height:22px; width:22px; line-height:1; padding:0;
+      border:0; border-radius:6px; background:transparent;
+      color:var(--gray-600); cursor:pointer; z-index:2;
+    }
+    .kpi-clear-btn:hover { background:var(--gray-100); }
   </style>`).appendTo(document.head);
 
   // ===== Layout =====
@@ -108,27 +120,34 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   [fRange, fStyle, fSO, fWO].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
 
   // ===== Helpers =====
-  function attachClearButton(field, onClear) {
+  function attachClearButton(field) {
     if (!field || !field.$wrapper) return;
-    const fname = field.df.fieldname;
+
+    // find the right host inside the control to anchor the absolute button
     const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
       ? field.$wrapper.find(".control-input, .control-input-wrapper").first()
       : field.$wrapper;
 
-    let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
+    $host.addClass("kpi-clear-host");
+
+    let $btn = $host.find(`.kpi-clear-btn[data-for="${field.df.fieldname}"]`);
     if (!$btn.length) {
-      $btn = $(`<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`).appendTo($host);
+      $btn = $(`<button type="button" class="kpi-clear-btn" data-for="${field.df.fieldname}" title="Clear">×</button>`);
+      $host.append($btn);
+
       $btn.on("mousedown", async (e) => {
         e.preventDefault();
         try {
           if (field.df.fieldtype === "DateRange") { await field.set_value([]); }
           else { await field.set_value(""); }
         } catch {}
+        // force UI sync
         $host.find("input").val("").trigger("input").trigger("change").trigger("awesomplete-selectcomplete");
         try { field.on_change && field.on_change(); } catch {}
         toggle();
       });
     }
+
     const hasVal = () => {
       try {
         const v = field.get_value ? field.get_value() : null;
@@ -136,14 +155,36 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
         return typeof v === "string" ? v.trim().length > 0 : !!v;
       } catch { return false; }
     };
+
     const toggle = () => $btn.toggle(!!hasVal());
-    $host.find("input").off(".utClear").on("input.utClear change.utClear awesomplete-selectcomplete.utClear", toggle);
+
+    // keep visibility in sync
+    $host.find("input")
+      .off(".utClear")
+      .on("input.utClear change.utClear awesomplete-selectcomplete.utClear", toggle);
+
     if (!field._utPatched) {
       const orig = field.on_change;
       field.on_change = function(){ toggle(); orig && orig.call(this); };
       field._utPatched = true;
     }
+
     toggle();
+
+    // observe DOM mutations that could rebuild inputs (Frappe sometimes re-renders)
+    try {
+      if (field._utObs) field._utObs.disconnect();
+      const obs = new MutationObserver(() => {
+        // re-apply padding and ensure the button remains last child
+        $host.addClass("kpi-clear-host");
+        if (!$host.find(`.kpi-clear-btn[data-for="${field.df.fieldname}"]`).length) {
+          $host.append($btn);
+        }
+        toggle();
+      });
+      obs.observe($host[0], { childList: true, subtree: true });
+      field._utObs = obs;
+    } catch {}
   }
 
   [fRange, fStyle, fSO, fWO].forEach(f => attachClearButton(f));
@@ -204,13 +245,12 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function getPayload() {
     const dr = fRange.get_value() || [];
     const date_range = Array.isArray(dr) ? dr : [];
-    const payload = {
+    return {
       date_range,
       style:       fStyle.get_value && fStyle.get_value(),
       sales_order: fSO.get_value && fSO.get_value(),
       work_order:  fWO.get_value && fWO.get_value()
     };
-    return payload;
   }
 
   // Call the report for a single day (always passes the other filters)
@@ -265,13 +305,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
     });
 
-    // KPI value (overall -> minutes)
+    // KPI (overall minutes)
     const kpiSeconds = mean(allOverall.map(r => Number(r.tpt_seconds || 0)));
     const kpiMinutes = (kpiSeconds != null) ? (kpiSeconds / 60) : null;
     $("#ut-avg-tpt").text(fmtMin(kpiMinutes));
     $("#ut-avg-summary").text(`${(allOverall || []).length} completed unit(s) across ${dates.length} day(s)`);
 
-    // By Cell (minutes) — still grouped by cell
+    // By Cell (minutes)
     const byCell = new Map();
     (allByCell || []).forEach(r => {
       const k = r.physical_cell || "(Unspecified)";
@@ -361,6 +401,10 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   // Cleanup
   wrapper.__ut_cleanup = () => {
+    try { fRange._utObs && fRange._utObs.disconnect(); } catch {}
+    try { fStyle._utObs && fStyle._utObs.disconnect(); } catch {}
+    try { fSO._utObs && fSO._utObs.disconnect(); } catch {}
+    try { fWO._utObs && fWO._utObs.disconnect(); } catch {}
     try { chartCell && chartCell.destroy(); } catch {}
     try { chartDate && chartDate.destroy(); } catch {}
     $mount.remove();
