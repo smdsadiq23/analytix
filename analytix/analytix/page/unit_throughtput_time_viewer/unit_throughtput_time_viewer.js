@@ -42,16 +42,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     .kpi-value { font-size:28px; font-weight:700; }
     .kpi-sub { color:#6b7280; font-size:12px; }
     .kpi-card canvas { width:100%; height:420px; max-height:420px; }
-    .kpi-ms .form-control.input-xs { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .kpi-ms .control-input, .kpi-ms .control-input-wrapper { display:flex; flex-wrap:wrap; gap:4px; overflow:hidden; }
-    .kpi-ms input.input-with-feedback { min-width:140px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .kpi-clear-host { position:relative !important; }
-    .kpi-clear-btn { position:absolute; right:12px; top:50%; transform:translateY(-50%);
-      line-height:1; padding:0 8px; border:0; background:transparent; color:var(--gray-600);
-      cursor:pointer; border-radius:6px; z-index:2; }
-    .kpi-clear-btn:hover { background:var(--gray-100); }
-    .awesomplete { z-index:10000 !important; }
-    .awesomplete > ul { z-index:10000 !important; position:absolute !important; top:auto !important; bottom:auto !important; }
   </style>`).appendTo(document.head);
 
   // ===== Layout =====
@@ -67,8 +57,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       <div class="kpi-card">
         <h6>Notes</h6>
         <div class="kpi-sub">
-          Includes only units that reached the last process. All filters across the top
-          are applied server-side for every fetch.
+          Includes only units that reached the last process. The KPI card and “Average TPT by Date” reflect overall values across all cells.
         </div>
       </div>
     </div>
@@ -85,7 +74,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     </div>
   `);
 
-  // ===== Controls =====
+  // ===== Controls (no Physical Cell filter) =====
   const fRange = page.add_field({
     fieldtype: "DateRange",
     fieldname: "date_range",
@@ -115,17 +104,8 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     options: "Work Order",
   });
 
-  const fCell = page.add_field({
-    fieldtype: "MultiSelectList",
-    fieldname: "physical_cell_list",
-    label: "Physical Cell",
-    get_data: async (txt) => frappe.db.get_link_options("Physical Cell", txt),
-  });
-
-  // requested order (Physical Cell last)
   const $filters = $mount.find("#ut-filters");
-  [fRange, fStyle, fSO, fWO, fCell].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
-  fCell.$wrapper.addClass("kpi-ms");
+  [fRange, fStyle, fSO, fWO].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
 
   // ===== Helpers =====
   function attachClearButton(field, onClear) {
@@ -134,57 +114,39 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const $host = field.$wrapper.find(".control-input, .control-input-wrapper").first().length
       ? field.$wrapper.find(".control-input, .control-input-wrapper").first()
       : field.$wrapper;
-    $host.addClass("kpi-clear-host");
 
-    const ensure = () => {
-      let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
-      if (!$btn.length) {
-        $btn = $(`<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`).appendTo($host);
-        $btn.on("mousedown", async (e) => {
-          e.preventDefault();
-          try {
-            if (field.df.fieldtype === "DateRange") { await field.set_value([]); }
-            else if (field.df.fieldtype === "MultiSelectList") { await field.set_value([]); }
-            else { await field.set_value(""); }
-          } catch {}
-          $host.find("input").val("").trigger("input").trigger("change").trigger("awesomplete-selectcomplete");
-          try { field.on_change && field.on_change(); } catch {}
-          try { onClear && onClear(); } catch {}
-          toggle();
-        });
-      }
-      const hasVal = () => {
+    let $btn = $host.find(`.kpi-clear-btn[data-for="${fname}"]`);
+    if (!$btn.length) {
+      $btn = $(`<button type="button" class="kpi-clear-btn" data-for="${fname}" title="Clear">×</button>`).appendTo($host);
+      $btn.on("mousedown", async (e) => {
+        e.preventDefault();
         try {
-          const v = field.get_value ? field.get_value() : null;
-          if (field.df.fieldtype === "DateRange") return Array.isArray(v) && (v[0] || v[1]);
-          if (field.df.fieldtype === "MultiSelectList") return Array.isArray(v) && v.length > 0;
-          return typeof v === "string" ? v.trim().length > 0 : !!v;
-        } catch { return false; }
-      };
-      const toggle = () => $btn.toggle(!!hasVal());
-      $host.find("input").off(".utClear")
-        .on("input.utClear change.utClear awesomplete-selectcomplete.utClear", toggle);
-      if (!field._utPatched) {
-        const orig = field.on_change;
-        field.on_change = function(){ toggle(); orig && orig.call(this); };
-        field._utPatched = true;
-      }
-      toggle();
+          if (field.df.fieldtype === "DateRange") { await field.set_value([]); }
+          else { await field.set_value(""); }
+        } catch {}
+        $host.find("input").val("").trigger("input").trigger("change").trigger("awesomplete-selectcomplete");
+        try { field.on_change && field.on_change(); } catch {}
+        toggle();
+      });
+    }
+    const hasVal = () => {
+      try {
+        const v = field.get_value ? field.get_value() : null;
+        if (field.df.fieldtype === "DateRange") return Array.isArray(v) && (v[0] || v[1]);
+        return typeof v === "string" ? v.trim().length > 0 : !!v;
+      } catch { return false; }
     };
-    ensure();
-    if (field._utObs) field._utObs.disconnect();
-    const obs = new MutationObserver(() => ensure());
-    obs.observe($host[0], { childList: true, subtree: true });
-    field._utObs = obs;
+    const toggle = () => $btn.toggle(!!hasVal());
+    $host.find("input").off(".utClear").on("input.utClear change.utClear awesomplete-selectcomplete.utClear", toggle);
+    if (!field._utPatched) {
+      const orig = field.on_change;
+      field.on_change = function(){ toggle(); orig && orig.call(this); };
+      field._utPatched = true;
+    }
+    toggle();
   }
 
-  function msNormalize(val) {
-    if (!val) return [];
-    if (!Array.isArray(val)) return [];
-    return val
-      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-      .filter(Boolean);
-  }
+  [fRange, fStyle, fSO, fWO].forEach(f => attachClearButton(f));
 
   function enumerateDates(from, to) {
     const out = [];
@@ -242,39 +204,23 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function getPayload() {
     const dr = fRange.get_value() || [];
     const date_range = Array.isArray(dr) ? dr : [];
-    const cells = msNormalize(fCell.get_value && fCell.get_value());
     const payload = {
-      date_range,                                 // backend uses this
+      date_range,
       style:       fStyle.get_value && fStyle.get_value(),
       sales_order: fSO.get_value && fSO.get_value(),
-      work_order:  fWO.get_value && fWO.get_value(),
-      physical_cell_csv: (cells || []).join(",")
+      work_order:  fWO.get_value && fWO.get_value()
     };
-    // [DBG]
-    try {
-      console.groupCollapsed("[UT-KPI] getPayload");
-      console.log("payload", payload);
-      console.groupEnd();
-    } catch {}
     return payload;
   }
 
-  // Call the report for a single day, but ALWAYS include the other filters too
+  // Call the report for a single day (always passes the other filters)
   async function callReportSingle(dateISO, sharedFilters) {
     const filters = {
       date: dateISO,
       style: sharedFilters.style || "",
       sales_order: sharedFilters.sales_order || "",
-      work_order: sharedFilters.work_order || "",
-      physical_cell_csv: sharedFilters.physical_cell_csv || ""
+      work_order: sharedFilters.work_order || ""
     };
-
-    // [DBG] pre-call
-    try {
-      console.groupCollapsed(`[UT-KPI] callReportSingle ${dateISO}`);
-      console.log("filters", filters);
-      console.groupEnd();
-    } catch {}
 
     const resp = await frappe.call({
       method: "frappe.desk.query_report.run",
@@ -283,19 +229,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
     const list = resp?.message?.report_summary || [];
     const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
-
-    // [DBG] expose + log
-    try {
-      window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
-      window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
-      console.groupCollapsed(`[UT-KPI] resp ${dateISO}`);
-      console.log("raw.message keys", Object.keys(resp?.message || {}));
-      console.log("report_summary length:", Array.isArray(resp?.message?.report_summary) ? resp.message.report_summary.length : null);
-      if (map.by_cell) console.table(map.by_cell);
-      if (map.overall) console.table(map.overall);
-      console.groupEnd();
-    } catch {}
-
     return { by_cell: map.by_cell || [], overall: map.overall || [] };
   }
 
@@ -305,15 +238,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
 
-    // [DBG]
-    try {
-      console.groupCollapsed("[UT-KPI] loadAll");
-      console.log("date_range", payload.date_range);
-      console.log("style", payload.style, "sales_order", payload.sales_order, "work_order", payload.work_order);
-      console.log("physical_cell_csv", payload.physical_cell_csv);
-      console.groupEnd();
-    } catch {}
-
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
       $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text("");
@@ -321,9 +245,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     }
 
     const diff = frappe.datetime.get_day_diff(to_date, from_date) + 1;
-    if (diff > MAX_DAYS) {
-      frappe.msgprint(`Please select a date range ≤ ${MAX_DAYS} days for the 'By Date' chart.`);
-    }
+    if (diff > MAX_DAYS) frappe.msgprint(`Please select a date range ≤ ${MAX_DAYS} days for the 'By Date' chart.`);
 
     const dates = enumerateDates(from_date, to_date).slice(0, MAX_DAYS);
 
@@ -343,13 +265,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
     });
 
-    // KPI value in MINUTES (overall)
+    // KPI value (overall -> minutes)
     const kpiSeconds = mean(allOverall.map(r => Number(r.tpt_seconds || 0)));
     const kpiMinutes = (kpiSeconds != null) ? (kpiSeconds / 60) : null;
     $("#ut-avg-tpt").text(fmtMin(kpiMinutes));
     $("#ut-avg-summary").text(`${(allOverall || []).length} completed unit(s) across ${dates.length} day(s)`);
 
-    // By Cell (minutes)
+    // By Cell (minutes) — still grouped by cell
     const byCell = new Map();
     (allByCell || []).forEach(r => {
       const k = r.physical_cell || "(Unspecified)";
@@ -388,7 +310,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       }
     });
 
-    // By Date (minutes) — from overall rows
+    // By Date (overall minutes)
     const byDate = new Map();
     (allOverall || []).forEach(r => {
       const k = r._date || "";
@@ -430,78 +352,15 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   const triggerReload = frappe.utils.debounce(loadAll, 350);
 
-  [fRange, fStyle, fSO, fWO, fCell].forEach(f => attachClearButton(f, triggerReload));
-
-  // ===== Stronger bindings for the Physical Cell MultiSelect =====
-  function bindMultiSelect(ms) {
-    if (!ms) return;
-    try { console.log("[UT-KPI] Binding MultiSelectList:", ms.df?.fieldname); } catch {}
-
-    if (ms.$input) {
-      ms.$input.on("input change awesomplete-selectcomplete", () => {
-        try { console.log("[UT-KPI] MS input event", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
-        triggerReload();
-      });
-    }
-
-    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", () => {
-      try { console.log("[UT-KPI] MS token removed", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
-      triggerReload();
-    });
-
-    const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
-    if (host) {
-      const obs = new MutationObserver(() => {
-        try { console.log("[UT-KPI] MS DOM mutated", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
-        triggerReload();
-      });
-      obs.observe(host, { childList: true, subtree: true });
-      ms._obs = obs;
-    }
-
-    if (typeof ms.on_change === "function") {
-      const prev = ms.on_change.bind(ms);
-      ms.on_change = (...a) => {
-        try { console.log("[UT-KPI] MS on_change", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
-        try { prev(...a); } catch {}
-        triggerReload();
-      };
-    } else {
-      ms.on_change = () => {
-        try { console.log("[UT-KPI] MS on_change(new)", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
-        triggerReload();
-      };
-    }
-  }
-  bindMultiSelect(fCell);
-
   // Bindings
-  fRange.$input && fRange.$input.on("change", () => {
-    try { console.log("[UT-KPI] date_range change ->", fRange.get_value && fRange.get_value()); } catch {}
-    triggerReload();
-  });
-  [fStyle, fSO, fWO].forEach(f => f?.$input && f.$input.on("awesomplete-selectcomplete change", () => {
-    try { console.log("[UT-KPI] field change", f.df?.fieldname, "->", f.get_value && f.get_value()); } catch {}
-    triggerReload();
-  }));
-  if (fCell?.$input) {
-    // keep light bindings too
-    fCell.$input.on("input change awesomplete-selectcomplete", triggerReload);
-    $(fCell.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", triggerReload);
-  }
+  fRange.$input && fRange.$input.on("change", triggerReload);
+  [fStyle, fSO, fWO].forEach(f => f?.$input && f.$input.on("awesomplete-selectcomplete change", triggerReload));
 
   // Initial load
-  frappe.after_ajax(() => {
-    try { console.log("[UT-KPI] initial triggerReload"); } catch {}
-    triggerReload();
-  });
+  frappe.after_ajax(() => { triggerReload(); });
 
   // Cleanup
   wrapper.__ut_cleanup = () => {
-    try { fRange._utObs && fRange._utObs.disconnect(); } catch {}
-    try { fCell._utObs && fCell._utObs.disconnect(); } catch {}
-    try { fCell._obs && fCell._obs.disconnect(); } catch {}
-    [fStyle, fSO, fWO].forEach(f => { try { f._utObs && f._utObs.disconnect(); } catch {} });
     try { chartCell && chartCell.destroy(); } catch {}
     try { chartDate && chartDate.destroy(); } catch {}
     $mount.remove();
