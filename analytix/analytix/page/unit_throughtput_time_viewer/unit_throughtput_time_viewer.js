@@ -180,9 +180,10 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   function msNormalize(val) {
     if (!val) return [];
-    if (!Array.isArray(val) ) return [];
-    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-              .filter(Boolean);
+    if (!Array.isArray(val)) return [];
+    return val
+      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
+      .filter(Boolean);
   }
 
   function enumerateDates(from, to) {
@@ -249,7 +250,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       work_order:  fWO.get_value && fWO.get_value(),
       physical_cell_csv: (cells || []).join(",")
     };
-    // ---- DEBUG ----
+    // [DBG]
     try {
       console.groupCollapsed("[UT-KPI] getPayload");
       console.log("payload", payload);
@@ -268,7 +269,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       physical_cell_csv: sharedFilters.physical_cell_csv || ""
     };
 
-    // ---- DEBUG (pre-call) ----
+    // [DBG] pre-call
     try {
       console.groupCollapsed(`[UT-KPI] callReportSingle ${dateISO}`);
       console.log("filters", filters);
@@ -283,13 +284,13 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const list = resp?.message?.report_summary || [];
     const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
 
-    // expose for inspection + DEBUG
+    // [DBG] expose + log
     try {
       window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
       window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
       console.groupCollapsed(`[UT-KPI] resp ${dateISO}`);
       console.log("raw.message keys", Object.keys(resp?.message || {}));
-      console.log("report_summary (array length):", Array.isArray(resp?.message?.report_summary) ? resp.message.report_summary.length : null);
+      console.log("report_summary length:", Array.isArray(resp?.message?.report_summary) ? resp.message.report_summary.length : null);
       if (map.by_cell) console.table(map.by_cell);
       if (map.overall) console.table(map.overall);
       console.groupEnd();
@@ -304,7 +305,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
 
-    // ---- DEBUG: entering loadAll ----
+    // [DBG]
     try {
       console.groupCollapsed("[UT-KPI] loadAll");
       console.log("date_range", payload.date_range);
@@ -315,7 +316,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
     if (!from_date || !to_date) {
       frappe.show_alert({ message: "Select a Last Operation Scan Date range", indicator: "orange" }, 5);
-      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text(""); 
+      $("#ut-avg-tpt").text("-- min"); $("#ut-avg-summary").text("");
       return;
     }
 
@@ -431,21 +432,80 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
   [fRange, fStyle, fSO, fWO, fCell].forEach(f => attachClearButton(f, triggerReload));
 
+  // ===== Stronger bindings for the Physical Cell MultiSelect =====
+  function bindMultiSelect(ms) {
+    if (!ms) return;
+    // [DBG] initial
+    try { console.log("[UT-KPI] Binding MultiSelectList:", ms.df?.fieldname); } catch {}
+
+    // direct input events
+    if (ms.$input) {
+      ms.$input.on("input change awesomplete-selectcomplete", () => {
+        try { console.log("[UT-KPI] MS input event", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
+        triggerReload();
+      });
+    }
+
+    // token remove clicks
+    $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", () => {
+      try { console.log("[UT-KPI] MS token removed", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
+      triggerReload();
+    });
+
+    // MutationObserver for token list changes
+    const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
+    if (host) {
+      const obs = new MutationObserver(() => {
+        try { console.log("[UT-KPI] MS DOM mutated", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
+        triggerReload();
+      });
+      obs.observe(host, { childList: true, subtree: true });
+      ms._obs = obs;
+    }
+
+    // hook on_change
+    if (typeof ms.on_change === "function") {
+      const prev = ms.on_change.bind(ms);
+      ms.on_change = (...a) => {
+        try { console.log("[UT-KPI] MS on_change", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
+        try { prev(...a); } catch {}
+        triggerReload();
+      };
+    } else {
+      ms.on_change = () => {
+        try { console.log("[UT-KPI] MS on_change(new)", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
+        triggerReload();
+      };
+    }
+  }
+  bindMultiSelect(fCell); // <— key difference: robust binding with logs
+
   // Bindings
-  fRange.$input && fRange.$input.on("change", triggerReload);
-  [fStyle, fSO, fWO].forEach(f => f?.$input && f.$input.on("awesomplete-selectcomplete change", triggerReload));
+  fRange.$input && fRange.$input.on("change", () => {
+    try { console.log("[UT-KPI] date_range change ->", fRange.get_value && fRange.get_value()); } catch {}
+    triggerReload();
+  });
+  [fStyle, fSO, fWO].forEach(f => f?.$input && f.$input.on("awesomplete-selectcomplete change", () => {
+    try { console.log("[UT-KPI] field change", f.df?.fieldname, "->", f.get_value && f.get_value()); } catch {}
+    triggerReload();
+  }));
   if (fCell?.$input) {
+    // (kept original light bindings too)
     fCell.$input.on("input change awesomplete-selectcomplete", triggerReload);
     $(fCell.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", triggerReload);
   }
 
   // Initial load
-  frappe.after_ajax(() => { triggerReload(); });
+  frappe.after_ajax(() => { 
+    try { console.log("[UT-KPI] initial triggerReload"); } catch {}
+    triggerReload(); 
+  });
 
   // Cleanup
   wrapper.__ut_cleanup = () => {
     try { fRange._utObs && fRange._utObs.disconnect(); } catch {}
     try { fCell._utObs && fCell._utObs.disconnect(); } catch {}
+    try { fCell._obs && fCell._obs.disconnect(); } catch {}
     [fStyle, fSO, fWO].forEach(f => { try { f._utObs && f._utObs.disconnect(); } catch {} });
     try { chartCell && chartCell.destroy(); } catch {}
     try { chartDate && chartDate.destroy(); } catch {}
