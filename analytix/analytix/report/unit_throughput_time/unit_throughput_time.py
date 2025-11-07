@@ -30,6 +30,7 @@ def execute(filters=None):
       - work_order
       - style  (matches WO.production_item OR any SOI.item_code under the linked SO, with fallback to PI.item_code)
     """
+
     filters = filters or {}
 
     # --------- Resolve date window ---------
