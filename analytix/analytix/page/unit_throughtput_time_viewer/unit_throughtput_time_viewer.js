@@ -4,16 +4,28 @@
 frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   if (wrapper.__ut_cleanup) { try { wrapper.__ut_cleanup(); } catch {} }
 
-  // --- DEBUG SWITCH (enable by adding ?debug=1) ---
-  const qpDebug = frappe.utils.get_query_params().debug;
-  const DEBUG = qpDebug === "1" || qpDebug === "true" || false;
-  const dlog = (...a) => { if (DEBUG) console.log("[UT-KPI]", ...a); };
-  const dwarn = (...a) => { if (DEBUG) console.warn("[UT-KPI]", ...a); };
-  const dgroup = (label, fn) => {
-    if (DEBUG) { console.groupCollapsed("[UT-KPI] " + label); try { fn(); } finally { console.groupEnd(); } }
-    else { try { fn(); } catch {} }
+  // ---------------------- Debug helpers ----------------------
+  const qp = frappe.utils.get_query_params();
+  const DEBUG = String(qp.debug || "").toLowerCase() === "1";
+  const dlog = (...a) => { if (DEBUG) try { console.log("[UT-KPI]", ...a); } catch {} };
+  const dwarn = (...a) => { if (DEBUG) try { console.warn("[UT-KPI]", ...a); } catch {} };
+  const derr = (...a) => { try { console.error("[UT-KPI]", ...a); } catch {} };
+
+  // IMPORTANT: async group helper MUST return awaited value
+  const dgroup = async (label, fn) => {
+    if (!DEBUG) {
+      // still return fn() result!
+      return await fn();
+    }
+    console.groupCollapsed("[UT-KPI] " + label);
+    try {
+      return await fn();
+    } finally {
+      try { console.groupEnd(); } catch {}
+    }
   };
 
+  // ---------------------- Breadcrumb -------------------------
   if (window.CX && typeof CX.mountBreadcrumb === "function") {
     CX.mountBreadcrumb({
       wrapper,
@@ -39,7 +51,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   const MAX_DAYS = 60;
   let chartCell = null, chartDate = null;
 
-  // ===== Styles =====
+  // ---------------------- Styles -----------------------------
   $("#ut-kpi-styles").remove();
   $(`<style id="ut-kpi-styles">
     #${MOUNT_ID} .page-form .frappe-control { min-width: 0; }
@@ -64,7 +76,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     .awesomplete > ul { z-index:10000 !important; position:absolute !important; top:auto !important; bottom:auto !important; }
   </style>`).appendTo(document.head);
 
-  // ===== Layout =====
+  // ---------------------- Layout -----------------------------
   $mount.html(`
     <div class="kpi-filter-row" id="ut-filters"></div>
 
@@ -95,7 +107,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     </div>
   `);
 
-  // ===== Controls =====
+  // ---------------------- Controls ---------------------------
   const fRange = page.add_field({
     fieldtype: "DateRange",
     fieldname: "date_range",
@@ -104,9 +116,26 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     reqd: 1,
   });
 
-  const fStyle = page.add_field({ fieldtype: "Link", fieldname: "style", label: "Style", options: "Item" });
-  const fSO    = page.add_field({ fieldtype: "Link", fieldname: "sales_order", label: "Sales Order", options: "Sales Order" });
-  const fWO    = page.add_field({ fieldtype: "Link", fieldname: "work_order", label: "Work Order", options: "Work Order" });
+  const fStyle = page.add_field({
+    fieldtype: "Link",
+    fieldname: "style",
+    label: "Style",
+    options: "Item",
+  });
+
+  const fSO = page.add_field({
+    fieldtype: "Link",
+    fieldname: "sales_order",
+    label: "Sales Order",
+    options: "Sales Order",
+  });
+
+  const fWO = page.add_field({
+    fieldtype: "Link",
+    fieldname: "work_order",
+    label: "Work Order",
+    options: "Work Order",
+  });
 
   const fCell = page.add_field({
     fieldtype: "MultiSelectList",
@@ -115,11 +144,12 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     get_data: async (txt) => frappe.db.get_link_options("Physical Cell", txt),
   });
 
+  // requested order (Physical Cell last)
   const $filters = $mount.find("#ut-filters");
   [fRange, fStyle, fSO, fWO, fCell].forEach(f => $filters.append($("<div>").append(f.$wrapper)));
   fCell.$wrapper.addClass("kpi-ms");
 
-  // ===== Helpers =====
+  // ---------------------- Helpers ----------------------------
   function attachClearButton(field, onClear) {
     if (!field || !field.$wrapper) return;
     const fname = field.df.fieldname;
@@ -173,8 +203,9 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function msNormalize(val) {
     if (!val) return [];
     if (!Array.isArray(val)) return [];
-    return val.map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
-              .filter(Boolean);
+    return val
+      .map(x => (typeof x === "string" ? x : (x && (x.value || x.label || x.name || x.id)) || ""))
+      .filter(Boolean);
   }
 
   function enumerateDates(from, to) {
@@ -184,9 +215,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     const b = new Date(to + "T00:00:00");
     if (isNaN(a) || isNaN(b)) return out;
     for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
+      const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
       out.push(`${y}-${m}-${dd}`);
     }
     return out;
@@ -195,9 +224,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   function fmtHMS(sec) {
     if (sec == null || !isFinite(sec)) return "--:--:--";
     sec = Math.max(0, Math.round(sec));
-    const h = Math.floor(sec/3600);
-    const m = Math.floor((sec%3600)/60);
-    const s = sec%60;
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
   }
 
@@ -229,7 +256,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     chartCell=null; chartDate=null;
   }
 
-  // Build ONE payload object that mirrors backend expectations
+  // ---------------------- Data calls -------------------------
   function getPayload() {
     const dr = fRange.get_value() || [];
     const date_range = Array.isArray(dr) ? dr : [];
@@ -241,11 +268,11 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       work_order:  fWO.get_value && fWO.get_value(),
       physical_cell_csv: (cells || []).join(",")
     };
-    if (DEBUG) dlog("Payload built", JSON.parse(JSON.stringify(payload)));
+    dlog("payload", payload);
     return payload;
   }
 
-  // Call the report for a single day, but ALWAYS include the other filters too
+  // fetch single day with all filters
   async function callReportSingle(dateISO, sharedFilters) {
     const filters = {
       date: dateISO,
@@ -257,33 +284,29 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
 
     return await dgroup(`report fetch for ${dateISO}`, async () => {
       dlog("→ filters", filters);
-      try {
-        const resp = await frappe.call({
-          method: "frappe.desk.query_report.run",
-          args: { report_name: REPORT_NAME, filters },
-        });
-        const list = resp?.message?.report_summary || [];
-        const map = {}; list.forEach(it => { if (it?.name) map[it.name] = it.data; });
+      const resp = await frappe.call({
+        method: "frappe.desk.query_report.run",
+        args: { report_name: REPORT_NAME, filters },
+      });
 
-        dlog("← report_summary keys", Object.keys(map));
-        dlog("← by_cell sample", (map.by_cell || [])[0]);
-        dlog("← overall sample", (map.overall || [])[0]);
+      const list = resp?.message?.report_summary || [];
+      const map = {};
+      list.forEach(it => { if (it?.name) map[it.name] = it.data; });
 
-        // Stash on window for quick inspection
-        window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
-        window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
+      dlog("← report_summary keys", Object.keys(map));
+      dlog("← by_cell sample", (map.by_cell || [])[0]);
+      dlog("← overall sample", (map.overall || [])[0]);
 
-        return { by_cell: map.by_cell || [], overall: map.overall || [] };
-      } catch (e) {
-        dwarn("Report call failed", e);
-        frappe.show_alert({ message: `Report error for ${dateISO}`, indicator: "red" }, 7);
-        throw e;
-      }
+      window.__UTKPI_DEBUG = window.__UTKPI_DEBUG || {};
+      window.__UTKPI_DEBUG[dateISO] = { filters, raw: resp?.message, map };
+
+      return { by_cell: map.by_cell || [], overall: map.overall || [] };
     });
   }
 
   async function loadAll() {
     destroyCharts();
+
     const payload = getPayload();
     const [from_date, to_date] = payload.date_range || [];
 
@@ -298,34 +321,22 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     }
 
     const dates = enumerateDates(from_date, to_date).slice(0, MAX_DAYS);
-    dlog("Enumerated dates", dates);
 
     let perDay = [];
     try {
       perDay = await Promise.all(dates.map(d => callReportSingle(d, payload)));
     } catch (e) {
-      console.error("Unit TPT report error:", e);
+      derr("Unit TPT report error:", e);
       frappe.show_alert({ message: "Failed to load data", indicator: "red" }, 5);
       return;
     }
 
-    // quick toast for sanity
-    const totalOverallRows = perDay.reduce((n, x) => n + (x?.overall?.length || 0), 0);
-    const totalByCellRows  = perDay.reduce((n, x) => n + (x?.by_cell?.length || 0), 0);
-    frappe.show_alert({ message: `Loaded ${totalOverallRows} overall rows, ${totalByCellRows} cell rows`, indicator: "blue" }, 5);
-
+    // flatten
     const allOverall = [], allByCell = [];
     dates.forEach((d, i) => {
       const one = perDay[i] || { overall: [], by_cell: [] };
       (one.overall || []).forEach(r => allOverall.push({ ...r, _date: d }));
       (one.by_cell || []).forEach(r => allByCell.push({ ...r, _date: d }));
-    });
-
-    dgroup("Aggregated arrays", () => {
-      dlog("allOverall len", allOverall.length);
-      dlog("allByCell len",  allByCell.length);
-      dlog("overall sample", allOverall[0]);
-      dlog("by_cell sample", allByCell[0]);
     });
 
     // KPI value in MINUTES (overall)
