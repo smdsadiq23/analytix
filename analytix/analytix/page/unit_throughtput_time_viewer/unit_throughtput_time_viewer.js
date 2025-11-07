@@ -435,10 +435,8 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
   // ===== Stronger bindings for the Physical Cell MultiSelect =====
   function bindMultiSelect(ms) {
     if (!ms) return;
-    // [DBG] initial
     try { console.log("[UT-KPI] Binding MultiSelectList:", ms.df?.fieldname); } catch {}
 
-    // direct input events
     if (ms.$input) {
       ms.$input.on("input change awesomplete-selectcomplete", () => {
         try { console.log("[UT-KPI] MS input event", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
@@ -446,13 +444,11 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       });
     }
 
-    // token remove clicks
     $(ms.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", () => {
       try { console.log("[UT-KPI] MS token removed", ms.df?.fieldname, "value=", ms.get_value && ms.get_value()); } catch {}
       triggerReload();
     });
 
-    // MutationObserver for token list changes
     const host = ms.$wrapper.find(".control-input, .control-input-wrapper")[0] || ms.$wrapper[0];
     if (host) {
       const obs = new MutationObserver(() => {
@@ -463,7 +459,6 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       ms._obs = obs;
     }
 
-    // hook on_change
     if (typeof ms.on_change === "function") {
       const prev = ms.on_change.bind(ms);
       ms.on_change = (...a) => {
@@ -478,7 +473,7 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
       };
     }
   }
-  bindMultiSelect(fCell); // <— key difference: robust binding with logs
+  bindMultiSelect(fCell);
 
   // Bindings
   fRange.$input && fRange.$input.on("change", () => {
@@ -490,15 +485,15 @@ frappe.pages["unit-throughtput-time-viewer"].on_page_load = function (wrapper) {
     triggerReload();
   }));
   if (fCell?.$input) {
-    // (kept original light bindings too)
+    // keep light bindings too
     fCell.$input.on("input change awesomplete-selectcomplete", triggerReload);
     $(fCell.$wrapper).on("click", ".amp-token-remove,.awesomplete .remove", triggerReload);
   }
 
   // Initial load
-  frappe.after_ajax(() => { 
+  frappe.after_ajax(() => {
     try { console.log("[UT-KPI] initial triggerReload"); } catch {}
-    triggerReload(); 
+    triggerReload();
   });
 
   // Cleanup

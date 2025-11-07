@@ -25,10 +25,9 @@ def execute(filters=None):
     Filters (all optional):
       - date (YYYY-MM-DD) OR date_range = [from_date, to_date]   (date_range has precedence)
       - physical_cell_csv (CSV list)
-      - operation_csv     (CSV list)
       - sales_order
       - work_order
-      - style  (matches WO.production_item OR any SOI.item_code under the linked SO, with fallback to PI.item_code)
+      - style  (matches WO.production_item OR any SOI.item_code via Item.custom_style_master)
     """
 
     filters = filters or {}
@@ -37,7 +36,7 @@ def execute(filters=None):
     start_dt, end_dt = _resolve_datetime_window(filters)
 
     # --------- CSV filters -> sets ---------
-    pc_filter = _csv_to_set(filters.get("physical_cell_csv"))    
+    pc_filter = _csv_to_set(filters.get("physical_cell_csv"))
 
     # --------- Optional entity filters ---------
     so_filter = (filters.get("sales_order") or "").strip()
@@ -47,7 +46,7 @@ def execute(filters=None):
     # --------- Load data with simple queries ---------
     scan_rows = _load_scans(
         start_dt, end_dt,
-        pc_filter=pc_filter,        
+        pc_filter=pc_filter,
         sales_order=so_filter,
         work_order=wo_filter,
         style=style_filter,
@@ -75,11 +74,14 @@ def execute(filters=None):
     # operation graph per TOR
     graph_by_tor = _graph_by_tracking_order(opmap_rows)
 
+    # NEW: restrict overall first/last ops to the ops that survived filters
+    restrict_map = _restricted_ops_by_tor(idx)
+
     # --------- 1) TPT by PHYSICAL CELL (only units that reached cell's last op) ---------
     by_cell = _compute_tpt_by_cell(idx, last_op_map)
 
-    # --------- 2) TPT for WHOLE PROCESS MAP (only units that reached any "last op") ----
-    overall = _compute_tpt_overall(idx, graph_by_tor)
+    # --------- 2) TPT for WHOLE PROCESS MAP (respecting filtered subgraph) -------------
+    overall = _compute_tpt_overall(idx, graph_by_tor, restrict_ops_by_tor=restrict_map)
 
     return [], [], None, None, [
         {"name": "by_cell", "data": by_cell},
@@ -105,10 +107,9 @@ def _load_scans(start_dt, end_dt, pc_filter, sales_order, work_order, style):
     ]
     params = {"start_dt": start_dt, "end_dt": end_dt}
 
-    # Physical Cell / Operation filters
+    # Physical Cell filter
     if pc_filter:
         cell_list = tuple(sorted(pc_filter))
-        # ensure single-element tuples are valid: ('Finishing 03',)
         if len(cell_list) == 1:
             cell_list = (cell_list[0],)
         conds.append("isl.physical_cell IN %(pc_list)s")
@@ -144,8 +145,7 @@ def _load_scans(start_dt, end_dt, pc_filter, sales_order, work_order, style):
         """)
         params["work_order"] = work_order
 
-    # Style filter: matches WO.production_item OR any SOI.item_code under that SO OR fallback to PI.item_code
-# --- Style filter (via Item.custom_style_master through WO and SOI only) ---
+    # Style filter via Item.custom_style_master (through WO and SOI only)
     if style:
         conds.append("""
         (
@@ -154,14 +154,14 @@ def _load_scans(start_dt, end_dt, pc_filter, sales_order, work_order, style):
             SELECT 1
             FROM `tabTracking Order Bundle Configuration` tbc_st
             JOIN `tabWork Order` wo_st
-            ON wo_st.name = tbc_st.work_order
+              ON wo_st.name = tbc_st.work_order
             JOIN `tabItem` it_wo
-            ON it_wo.name = wo_st.production_item
+              ON it_wo.name = wo_st.production_item
             WHERE tbc_st.parent = tor.name
-            AND tbc_st.name   = pi.bundle_configuration
-            AND tbc_st.parentfield = 'component_bundle_configurations'
-            AND tbc_st.activation_status = 'Completed'
-            AND it_wo.custom_style_master = %(style)s
+              AND tbc_st.name   = pi.bundle_configuration
+              AND tbc_st.parentfield = 'component_bundle_configurations'
+              AND tbc_st.activation_status = 'Completed'
+              AND it_wo.custom_style_master = %(style)s
         )
         OR
         /* Sales Order Items -> Item.custom_style_master */
@@ -169,14 +169,14 @@ def _load_scans(start_dt, end_dt, pc_filter, sales_order, work_order, style):
             SELECT 1
             FROM `tabTracking Order Bundle Configuration` tbc_st2
             JOIN `tabSales Order Item` soi2
-            ON soi2.parent = tbc_st2.sales_order
+              ON soi2.parent = tbc_st2.sales_order
             JOIN `tabItem` it_so
-            ON it_so.name = soi2.item_code
+              ON it_so.name = soi2.item_code
             WHERE tbc_st2.parent = tor.name
-            AND tbc_st2.name   = pi.bundle_configuration
-            AND tbc_st2.parentfield = 'component_bundle_configurations'
-            AND tbc_st2.activation_status = 'Completed'
-            AND it_so.custom_style_master = %(style)s
+              AND tbc_st2.name   = pi.bundle_configuration
+              AND tbc_st2.parentfield = 'component_bundle_configurations'
+              AND tbc_st2.activation_status = 'Completed'
+              AND it_so.custom_style_master = %(style)s
         )
         )
         """)
@@ -256,7 +256,7 @@ def _index_scans(scan_rows):
         ts = r["logged_time"]
         pi = r["pi_name"]
 
-    # Skip incomplete rows
+        # Skip incomplete rows
         if not (cell and op and tor and ts and pi):
             continue
 
@@ -362,7 +362,18 @@ def _compute_tpt_by_cell(idx, last_op_map):
     return result
 
 
-def _compute_tpt_overall(idx, graph_by_tor):
+# NEW: derive the set of operations per TOR that survived current filters
+def _restricted_ops_by_tor(idx):
+    out = {}
+    for tor, rows in idx["scans_by_tor"].items():
+        out[tor] = {r["operation"] for r in rows if r.get("operation")}
+    return out
+
+
+def _compute_tpt_overall(idx, graph_by_tor, restrict_ops_by_tor=None):
+    """Compute overall TPT using the ops visible in the current (filtered) dataset.
+       If restrict_ops_by_tor is provided, first/last ops are found inside that subset.
+    """
     result = []
 
     scans_by_tor = idx["scans_by_tor"]
@@ -373,35 +384,54 @@ def _compute_tpt_overall(idx, graph_by_tor):
             continue
 
         g = graph_by_tor.get(tor) or {"ops": set(), "next": {}}
-        ops = set(g.get("ops") or [])
-        nxt = g.get("next") or {}
+        full_ops = set(g.get("ops") or [])
+        nxt_full = g.get("next") or {}
 
+        # ----- key change: limit to ops that exist after filters -----
+        if restrict_ops_by_tor and tor in restrict_ops_by_tor:
+            ops = (restrict_ops_by_tor[tor] & full_ops) if full_ops else set(restrict_ops_by_tor[tor])
+        else:
+            ops = full_ops
+
+        if not ops:
+            continue
+
+        # Keep edges only inside the restricted op set
+        nxt = {op: nx for op, nx in nxt_full.items() if op in ops and (nx in ops if nx else True)}
+
+        # First ops = ops that are not a "next" of any other op inside the restricted set
         next_values = {v for v in nxt.values() if v}
         first_ops = [op for op in ops if op and op not in next_values]
+
+        # Last ops = ops with no "next" inside the restricted set
         last_ops = [op for op in ops if not nxt.get(op)]
 
         if not first_ops or not last_ops:
             continue
 
+        # Units (PIs) that reached any restricted last op
         pis_that_reached = set()
         for op in last_ops:
             for r in scans_by_tor_op.get((tor, op), []):
-                pis_that_reached.add(r["pi_name"])
+                if r.get("pi_name"):
+                    pis_that_reached.add(r["pi_name"])
 
         if not pis_that_reached:
             continue
 
+        # Earliest scan among restricted first ops for these PIs
         first_ts_candidates = []
         for op in first_ops:
             for r in scans_by_tor_op.get((tor, op), []):
-                if r["pi_name"] in pis_that_reached:
+                if r.get("pi_name") in pis_that_reached:
                     first_ts_candidates.append(r["logged_time"])
         first_ts = min(first_ts_candidates) if first_ts_candidates else None
 
+        # Latest scan among restricted last ops for these PIs
         last_ts_candidates = []
         for op in last_ops:
             for r in scans_by_tor_op.get((tor, op), []):
-                if r["pi_name"] in pis_that_reached:
+                if r.get("pi_name") in pis_that_reached:
                     last_ts_candidates.append(r["logged_time"])
         last_ts = max(last_ts_candidates) if last_ts_candidates else None
 
