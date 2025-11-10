@@ -180,5 +180,19 @@
   "route_override": "/app/unit-throughtput-time-viewer",
   "sort_order": 3,
   "title": "Unit Throughput Time"
+ },
+ {
+  "dashboard": null,
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Buying",
+  "modified": "2025-11-10 16:45:05.315031",
+  "name": "n1tc39078i",
+  "route_override": "/app/query-report/Purchase%20Order%20Status%20Summary",
+  "sort_order": 1,
+  "title": "Purchase Order Status Summary"
  }
 ]
