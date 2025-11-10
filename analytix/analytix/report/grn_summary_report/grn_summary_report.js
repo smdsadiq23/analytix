@@ -1,7 +1,7 @@
 // Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Purchase Order Status Summary"] = {
+frappe.query_reports["GRN Summary Report"] = {
     "filters": [
         {
             "fieldname": "company",

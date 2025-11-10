@@ -194,5 +194,19 @@
   "route_override": "/app/query-report/Purchase%20Order%20Status%20Summary",
   "sort_order": 1,
   "title": "Purchase Order Status Summary"
+ },
+ {
+  "dashboard": "",
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Buying",
+  "modified": "2025-11-10 17:36:15.436805",
+  "name": "l1adns9d2l",
+  "route_override": "/app/query-report/GRN%20Summary%20Report?",
+  "sort_order": 2,
+  "title": "GRN Summary Report"
  }
 ]
