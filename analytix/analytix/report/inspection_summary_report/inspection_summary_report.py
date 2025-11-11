@@ -10,7 +10,8 @@ STATUS_FIELD = "inspection_status"   # common field in both doctypes
 
 def execute(filters=None):
     filters = filters or {}
-    chart_view = (filters.get("chart_view") or "Fabric").strip()
+    # default to combined pie so both Draft (2) and In Progress (2) show as slices
+    chart_view = (filters.get("chart_view") or "Combined Pie").strip()
 
     # Pull counts with filters applied per doctype
     fabric_counts = get_status_counts(FABRIC_DTYPE, filters)
@@ -176,25 +177,18 @@ def build_message_table(fabric_counts, trims_counts):
 def build_chart(chart_view, statuses, fabric_counts, trims_counts):
     """
     Returns a Frappe report chart object.
-    - Fabric  -> pie (fabric only)
-    - Trims   -> pie (trims only)
-    - Combined Bar -> bar comparing both
+    Views:
+      - "Fabric"         -> Fabric-only pie
+      - "Trims"          -> Trims-only pie
+      - "Combined Pie"   -> (default) Fabric+Trims per status, as a single pie
+      - "Combined Bar"   -> side-by-side comparison bar
     """
-    chart_view = (chart_view or "Fabric").lower()
+    view = (chart_view or "Combined Pie").lower()
 
-    if chart_view == "trims":
-        labels = statuses
-        values = [trims_counts.get(st, 0) for st in labels]
-        return {
-            "data": {"labels": labels, "datasets": [{"name": _("Trims"), "values": values}]},
-            "type": "pie",
-            "height": 240,
-        }
-
-    if chart_view in ("combined bar", "combined", "both"):
-        labels   = statuses
+    if view in ("combined bar", "combined", "both"):
+        labels   = list(statuses)
         f_values = [fabric_counts.get(st, 0) for st in labels]
-        t_values = [trims_counts.get(st, 0) for st in labels]
+        t_values = [trims_counts.get(st, 0)  for st in labels]
         return {
             "data": {
                 "labels": labels,
@@ -207,11 +201,29 @@ def build_chart(chart_view, statuses, fabric_counts, trims_counts):
             "height": 260,
         }
 
-    # default: Fabric pie
-    labels = statuses
-    values = [fabric_counts.get(st, 0) for st in labels]
+    # pie variants
+    labels = list(statuses)
+    if view.startswith("fabric"):
+        values = [fabric_counts.get(st, 0) for st in labels]
+        pie_name = _("Fabric")
+    elif view.startswith("trims"):
+        values = [trims_counts.get(st, 0) for st in labels]
+        pie_name = _("Trims")
+    else:  # Combined Pie (default)
+        values = [fabric_counts.get(st, 0) + trims_counts.get(st, 0) for st in labels]
+        pie_name = _("Total")
+
+    # Drop zero-value slices so the pie renders multiple segments when appropriate
+    nonzero = [(l, v) for l, v in zip(labels, values) if v and v > 0]
+    if nonzero:
+        labels, values = zip(*nonzero)
+        labels, values = list(labels), list(values)
+    else:
+        labels, values = labels, values  # all zeros; keep as-is
+
     return {
-        "data": {"labels": labels, "datasets": [{"name": _("Fabric"), "values": values}]},
+        "data": {"labels": labels, "datasets": [{"name": pie_name, "values": values}]},
         "type": "pie",
         "height": 240,
     }
+

@@ -22,5 +22,15 @@ frappe.query_reports["Purchase Order Status Summary"] = {
             "fieldtype": "Date",
             "default": frappe.datetime.get_today()
         }
-    ]
+    ],
+
+    onload(report) {
+        CX.mountBreadcrumb({
+        wrapper: report.page.wrapper || report.page.$wrapper,
+        trail: [
+            { label: "KPI Hub", href: "/app/kpi-hub" },
+            { label: "Purchase Order Status Summary" }
+        ]
+        });
+    }  
 };

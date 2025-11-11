@@ -22,5 +22,15 @@ frappe.query_reports["GRN Summary Report"] = {
             "fieldtype": "Date",
             "default": frappe.datetime.get_today()
         }
-    ]
+    ],
+
+    onload(report) {
+        CX.mountBreadcrumb({
+        wrapper: report.page.wrapper || report.page.$wrapper,
+        trail: [
+            { label: "KPI Hub", href: "/app/kpi-hub" },
+            { label: "GRN Summary Report" }
+        ]
+        });
+    }    
 };
