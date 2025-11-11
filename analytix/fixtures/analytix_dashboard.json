@@ -189,10 +189,10 @@
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Buying",
-  "modified": "2025-11-10 16:45:05.315031",
+  "modified": "2025-11-11 16:50:06.521947",
   "name": "n1tc39078i",
   "route_override": "/app/query-report/Purchase%20Order%20Status%20Summary",
-  "sort_order": 1,
+  "sort_order": 0,
   "title": "Purchase Order Status Summary"
  },
  {
@@ -203,10 +203,24 @@
   "icon": null,
   "is_enabled": 1,
   "kpi_group": "Buying",
-  "modified": "2025-11-10 17:36:15.436805",
+  "modified": "2025-11-11 16:50:32.345996",
   "name": "l1adns9d2l",
   "route_override": "/app/query-report/GRN%20Summary%20Report?",
-  "sort_order": 2,
+  "sort_order": 1,
   "title": "GRN Summary Report"
+ },
+ {
+  "dashboard": null,
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Buying",
+  "modified": "2025-11-11 16:50:20.898059",
+  "name": "55l4hh5n11",
+  "route_override": "/app/query-report/Inspection%20Summary%20Report",
+  "sort_order": 2,
+  "title": "Inspection Summary Report"
  }
 ]
