@@ -224,11 +224,29 @@ def get_detail_so(so_name):
             next_to_prev[nxt] = op
         op_to_next[op] = nxt
 
+    # --- Forcefully insert 'Activation' at the beginning ---
+    ACTIVATION_OP = "Activation"
+    all_ops_set.add(ACTIVATION_OP)
+
     if not all_ops_set:
         return {"details": so_details[0], "metrics_by_op": []}
 
+    # Identify original first operations (those not pointed to by any 'next_operation')
     next_ops = set(op_to_next.values())
-    first_ops = [op for op in all_ops_set if op not in next_ops]
+    original_first_ops = [op for op in all_ops_set if op != ACTIVATION_OP and op not in next_ops]
+
+    # Make 'Activation' the new root
+    if original_first_ops:
+        # Connect Activation → first of the original first operations (linear assumption)
+        first_real_op = original_first_ops[0]
+        op_to_next[ACTIVATION_OP] = first_real_op
+        next_to_prev[first_real_op] = ACTIVATION_OP
+    else:
+        op_to_next[ACTIVATION_OP] = None
+
+    # Now the only first op is "Activation"
+    first_ops = [ACTIVATION_OP]
+
     operation_sequence = []
     for start in first_ops:
         current = start
@@ -390,11 +408,28 @@ def get_detail_wo(wo_name):
             next_to_prev[nxt] = op
         op_to_next[op] = nxt
 
+    # --- Forcefully insert 'Activation' at the beginning ---
+    ACTIVATION_OP = "Activation"
+    all_ops_set.add(ACTIVATION_OP)
+
     if not all_ops_set:
         return {"details": wo_details[0], "metrics_by_op": []}
 
+    # Identify original first operations (excluding Activation)
     next_ops = set(op_to_next.values())
-    first_ops = [op for op in all_ops_set if op not in next_ops]
+    original_first_ops = [op for op in all_ops_set if op != ACTIVATION_OP and op not in next_ops]
+
+    # Make 'Activation' the new root
+    if original_first_ops:
+        first_real_op = original_first_ops[0]
+        op_to_next[ACTIVATION_OP] = first_real_op
+        next_to_prev[first_real_op] = ACTIVATION_OP
+    else:
+        op_to_next[ACTIVATION_OP] = None
+
+    # Start sequence from 'Activation' only
+    first_ops = [ACTIVATION_OP]
+
     operation_sequence = []
     for start in first_ops:
         current = start
