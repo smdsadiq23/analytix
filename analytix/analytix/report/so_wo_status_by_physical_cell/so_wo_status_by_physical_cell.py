@@ -83,7 +83,7 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
@@ -155,7 +155,7 @@ def get_summary_wo_by_cell(filters):
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
@@ -295,7 +295,7 @@ def get_detail_so_by_cell(so_name):
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
@@ -405,7 +405,9 @@ def get_detail_wo_by_cell(wo_name):
         SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabOperation Map` opm ON opm.parent = tor.name
+        INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name
+        INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd ON ckpbd.production_item_id = pi.name                             
+        INNER JOIN `tabOperation Map` opm ON opm.parent = ckpbd.parent
         WHERE tbc.work_order = %(wo_name)s 
           AND tbc.parentfield = 'component_bundle_configurations' 
           AND tbc.activation_status = 'Completed'
@@ -478,7 +480,7 @@ def get_detail_wo_by_cell(wo_name):
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'

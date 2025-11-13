@@ -188,9 +188,9 @@ def _load_last_ops_per_cell():
     return frappe.db.sql(
         """
         SELECT
-          topclo.parent       AS tracking_order,
+          topclo.parent AS tracking_order,
           topclo.physical_cell,
-          topclo.operation    AS last_operation
+          topclo.operation AS last_operation
         FROM `tabTracking Order Physical Cell Last Operation` topclo
         """,
         as_dict=True,
@@ -201,7 +201,7 @@ def _load_operation_map():
     return frappe.db.sql(
         """
         SELECT
-          om.parent         AS tracking_order,
+          om.parent AS tracking_order,
           om.operation,
           om.next_operation
         FROM `tabOperation Map` om
