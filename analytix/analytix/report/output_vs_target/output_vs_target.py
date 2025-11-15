@@ -81,7 +81,7 @@ def execute(filters=None):
             COALESCE(SUM(COALESCE(pi.quantity, 0)), 0) AS output
         FROM `tabItem Scan Log` isl
         LEFT JOIN `tabProduction Item`  pi ON isl.production_item = pi.name
-        LEFT JOIN `tabTracking Component` tc ON pi.component = tc.name
+        LEFT JOIN `tabTracking Component` tc ON pi.component = tc.name AND tc.is_main = 1
         LEFT JOIN `tabTracking Order`    tor ON tc.`parent` = tor.name
         WHERE {where_clause}
         GROUP BY DATE(isl.logged_time), HOUR(isl.logged_time),
