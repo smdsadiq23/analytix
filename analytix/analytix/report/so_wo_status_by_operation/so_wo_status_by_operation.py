@@ -68,7 +68,7 @@ def get_summary_so(filters):
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = %(op)s
@@ -142,7 +142,7 @@ def get_summary_wo(filters):
             FROM `tabTracking Order Bundle Configuration` tbc
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = %(op)s
@@ -276,7 +276,7 @@ def get_detail_so(so_name):
             ON pi.tracking_order = tor.name 
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
-            ON tc.name = pi.component AND tc.is_main = 0
+            ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name
             AND isl.log_status = 'Completed'
@@ -459,7 +459,7 @@ def get_detail_wo(wo_name):
             ON pi.tracking_order = tor.name 
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
-            ON tc.name = pi.component AND tc.is_main = 0
+            ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name
             AND isl.log_status = 'Completed'

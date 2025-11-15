@@ -83,7 +83,7 @@ def get_summary_so_by_cell(filters):
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
@@ -155,7 +155,7 @@ def get_summary_wo_by_cell(filters):
             INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo
                 ON topclo.parent = tor.name AND topclo.physical_cell = %(physical_cell)s
             INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name 
                 AND isl.operation = topclo.operation
@@ -216,70 +216,34 @@ def get_detail_so_by_cell(so_name):
     if not sizes:
         return {"details": so_details[0], "metrics_by_cell": []}
 
-    op_links = frappe.db.sql("""
-        SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
+    # === SIMPLIFIED: Get per-cell first/last ops from Cut Kit Plan child table ===
+    cell_ops = frappe.db.sql("""
+        SELECT DISTINCT
+            pcflo.physical_cell,
+            pcflo.first_operation,
+            pcflo.last_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name
         INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd ON ckpbd.production_item_id = pi.name
-        INNER JOIN `tabOperation Map` opm ON opm.parent = ckpbd.parent
-        WHERE tbc.sales_order = %(so_name)s 
-          AND tbc.parentfield = 'component_bundle_configurations' 
+        INNER JOIN `tabCut Kit Plan` ckp ON ckp.name = ckpbd.parent
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo 
+            ON pcflo.parent = ckp.name
+        WHERE tbc.sales_order = %(sales_order)s
+          AND tbc.parentfield = 'component_bundle_configurations'
           AND tbc.activation_status = 'Completed'
-    """, {"so_name": so_name}, as_dict=True)
+    """, {"sales_order": so_name}, as_dict=True)
 
-    tor_ops = {}
-    for row in op_links:
-        tor = row.tracking_order
-        if tor not in tor_ops:
-            tor_ops[tor] = []
-        tor_ops[tor].append((row.operation, row.next_operation))
-
-    tor_seq = {}
-    for tor, links in tor_ops.items():
-        op_to_next = {}
-        all_ops = set()
-        for op, nxt in links:
-            all_ops.add(op)
-            if nxt:
-                all_ops.add(nxt)
-            op_to_next[op] = nxt
-
-        next_ops = set(op_to_next.values())
-        first_ops = [op for op in all_ops if op not in next_ops]
-        seq = []
-        for start in first_ops:
-            cur = start
-            while cur:
-                seq.append(cur)
-                cur = op_to_next.get(cur)
-        tor_seq[tor] = seq
-
-    cell_ops = frappe.db.sql("""
-        SELECT DISTINCT topclo.physical_cell, topclo.parent AS tracking_order
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.sales_order = %(so_name)s 
-          AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
-    """, {"so_name": so_name}, as_dict=True)
-
-    cell_first_last = {}
-    for row in cell_ops:
-        cell = row.physical_cell
-        tor = row.tracking_order
-        seq = tor_seq.get(tor, [])
-        if seq:
-            cell_first_last[cell] = {"first": seq[0], "last": seq[-1]}
+    cell_first_last = {
+        row.physical_cell: {"first": row.first_operation, "last": row.last_operation}
+        for row in cell_ops if row.physical_cell
+    }
 
     if not cell_first_last:
         return {"details": so_details[0], "metrics_by_cell": []}
 
     cells = list(cell_first_last.keys())
-    all_operations = set()
-    for ops in cell_first_last.values():
-        all_operations.update([ops["first"], ops["last"]])
+    all_operations = {op for ops in cell_first_last.values() for op in [ops["first"], ops["last"]]}
 
     if not all_operations:
         scan_logs = []
@@ -295,7 +259,7 @@ def get_detail_so_by_cell(so_name):
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
@@ -318,7 +282,7 @@ def get_detail_so_by_cell(so_name):
         key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             cell_op_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject','SP Reject'):  # NEW
+        elif log.status in ('QC Reject','SP Reject'):
             cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
@@ -401,70 +365,34 @@ def get_detail_wo_by_cell(wo_name):
     if not sizes:
         return {"details": wo_details[0], "metrics_by_cell": []}
 
-    op_links = frappe.db.sql("""
-        SELECT DISTINCT tor.name AS tracking_order, opm.operation, opm.next_operation
+    # === SIMPLIFIED: Get per-cell first/last ops from Cut Kit Plan child table ===
+    cell_ops = frappe.db.sql("""
+        SELECT DISTINCT
+            cko.physical_cell,
+            cko.first_operation,
+            cko.last_operation
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name
-        INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd ON ckpbd.production_item_id = pi.name                             
-        INNER JOIN `tabOperation Map` opm ON opm.parent = ckpbd.parent
-        WHERE tbc.work_order = %(wo_name)s 
-          AND tbc.parentfield = 'component_bundle_configurations' 
+        INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd ON ckpbd.production_item_id = pi.name
+        INNER JOIN `tabCut Kit Plan` ckp ON ckp.name = ckpbd.parent
+        INNER JOIN `tabPhysical Cell First and Last Operation` cko 
+            ON cko.parent = ckp.name
+        WHERE tbc.work_order = %(work_order)s
+          AND tbc.parentfield = 'component_bundle_configurations'
           AND tbc.activation_status = 'Completed'
-    """, {"wo_name": wo_name}, as_dict=True)
+    """, {"work_order": wo_name}, as_dict=True)
 
-    tor_ops = {}
-    for row in op_links:
-        tor = row.tracking_order
-        if tor not in tor_ops:
-            tor_ops[tor] = []
-        tor_ops[tor].append((row.operation, row.next_operation))
-
-    tor_seq = {}
-    for tor, links in tor_ops.items():
-        op_to_next = {}
-        all_ops = set()
-        for op, nxt in links:
-            all_ops.add(op)
-            if nxt:
-                all_ops.add(nxt)
-            op_to_next[op] = nxt
-
-        next_ops = set(op_to_next.values())
-        first_ops = [op for op in all_ops if op not in next_ops]
-        seq = []
-        for start in first_ops:
-            cur = start
-            while cur:
-                seq.append(cur)
-                cur = op_to_next.get(cur)
-        tor_seq[tor] = seq
-
-    cell_ops = frappe.db.sql("""
-        SELECT DISTINCT topclo.physical_cell, topclo.parent AS tracking_order
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabTracking Order Physical Cell Last Operation` topclo ON topclo.parent = tor.name
-        WHERE tbc.work_order = %(wo_name)s 
-          AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
-    """, {"wo_name": wo_name}, as_dict=True)
-
-    cell_first_last = {}
-    for row in cell_ops:
-        cell = row.physical_cell
-        tor = row.tracking_order
-        seq = tor_seq.get(tor, [])
-        if seq:
-            cell_first_last[cell] = {"first": seq[0], "last": seq[-1]}
+    cell_first_last = {
+        row.physical_cell: {"first": row.first_operation, "last": row.last_operation}
+        for row in cell_ops if row.physical_cell
+    }
 
     if not cell_first_last:
         return {"details": wo_details[0], "metrics_by_cell": []}
 
     cells = list(cell_first_last.keys())
-    all_operations = set()
-    for ops in cell_first_last.values():
-        all_operations.update([ops["first"], ops["last"]])
+    all_operations = {op for ops in cell_first_last.values() for op in [ops["first"], ops["last"]]}
 
     if not all_operations:
         scan_logs = []
@@ -480,7 +408,7 @@ def get_detail_wo_by_cell(wo_name):
             INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
             INNER JOIN `tabProduction Item` pi 
                 ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 0
+            INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
             INNER JOIN `tabItem Scan Log` isl 
                 ON isl.production_item = pi.name
                 AND isl.log_status = 'Completed'
@@ -503,7 +431,7 @@ def get_detail_wo_by_cell(wo_name):
         key = (log.physical_cell, log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             cell_op_size_completed[key] += log.pi_qty or 0
-        elif log.status in ('QC Reject','SP Reject'):  # NEW
+        elif log.status in ('QC Reject','SP Reject'):
             cell_op_size_rejected[key] += log.pi_qty or 0   
 
     metrics_by_cell = []
