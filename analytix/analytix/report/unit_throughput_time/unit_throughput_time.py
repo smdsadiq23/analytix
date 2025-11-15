@@ -52,27 +52,17 @@ def execute(filters=None):
             {"name": "overall", "data": []},
         ]
 
-    # 2) Last operation per (tracking_order, physical_cell)
-    topclo_rows = _load_last_ops_per_cell()
-
-    # 3) Operation graph (operation -> next_operation) per tracking_order
-    opmap_rows = _load_operation_map()
+    # Build mappings from Cut Kit Plan → per-cell first/last ops
+    cell_first_last_map, tor_first_last_map = _build_first_last_op_mappings()
 
     # --------- Build indices in Python ---------
     idx = _index_scans(scan_rows)
 
-    # mapping (tracking_order, physical_cell) -> last_operation
-    last_op_map = {(r["tracking_order"], r["physical_cell"]): r["last_operation"]
-                   for r in topclo_rows}
-
-    # operation graph per TOR
-    graph_by_tor = _graph_by_tracking_order(opmap_rows)
-
     # --------- 1) TPT by PHYSICAL CELL (only units that reached cell's last op) ---------
-    by_cell = _compute_tpt_by_cell(idx, last_op_map)
+    by_cell = _compute_tpt_by_cell(idx, cell_first_last_map)
 
     # --------- 2) TPT for WHOLE PROCESS MAP (only units that reached any "last op") ----
-    overall = _compute_tpt_overall(idx, graph_by_tor)
+    overall = _compute_tpt_overall(idx, tor_first_last_map)
 
     return [], [], None, None, [
         {"name": "by_cell", "data": by_cell},
@@ -184,30 +174,44 @@ def _load_scans(start_dt, end_dt, sales_order, work_order, style):
     return rows
 
 
-def _load_last_ops_per_cell():
-    return frappe.db.sql(
-        """
+def _build_first_last_op_mappings():
+    """
+    Build two mappings from Cut Kit Plan data:
+    1. (tracking_order, physical_cell) → {first, last}
+    2. tracking_order → {first, last}
+    """
+    ckp_data = frappe.db.sql("""
         SELECT
-          topclo.parent AS tracking_order,
-          topclo.physical_cell,
-          topclo.operation AS last_operation
-        FROM `tabTracking Order Physical Cell Last Operation` topclo
-        """,
-        as_dict=True,
-    )
+            tor.name AS tracking_order,
+            cko.physical_cell,
+            cko.first_operation,
+            cko.last_operation
+        FROM `tabCut Kit Plan` ckp
+        INNER JOIN `tabTracking Order` tor 
+            ON tor.reference_order_number = ckp.cut_bundle_order
+        INNER JOIN `tabPhysical Cell First and Last Operation` cko 
+            ON cko.parent = ckp.name
+        WHERE ckp.docstatus = 1
+    """, as_dict=True)
 
+    cell_map = {}
+    tor_map = {}
 
-def _load_operation_map():
-    return frappe.db.sql(
-        """
-        SELECT
-          om.parent AS tracking_order,
-          om.operation,
-          om.next_operation
-        FROM `tabOperation Map` om
-        """,
-        as_dict=True,
-    )
+    for row in ckp_data:
+        tor = row.tracking_order
+        cell = row.physical_cell
+        cell_map[(tor, cell)] = {
+            "first": row.first_operation,
+            "last": row.last_operation
+        }
+        # For overall TPT, pick any cell's ops (they should be consistent per TOR)
+        if tor not in tor_map:
+            tor_map[tor] = {
+                "first": row.first_operation,
+                "last": row.last_operation
+            }
+
+    return cell_map, tor_map
 
 
 # ======================================================================
@@ -221,9 +225,6 @@ def _index_scans(scan_rows):
     scans_by_tor = defaultdict(list)
     scans_by_tor_op = defaultdict(list)
     scans_by_cell_tor_op = defaultdict(list)
-
-    # To filter to PIs that reached last ops:
-    scans_by_tor_pi = defaultdict(list)
     scans_by_cell_tor_op_pi = defaultdict(list)
 
     for r in scan_rows:
@@ -233,7 +234,6 @@ def _index_scans(scan_rows):
         ts = r["logged_time"]
         pi = r["pi_name"]
 
-        # Skip incomplete rows
         if not (cell and op and tor and ts and pi):
             continue
 
@@ -241,14 +241,11 @@ def _index_scans(scan_rows):
         scans_by_tor[tor].append(r)
         scans_by_tor_op[(tor, op)].append(r)
         scans_by_cell_tor_op[(cell, tor, op)].append(r)
-
-        scans_by_tor_pi[(tor, pi)].append(r)
         scans_by_cell_tor_op_pi[(cell, tor, op, pi)].append(r)
 
-    # Sort by timestamp once
-    for d in (scans_by_cell, scans_by_tor, scans_by_tor_op, scans_by_cell_tor_op,
-              scans_by_tor_pi, scans_by_cell_tor_op_pi):
-        for k in d.keys():
+    # Sort by timestamp
+    for d in (scans_by_cell, scans_by_tor, scans_by_tor_op, scans_by_cell_tor_op, scans_by_cell_tor_op_pi):
+        for k in d:
             d[k].sort(key=lambda x: x["logged_time"] or datetime.min)
 
     return dict(
@@ -256,35 +253,15 @@ def _index_scans(scan_rows):
         scans_by_tor=scans_by_tor,
         scans_by_tor_op=scans_by_tor_op,
         scans_by_cell_tor_op=scans_by_cell_tor_op,
-        scans_by_tor_pi=scans_by_tor_pi,
         scans_by_cell_tor_op_pi=scans_by_cell_tor_op_pi,
     )
-
-
-def _graph_by_tracking_order(opmap_rows):
-    from collections import defaultdict
-    next_map = defaultdict(dict)
-    ops_set = defaultdict(set)
-
-    for r in opmap_rows:
-        tor = r["tracking_order"]
-        op = r.get("operation")
-        nxt = r.get("next_operation")
-        if op:
-            ops_set[tor].add(op)
-        if nxt:
-            ops_set[tor].add(nxt)
-        next_map[tor][op] = nxt
-
-    return {tor: {"ops": ops_set.get(tor, set()), "next": next_map[tor]}
-            for tor in next_map}
 
 
 # ======================================================================
 #                         PYTHON COMPUTATIONS
 # ======================================================================
 
-def _compute_tpt_by_cell(idx, last_op_map):
+def _compute_tpt_by_cell(idx, cell_first_last_map):
     result = []
 
     scans_by_cell = idx["scans_by_cell"]
@@ -297,35 +274,42 @@ def _compute_tpt_by_cell(idx, last_op_map):
         tors = {r["tracking_order"] for r in rows if r.get("tracking_order")}
         pis_that_reached = set()
         last_ts_candidates = []
+        first_ts_candidates = []
 
         for tor in tors:
-            last_op = last_op_map.get((tor, cell))
-            if not last_op:
+            key = (tor, cell)
+            if key not in cell_first_last_map:
                 continue
 
+            first_op = cell_first_last_map[key]["first"]
+            last_op = cell_first_last_map[key]["last"]
+
             pis_in_tor = {r["pi_name"] for r in rows if r["tracking_order"] == tor}
+
+            # Find PIs that reached LAST operation
             for pi in pis_in_tor:
-                logs = scans_by_cell_tor_op_pi.get((cell, tor, last_op, pi), [])
-                if logs:
+                last_logs = scans_by_cell_tor_op_pi.get((cell, tor, last_op, pi), [])
+                if last_logs:
                     pis_that_reached.add(pi)
-                    last_ts_candidates.append((logs[-1]["logged_time"], last_op))
+                    last_ts_candidates.append(last_logs[-1]["logged_time"])
 
-        if not pis_that_reached:
+            # Find FIRST operation timestamps for those PIs
+            for pi in pis_in_tor:
+                if pi in pis_that_reached:
+                    first_logs = scans_by_cell_tor_op_pi.get((cell, tor, first_op, pi), [])
+                    if first_logs:
+                        first_ts_candidates.append(first_logs[0]["logged_time"])
+
+        if not pis_that_reached or not first_ts_candidates or not last_ts_candidates:
             continue
 
-        first_ts_candidates = [r["logged_time"] for r in rows if r["pi_name"] in pis_that_reached]
-        first_ts = min(first_ts_candidates) if first_ts_candidates else None
-
-        last_ts = None
-        last_op_selected = None
-        if last_ts_candidates:
-            last_ts_candidates.sort(key=lambda x: x[0] or datetime.min)
-            last_ts, last_op_selected = last_ts_candidates[-1]
-
-        if not (first_ts and last_ts):
-            continue
-
+        first_ts = min(first_ts_candidates)
+        last_ts = max(last_ts_candidates)
         tpt_seconds = (last_ts - first_ts).total_seconds()
+
+        # Use last_op from mapping
+        last_op_selected = cell_first_last_map[(tor, cell)]["last"]
+
         result.append({
             "physical_cell": cell,
             "first_ts": first_ts,
@@ -339,58 +323,56 @@ def _compute_tpt_by_cell(idx, last_op_map):
     return result
 
 
-def _compute_tpt_overall(idx, graph_by_tor):
+def _compute_tpt_overall(idx, tor_first_last_map):
     result = []
 
     scans_by_tor = idx["scans_by_tor"]
     scans_by_tor_op = idx["scans_by_tor_op"]
 
     for tor, tor_scans in scans_by_tor.items():
-        if not tor_scans:
+        if not tor_scans or tor not in tor_first_last_map:
             continue
 
-        g = graph_by_tor.get(tor) or {"ops": set(), "next": {}}
-        ops = set(g.get("ops") or [])
-        nxt = g.get("next") or {}
+        first_op = tor_first_last_map[tor]["first"]
+        last_op = tor_first_last_map[tor]["last"]
 
-        next_values = {v for v in nxt.values() if v}
-        first_ops = [op for op in ops if op and op not in next_values]
-        last_ops = [op for op in ops if not nxt.get(op)]
+        pis_in_tor = {r["pi_name"] for r in tor_scans}
 
-        if not first_ops or not last_ops:
-            continue
-
+        # Find PIs that reached LAST operation
         pis_that_reached = set()
-        for op in last_ops:
-            for r in scans_by_tor_op.get((tor, op), []):
+        for r in scans_by_tor_op.get((tor, last_op), []):
+            if r["pi_name"] in pis_in_tor:
                 pis_that_reached.add(r["pi_name"])
 
         if not pis_that_reached:
             continue
 
-        first_ts_candidates = []
-        for op in first_ops:
-            for r in scans_by_tor_op.get((tor, op), []):
-                if r["pi_name"] in pis_that_reached:
-                    first_ts_candidates.append(r["logged_time"])
-        first_ts = min(first_ts_candidates) if first_ts_candidates else None
+        # First timestamps (only for PIs that reached last op)
+        first_ts_candidates = [
+            r["logged_time"]
+            for r in scans_by_tor_op.get((tor, first_op), [])
+            if r["pi_name"] in pis_that_reached
+        ]
 
-        last_ts_candidates = []
-        for op in last_ops:
-            for r in scans_by_tor_op.get((tor, op), []):
-                if r["pi_name"] in pis_that_reached:
-                    last_ts_candidates.append(r["logged_time"])
-        last_ts = max(last_ts_candidates) if last_ts_candidates else None
+        # Last timestamps
+        last_ts_candidates = [
+            r["logged_time"]
+            for r in scans_by_tor_op.get((tor, last_op), [])
+            if r["pi_name"] in pis_that_reached
+        ]
 
-        if not (first_ts and last_ts):
+        if not first_ts_candidates or not last_ts_candidates:
             continue
 
+        first_ts = min(first_ts_candidates)
+        last_ts = max(last_ts_candidates)
         tpt_seconds = (last_ts - first_ts).total_seconds()
+
         result.append({
             "tracking_order": tor,
-            "first_op": first_ops[0],
+            "first_op": first_op,
             "first_ts": first_ts,
-            "last_op": last_ops[0],
+            "last_op": last_op,
             "last_ts": last_ts,
             "tpt_seconds": tpt_seconds,
             "tpt_hhmm": _fmt_hhmmss(tpt_seconds),
@@ -405,10 +387,6 @@ def _compute_tpt_overall(idx, graph_by_tor):
 # ======================================================================
 
 def _resolve_datetime_window(filters):
-    """
-    Returns (start_dt, end_dt) for isl.logged_time filtering.
-    Precedence: date_range > date > today
-    """
     if filters.get("date_range") and isinstance(filters["date_range"], (list, tuple)) and len(filters["date_range"]) == 2:
         d0 = getdate(filters["date_range"][0])
         d1 = getdate(filters["date_range"][1])
