@@ -76,7 +76,7 @@ def get_columns():
         {
             "label": _("Can Cut Qty"),
             "fieldname": "can_cut_qty",
-            "fieldtype": "Float",
+            "fieldtype": "Int",
             "width": 100
         },
         {
@@ -88,7 +88,7 @@ def get_columns():
         {
             "label": _("Difference"),
             "fieldname": "difference",
-            "fieldtype": "Float",
+            "fieldtype": "Int",
             "width": 100
         },
         {
@@ -139,10 +139,12 @@ def get_data(filters):
                 cc.actual_consumption,
                 cc.name AS can_cut_name,
 
-                CASE 
-                    WHEN cc.actual_consumption > 0 THEN (cc.fabric_issued / cc.actual_consumption)
-                    ELSE 0
-                END AS can_cut_qty,
+                ROUND(
+                    CASE 
+                        WHEN cc.actual_consumption > 0 THEN (cc.fabric_issued / cc.actual_consumption)
+                        ELSE 0
+                    END
+                ) AS can_cut_qty,
 
                 COALESCE((
                     SELECT SUM(cci.confirmed_quantity)
@@ -154,15 +156,17 @@ def get_data(filters):
                     AND cci.docstatus = 1
                 ), 0) AS cut_qty_actual,
 
-                (COALESCE((
-                    SELECT SUM(cci.confirmed_quantity)
-                    FROM `tabCut Confirmation Item` cci
-                    INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
-                    INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
-                    WHERE cci.sales_order = so.name
-                    AND cd.color = sod.custom_color
-                    AND cci.docstatus = 1
-                ), 0) - SUM(sod.custom_order_qty)) AS difference,
+                ROUND(
+                    COALESCE((
+                        SELECT SUM(cci.confirmed_quantity)
+                        FROM `tabCut Confirmation Item` cci
+                        INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
+                        INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
+                        WHERE cci.sales_order = so.name
+                        AND cd.color = sod.custom_color
+                        AND cci.docstatus = 1
+                    ), 0) - SUM(sod.custom_order_qty)
+                ) AS difference,
 
                 COALESCE(so.custom_consumption_status, 'Prepared') AS status,
 
