@@ -90,7 +90,7 @@ def get_summary_so_by_cell(filters):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed' 
+            #   AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
@@ -162,7 +162,7 @@ def get_summary_wo_by_cell(filters):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed' 
+            #   AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
@@ -231,7 +231,7 @@ def get_detail_so_by_cell(so_name):
             ON pcflo.parent = ckp.name
         WHERE tbc.sales_order = %(sales_order)s
           AND tbc.parentfield = 'component_bundle_configurations'
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, {"sales_order": so_name}, as_dict=True)
 
     cell_first_last = {
@@ -268,7 +268,7 @@ def get_detail_so_by_cell(so_name):
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.sales_order = %(sales_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed'
+            #   AND tbc.activation_status = 'Completed'
         """, {
             "operations": list(all_operations),
             "cells": cells,
@@ -380,7 +380,7 @@ def get_detail_wo_by_cell(wo_name):
             ON cko.parent = ckp.name
         WHERE tbc.work_order = %(work_order)s
           AND tbc.parentfield = 'component_bundle_configurations'
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, {"work_order": wo_name}, as_dict=True)
 
     cell_first_last = {
@@ -417,7 +417,7 @@ def get_detail_wo_by_cell(wo_name):
                 AND isl.physical_cell IN %(cells)s
             WHERE tbc.work_order = %(work_order)s
               AND tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed'
+            #   AND tbc.activation_status = 'Completed'
         """, {
             "operations": list(all_operations),
             "cells": cells,

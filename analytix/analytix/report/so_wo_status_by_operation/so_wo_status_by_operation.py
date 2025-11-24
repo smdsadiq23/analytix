@@ -75,7 +75,7 @@ def get_summary_so(filters):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed' 
+            #   AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
             GROUP BY tbc.sales_order
         ) sa ON sa.sales_order = so.name
@@ -149,7 +149,7 @@ def get_summary_wo(filters):
                 AND isl.log_status = 'Completed'
                 AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
-              AND tbc.activation_status = 'Completed' 
+            #   AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
             GROUP BY tbc.work_order
         ) sa ON sa.work_order = wo.name
@@ -209,7 +209,7 @@ def get_detail_so(so_name):
         INNER JOIN `tabOperation Map` opm ON opm.parent = ckpbd.parent
         WHERE tbc.sales_order = %s 
           AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
 
     next_to_prev = {}
@@ -283,7 +283,7 @@ def get_detail_so(so_name):
             AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
         WHERE tbc.sales_order = %s
           AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, (so_name,), as_dict=True)
     # =============================================
 
@@ -393,7 +393,7 @@ def get_detail_wo(wo_name):
         INNER JOIN `tabOperation Map` opm ON opm.parent = ckpbd.parent
         WHERE tbc.work_order = %s 
           AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
 
     next_to_prev = {}
@@ -466,7 +466,7 @@ def get_detail_wo(wo_name):
             AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
         WHERE tbc.work_order = %s
           AND tbc.parentfield = 'component_bundle_configurations' 
-          AND tbc.activation_status = 'Completed'
+        #   AND tbc.activation_status = 'Completed'
     """, (wo_name,), as_dict=True)
     # =============================================
 

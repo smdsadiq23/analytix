@@ -95,7 +95,7 @@ def _load_scans(start_dt, end_dt, sales_order, work_order, style):
               WHERE tbc_so.parent = tor.name
                 AND tbc_so.name = pi.bundle_configuration
                 AND tbc_so.parentfield = 'component_bundle_configurations'
-                AND tbc_so.activation_status = 'Completed'
+                # AND tbc_so.activation_status = 'Completed'
                 AND tbc_so.sales_order = %(sales_order)s
             )
         """)
@@ -110,7 +110,7 @@ def _load_scans(start_dt, end_dt, sales_order, work_order, style):
               WHERE tbc_wo.parent = tor.name
                 AND tbc_wo.name = pi.bundle_configuration
                 AND tbc_wo.parentfield = 'component_bundle_configurations'
-                AND tbc_wo.activation_status = 'Completed'
+                # AND tbc_wo.activation_status = 'Completed'
                 AND tbc_wo.work_order = %(work_order)s
             )
         """)
@@ -129,7 +129,7 @@ def _load_scans(start_dt, end_dt, sales_order, work_order, style):
             WHERE tbc_st.parent = tor.name
               AND tbc_st.name   = pi.bundle_configuration
               AND tbc_st.parentfield = 'component_bundle_configurations'
-              AND tbc_st.activation_status = 'Completed'
+            #   AND tbc_st.activation_status = 'Completed'
               AND it_wo.custom_style_master = %(style)s
           )
           OR
@@ -142,7 +142,7 @@ def _load_scans(start_dt, end_dt, sales_order, work_order, style):
             WHERE tbc_st2.parent = tor.name
               AND tbc_st2.name   = pi.bundle_configuration
               AND tbc_st2.parentfield = 'component_bundle_configurations'
-              AND tbc_st2.activation_status = 'Completed'
+            #   AND tbc_st2.activation_status = 'Completed'
               AND it_so.custom_style_master = %(style)s
           )
         )

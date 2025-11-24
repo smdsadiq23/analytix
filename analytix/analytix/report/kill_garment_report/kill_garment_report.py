@@ -71,7 +71,7 @@ def get_data(filters):
             isl.log_status = 'Completed' 
             AND isl.Status LIKE '%Reject%' 
             AND tbc.parentfield = 'component_bundle_configurations' 
-            AND tbc.activation_status = 'Completed'            
+            # AND tbc.activation_status = 'Completed' 
             AND isld.defect_description IS NOT NULL
     """
     

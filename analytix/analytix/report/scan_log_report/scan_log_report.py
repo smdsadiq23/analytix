@@ -53,7 +53,7 @@ def get_data(filters):
     conditions = [
         "isl.log_status = 'Completed'",
         "tbc.parentfield = 'component_bundle_configurations'",
-        "tbc.activation_status = 'Completed'",
+        # "tbc.activation_status = 'Completed'",
     ]
 
     # Date Range Filter
