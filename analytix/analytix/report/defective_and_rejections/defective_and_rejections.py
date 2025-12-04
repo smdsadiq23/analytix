@@ -28,7 +28,7 @@ def get_conditions(filters, params):
     params.update({"start_date": start, "end_date": end})
     
     if filters.get("physical_cell"):
-        conds.append("pi.physical_cell = %(physical_cell)s")
+        conds.append("isl.physical_cell = %(physical_cell)s")
         params["physical_cell"] = filters["physical_cell"]
         
     if filters.get("operation"):
@@ -63,7 +63,7 @@ def get_defective_data(filters):
     data = frappe.db.sql(f"""
         SELECT
             DATE(isl.creation) AS date,
-            pi.physical_cell,
+            isl.physical_cell,
             isl.operation,
             tbc.sales_order,
             tbc.work_order,
@@ -75,7 +75,7 @@ def get_defective_data(filters):
             ROUND(
                 COUNT(CASE 
                     WHEN isl.status IN ('QC Rework','QC Reject','SP Rework','SP Reject') 
-                    THEN 1 END) * 100.0 / COUNT(*), 2
+                    THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2
             ) AS defective_unit_percentage
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi ON pi.name = isl.production_item
@@ -96,7 +96,7 @@ def get_defective_data(filters):
             {style_condition}
         GROUP BY 
             DATE(isl.creation),
-            pi.physical_cell,
+            isl.physical_cell,
             isl.operation,
             tbc.sales_order,
             tbc.work_order,
@@ -119,7 +119,7 @@ def get_rejected_data(filters):
     data = frappe.db.sql(f"""
         SELECT
             DATE(isl.creation) AS date,
-            pi.physical_cell,
+            isl.physical_cell,
             isl.operation,
             tbc.sales_order,
             tbc.work_order,
@@ -131,7 +131,7 @@ def get_rejected_data(filters):
             ROUND(
                 COUNT(CASE 
                     WHEN isl.status IN ('QC Reject','SP Reject') 
-                    THEN 1 END) * 100.0 / COUNT(*), 2
+                    THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2
             ) AS rejected_unit_percentage
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi ON pi.name = isl.production_item
@@ -150,7 +150,7 @@ def get_rejected_data(filters):
             {style_condition}
         GROUP BY 
             DATE(isl.creation),
-            pi.physical_cell,
+            isl.physical_cell,
             isl.operation,
             tbc.sales_order,
             tbc.work_order,
