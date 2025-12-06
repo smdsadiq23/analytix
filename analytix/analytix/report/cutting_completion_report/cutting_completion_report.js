@@ -9,22 +9,51 @@ frappe.query_reports["Cutting Completion Report"] = {
         return Array.isArray(roles) && roles.includes(role);
     },
 
+    // Helper to compute status from quantities
+    getRowStatus(data) {
+        const cutQtyActual = Number(data.cut_qty_actual || 0);
+        const orderQty = Number(data.order_qty || 0);
+
+        if (orderQty > 0) {
+            const percent = (cutQtyActual / orderQty) * 100;
+            if (percent >= 98) {
+                return "Completed";
+            }
+        }
+        return "Inprogress";
+    },
+
     formatter(value, row, column, data, default_formatter) {
         const safeValueForDefault = (value == null || value === '') ? '' : String(value);
-        const html = default_formatter(safeValueForDefault, row, column, data, default_formatter);
+        let html = default_formatter(safeValueForDefault, row, column, data, default_formatter);
         if (!data) return html;
 
         const fieldname = (column.fieldname || "").toLowerCase();
         const isStatus = fieldname === "status";
         const isFolding = fieldname === "folding";
+        const isApproval = fieldname === "approval";
 
-        // Handle Folding (unchanged)
+        const rowStatus = this.getRowStatus(data);
+
+        // Helper to wrap a cell with background color based on status
+        const wrapWithStatusBg = (content) => {
+            let bg = "";
+            if (rowStatus === "Inprogress") {
+                bg = "#fff9c4"; // light yellow
+            } else if (rowStatus === "Completed") {
+                bg = "#c8e6c9"; // light green
+            }
+            if (!bg) return content;
+            return `<span class="cut-status-bg" style="display:block;background-color:${bg};">${content}</span>`;
+        };
+
+        // Folding (editable textarea)
         if (isFolding) {
             const docname = data.can_cut_name;
-            if (!docname) return html;
+            if (!docname) return wrapWithStatusBg(html);
 
             const safeValue = frappe.utils.escape_html(value || "");
-            return `
+            const customHtml = `
                 <textarea class="report-editable-field"
                         data-docname="${docname}"
                         data-doctype="Can Cut"
@@ -32,44 +61,60 @@ frappe.query_reports["Cutting Completion Report"] = {
                         rows="1"
                         style="width:100%; padding:4px; resize:vertical;">${safeValue}</textarea>
             `;
+            return wrapWithStatusBg(customHtml);
         }
 
-        // Handle Status Dropdown with workflow
+        // Status – read-only, derived from quantities
         if (isStatus) {
-            const docname = data.ocn;
-            const currentValue = value || "Prepared";
-            const isFactoryManager = this.hasRole("Factory Manager");
+            const statusText = rowStatus;
+            const statusHtml = `<span>${frappe.utils.escape_html(statusText)}</span>`;
+            return wrapWithStatusBg(statusHtml);
+        }
 
-            // Base status flow
-            const statusOrder = ["Prepared", "Verified", "Pending for Approval", "Approved"];
-            
-            // Filter out "Approved" if user is not Factory Manager
-            let allowedStatuses = isFactoryManager 
-                ? [...statusOrder] 
-                : statusOrder.filter(s => s !== "Approved");
+        // Approval column
+        if (isApproval) {
+            const docname = data.ocn;  // Sales Order
+            if (!docname) return wrapWithStatusBg(html);
 
-            if (data.is_first_row) {
-                const options = allowedStatuses.map(opt =>
-                    `<option value="${opt}" ${opt === currentValue ? "selected" : ""}>${opt}</option>`
-                ).join("");
+            const currentValue = value || data.approval || "";
+            const isApprover = this.hasRole("Cut Completion Approver");
 
-                return `
+            // Once Approved, always render as plain text (no dropdown) for everyone
+            if (currentValue === "Approved") {
+                const spanHtml = `<span data-ocn="${docname}">${frappe.utils.escape_html(currentValue)}</span>`;
+                return wrapWithStatusBg(spanHtml);
+            }
+
+            const canEdit =
+                data.is_first_row &&
+                isApprover &&
+                rowStatus === "Completed";
+
+            // If user can edit (approver + status Completed + first row) show dropdown
+            if (canEdit) {
+                const selectedApproved = currentValue === "Approved" ? "selected" : "";
+                const selectHtml = `
                     <div data-ocn="${docname}">
                         <select class="report-status-select"
                                 data-docname="${docname}"
                                 data-doctype="Sales Order"
-                                data-fieldname="custom_consumption_status"
+                                data-fieldname="custom_cut_approval_status"
                                 style="width:100%; padding:4px; border-radius:4px;">
-                            ${options}
+                            <option value=""></option>
+                            <option value="Approved" ${selectedApproved}>Approved</option>
                         </select>
                     </div>
                 `;
-            } else {
-                return `<span data-ocn="${docname}">${frappe.utils.escape_html(currentValue)}</span>`;
+                return wrapWithStatusBg(selectHtml);
             }
+
+            // Otherwise, show plain text (no editing)
+            const spanHtml = `<span data-ocn="${docname}">${frappe.utils.escape_html(currentValue || "")}</span>`;
+            return wrapWithStatusBg(spanHtml);
         }
 
-        return html;
+        // Default: just apply background to whatever default formatter returned
+        return wrapWithStatusBg(html);
     },
 
     onload(report) {
@@ -79,18 +124,9 @@ frappe.query_reports["Cutting Completion Report"] = {
                 { label: "KPI Hub", href: "/app/kpi-hub" },
                 { label: "Cutting Completion Report" }
             ]
-        });   
+        });
 
         const $wrap = report.page.wrapper;
-
-        // setTimeout(() => {
-        //     const columns = report.columns() || [];
-        //     columns.forEach(c => {
-        //         if (["status", "folding"].includes((c.fieldname || "").toLowerCase())) {
-        //             c.editable = 1;
-        //         }
-        //     });
-        // }, 500);
 
         const save = frappe.utils.debounce(function (e) {
             const $el = $(e.currentTarget);
@@ -103,139 +139,76 @@ frappe.query_reports["Cutting Completion Report"] = {
             // Prevent unnecessary save if no change
             if (newValue === oldValue) return;
 
-            // Handle Status Change
-            if (fieldname === "custom_consumption_status") {
-                const statusOrder = ["Prepared", "Verified", "Pending for Approval", "Approved"];
-                const oldIndex = statusOrder.indexOf(oldValue);
-                const newIndex = statusOrder.indexOf(newValue);
-
-                // Validate: must move forward by exactly 1 step (or stay same, but we already skip same)
-                if (newIndex === -1) {
-                    frappe.msgprint(__("Invalid status selected."));
+            // Approval field: only 2 validations
+            // 1. User has Cut Completion Approver role
+            // 2. Status is Completed (for that row / OCN)
+            if (fieldname === "custom_cut_approval_status") {
+                if (!this.hasRole("Cut Completion Approver")) {
+                    frappe.msgprint(__("You are not allowed to approve cutting completion."));
                     $el.val(oldValue);
                     return;
                 }
 
-                if (newIndex < oldIndex) {
-                    frappe.msgprint(__("Status cannot move backward."));
+                // Find the row for this OCN (first row preferred)
+                const allRows = report.data || [];
+                const row =
+                    allRows.find(r => r.ocn === docname && r.is_first_row) ||
+                    allRows.find(r => r.ocn === docname);
+
+                if (!row) {
+                    frappe.msgprint(__("Unable to find row data for this Sales Order."));
                     $el.val(oldValue);
                     return;
                 }
 
-                if (newIndex > oldIndex + 1) {
-                    frappe.msgprint(__("Status can only move to the next stage."));
+                const rowStatus = this.getRowStatus(row);
+                if (rowStatus !== "Completed") {
+                    frappe.msgprint(__("Approval is only allowed when Status is Completed."));
                     $el.val(oldValue);
                     return;
                 }
 
-                // Special: Only Factory Manager can approve
-                if (newValue === "Approved") {
-                    if (!this.hasRole("Factory Manager")) {
-                        frappe.msgprint(__("Only Factory Manager can set status to 'Approved'"));
-                        $el.val(oldValue);
-                        return;
-                    }
-
-                    // Validation: all required fields must be filled across all rows of this OCN
-                    const relatedRows = report.data.filter(row => row.ocn === docname);
-                    const requiredFields = [
-                        { key: "fabric_ordered", label: "Fabric Ordered" },
-                        { key: "fabric_issued", label: "Fabric Issued" },
-                        { key: "folding", label: "Folding" },
-                        { key: "end_bit", label: "End Bit" },
-                        { key: "file_consumption", label: "File Consumption" },
-                        { key: "actual_consumption", label: "Actual Consumption" }
-                    ];
-
-                    const missingFields = [];
-                    relatedRows.forEach(row => {
-                        requiredFields.forEach(field => {
-                            const val = row[field.key];
-                            if (val === null || val === undefined || String(val).trim() === "") {
-                                if (!missingFields.includes(field.label)) {
-                                    missingFields.push(field.label);
-                                }
-                            }
-                        });
-                    });
-
-                    if (missingFields.length > 0) {
-                        const message = `Cutting flow not completed. Cannot approve.<br><br>Missing: <b>${missingFields.join(", ")}</b>`;
-                        frappe.msgprint({
-                            title: __('Approval Blocked'),
-                            indicator: 'red',
-                            message: __(message)
-                        });
-                        $el.val(oldValue);
-                        return;
-                    }
-
-                    // Show confirmation
-                    frappe.confirm(
-                        __("Approve this Sales Order? This will finalize the cutting status."),
-                        () => {
-                            $el.css("opacity", 0.6);
-                            frappe.call({
-                                method: "cuttingx.cuttingx.api.approve_consumption_status.approve_consumption_status",
-                                args: { sales_order: docname },
-                                callback: (r) => {
-                                    if (!r.exc) {
-                                        frappe.show_alert({ message: __("Approved!"), indicator: "green" });
-                                        $el.data("old-value", "Approved");
-                                        report.refresh();
-                                    } else {
-                                        $el.val(oldValue);
-                                    }
-                                },
-                                always: () => $el.css("opacity", 1)
-                            });
-                        },
-                        () => $el.val(oldValue)
-                    );
-                    return;
-                }
-
-                // For non-Approved status changes: allow direct save
+                // Proceed to save without any other validation
                 $el.css("opacity", 0.6);
                 frappe.call({
                     method: "frappe.client.set_value",
-                    args: { doctype, name: docname, fieldname, value: newValue },
-                    callback(r) {
+                    args: {
+                        doctype,
+                        name: docname,
+                        fieldname,
+                        value: newValue
+                    },
+                    callback: (r) => {
                         if (!r.exc) {
-                            frappe.show_alert({ message: __("Status updated"), indicator: "green" });
+                            frappe.show_alert({
+                                message: __("Approval updated"),
+                                indicator: "green"
+                            });
                             $el.data("old-value", newValue);
 
-                            // ✅ UPDATE THE DOM DIRECTLY TO REFLECT NEW STATUS
-                            // Find all cells in this OCN with status column and update their display
-                            const ocnRows = report.page.wrapper.find(`[data-ocn="${docname}"]`);
-                            ocnRows.each(function() {
-                                const $row = $(this);
-                                const $statusCell = $row.find('.report-status-select').closest('td');
-                                if ($statusCell.length) {
-                                    // Update the <select> value and selected option
-                                    $statusCell.find('select').val(newValue).trigger('change');
-
-                                    // Also update the fallback span if any (for non-first rows)
-                                    $statusCell.find('span').text(newValue);
+                            // Update report.data so UI stays in sync
+                            (report.data || []).forEach(rw => {
+                                if (rw.ocn === docname) {
+                                    rw.approval = newValue;
                                 }
                             });
 
-                            // Optional: also update report.data for future reference
-                            report.data.forEach(row => {
-                                if (row.ocn === docname) {
-                                    row.status = newValue;
-                                }
-                            });
-
+                            // If approved, immediately turn dropdown into plain text
+                            if (newValue === "Approved") {
+                                const $cell = $el.closest("td");
+                                $cell.html(
+                                    `<span data-ocn="${docname}">${frappe.utils.escape_html(newValue)}</span>`
+                                );
+                            }
                         } else {
-                            frappe.msgprint(__("Failed to update status"));
                             $el.val(oldValue);
                         }
                     },
-                    always() {
+                    always: () => {
                         $el.css("opacity", 1);
                     }
                 });
+
                 return;
             }
 

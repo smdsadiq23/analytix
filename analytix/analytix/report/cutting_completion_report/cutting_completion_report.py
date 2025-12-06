@@ -10,6 +10,7 @@ def execute(filters=None):
     data = get_data(filters)
     return columns, data
 
+
 def get_columns():
     return [
         {
@@ -98,6 +99,12 @@ def get_columns():
             "width": 120
         },
         {
+            "label": _("Approval"),
+            "fieldname": "approval",
+            "fieldtype": "Data",
+            "width": 120
+        },
+        {
             "label": _("Approved By"),
             "fieldname": "custom_approved_by",
             "fieldtype": "Link",
@@ -109,8 +116,9 @@ def get_columns():
             "fieldname": "custom_approved_on",
             "fieldtype": "Datetime",
             "width": 160
-        }        
+        }
     ]
+
 
 def get_data(filters):
     conditions = ""
@@ -120,8 +128,14 @@ def get_data(filters):
         conditions += " AND so.delivery_date <= %(to_date)s"
 
     query = """
-        SELECT 
-            *,
+        SELECT
+            sub_query.*,
+            CASE
+                WHEN sub_query.order_qty > 0
+                     AND (sub_query.cut_qty_actual / sub_query.order_qty) * 100 >= 98
+                    THEN 'Completed'
+                ELSE 'Inprogress'
+            END AS status,
             CASE WHEN rn = 1 THEN 1 ELSE 0 END AS is_first_row
         FROM (
             SELECT
@@ -168,10 +182,9 @@ def get_data(filters):
                     ), 0) - SUM(sod.custom_order_qty)
                 ) AS difference,
 
-                COALESCE(so.custom_consumption_status, 'Prepared') AS status,
-
+                so.custom_consumption_status AS approval,
                 so.custom_approved_by,
-                so.custom_approved_on,                
+                so.custom_approved_on,
 
                 ROW_NUMBER() OVER (PARTITION BY so.name ORDER BY sod.custom_color) AS rn
 
