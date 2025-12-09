@@ -31,6 +31,7 @@ def get_columns():
         {"label": _("Cutting Month"), "fieldname": "cutting_month", "fieldtype": "Data", "width": 120},
         {"label": _("Fit Order Qty Deviation Value"), "fieldname": "fit_deviation_value", "fieldtype": "Currency", "width": 150},
         {"label": _("Deviation Under"), "fieldname": "deviation_under", "fieldtype": "Select", "options": "Fabric\nCutting\nPrinting", "width": 120},
+        {"label": _("Packed Qty"), "fieldname": "packet_qty", "fieldtype": "Float", "width": 100},
         {"label": _("Shipped Qty"), "fieldname": "shipped_qty", "fieldtype": "Float", "width": 100},
         {"label": _("Shipped Date"), "fieldname": "shipped_date", "fieldtype": "Date", "width": 120},
         {"label": _("Shipment Status"), "fieldname": "shipment_status", "fieldtype": "Data", "width": 120},
@@ -46,7 +47,7 @@ def get_columns():
 def get_data(filters):
     order_data = get_order_summary()
     cut_data = get_cut_summary_with_date()
-    ship_data = get_ship_summary_with_factory_ocr()
+    pack_ship_data = get_pack_ship_summary_with_factory_ocr()
     deviation_data = get_deviation_summary()
     manual_data = get_manual_style_data()
 
@@ -59,13 +60,14 @@ def get_data(filters):
         for d in cut_data
     }
 
-    ship_map = {
+    pack_ship_map = {
         (str(d.get("ocn") or ""), str(d.get("style") or "")): {
+            "packed_qty": flt(d["packed_qty"]),
             "shipped_qty": flt(d["shipped_qty"]),
             "shipped_date": d.get("shipped_date"),
             "shipment_status": "Approved" if d.get("docstatus") == 1 else ""
         }
-        for d in ship_data
+        for d in pack_ship_data
     }
 
     deviation_map = {
@@ -101,7 +103,8 @@ def get_data(filters):
         ocn = str(row.get("ocn") or "")
 
         cut_info = cut_map.get((item_code, ocn), {"cut_qty": 0.0, "cutting_month": ""})
-        ship_info = ship_map.get((ocn, item_code), {
+        pack_ship_info = pack_ship_map.get((ocn, item_code), {
+            "packed_qty": 0.0,
             "shipped_qty": 0.0,
             "shipped_date": None,
             "shipment_status": ""
@@ -110,7 +113,8 @@ def get_data(filters):
         manual_info = manual_map.get((ocn, style_ref), {})
 
         cut_qty = cut_info["cut_qty"]
-        shipped_qty = ship_info["shipped_qty"]
+        packed_qty = pack_ship_info["packed_qty"]
+        shipped_qty = pack_ship_info["shipped_qty"]
         deviation_under = dev_info.get("deviation_under", "")
         fit_deviation_value = dev_info.get("fit_deviation_value", "")
 
@@ -139,8 +143,9 @@ def get_data(filters):
             "cutting_month": cut_info["cutting_month"],
             "fit_deviation_value": fit_deviation_value or "",
             "deviation_under": deviation_under,
+            "packed_qty": packed_qty,
             "shipped_qty": shipped_qty,
-            "shipped_date": manual_info.get("shipped_date") or ship_info["shipped_date"],
+            "shipped_date": manual_info.get("shipped_date") or pack_ship_info["shipped_date"],
             "shipment_status": manual_info.get("shipment_status") or "",
             "cut_to_ship_percent": flt(cut_to_ship_percent, 2),
             "order_to_ship_percent": flt(order_to_ship_percent, 2),
@@ -201,11 +206,12 @@ def get_cut_summary_with_date():
         GROUP BY cd.style, cci.sales_order
     """, as_dict=1)
 
-def get_ship_summary_with_factory_ocr():
+def get_pack_ship_summary_with_factory_ocr():
     return frappe.db.sql("""
         SELECT
             foc.ocn,
             foci.style,
+            SUM(foci.pack_quantity) AS packed_qty,
             SUM(foci.ship_quantity) AS shipped_qty,
             MAX(foc.creation) AS shipped_date,
             foc.docstatus
