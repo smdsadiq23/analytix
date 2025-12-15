@@ -195,10 +195,11 @@ def get_data(filters):
                 ON cc.sales_order = so.name 
                 AND cc.colour = sod.custom_color
 
-            LEFT JOIN `tabCutting Lay Record` clr
+            LEFT JOIN (SELECT ocn, colour, SUM(end_bit_quantity) AS end_bit_quantity 
+                        FROM `tabCutting Lay Record` 
+                        WHERE docstatus = 1 GROUP BY ocn, colour) clr
                 ON clr.ocn = so.name
                 AND clr.colour = sod.custom_color
-                AND clr.docstatus = 1
 
             WHERE so.docstatus = 1
             {conditions}
