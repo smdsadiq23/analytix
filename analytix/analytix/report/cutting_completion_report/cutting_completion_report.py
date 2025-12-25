@@ -207,7 +207,7 @@ def get_data(filters):
             GROUP BY so.name, sod.custom_color, item.custom_style_master, cc.name
             ORDER BY so.delivery_date, so.name, sod.custom_color
         ) sub_query
-        ORDER BY delivery_date, ocn, rn
+        ORDER BY status, delivery_date, ocn, rn
     """.format(conditions=conditions)
 
     data = frappe.db.sql(query, filters, as_dict=1)
