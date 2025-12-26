@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2025-10-06 21:20:43.227250",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-10-06 22:00:03.326469",
+ "modified": "2025-12-26 13:13:05.021005",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Cutting Completion Report",
