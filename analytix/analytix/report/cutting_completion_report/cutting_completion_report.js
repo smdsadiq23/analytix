@@ -23,15 +23,69 @@ frappe.query_reports["Cutting Completion Report"] = {
         return "Inprogress";
     },
 
+    // Ensure total row shows even if "Add Total Row" isn't applied in DB yet
+    get_datatable_options(options) {
+        options.showTotalRow = true;
+        return options;
+    },
+
     formatter(value, row, column, data, default_formatter) {
-        const safeValueForDefault = (value == null || value === '') ? '' : String(value);
+        const safeValueForDefault = (value == null || value === "") ? "" : String(value);
         let html = default_formatter(safeValueForDefault, row, column, data, default_formatter);
-        if (!data) return html;
 
         const fieldname = (column.fieldname || "").toLowerCase();
+
+        // Version-safe number formatting (no frappe.format_number dependency)
+        const fmt = (n, p = 2) => {
+            const num = Number(n || 0);
+            if (!isFinite(num)) return "";
+            return num.toFixed(p);
+        };
+
+        // ✅ TOTAL ROW handling (must run before touching `data`)
+        // In many Frappe versions, total row comes with row = null and data = null
+        const isTotalRow = !row && !data;
+        if (isTotalRow) {
+            const rows = (frappe.query_report?.data || []).filter(r => r && typeof r === "object");
+
+            const avgOf = (fname) => {
+                const nums = rows
+                    .map(r => Number(r?.[fname]))
+                    .filter(v => !isNaN(v));
+                return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+            };
+
+            // Overall Cut Completion % at totals row = SUM(cut_qty_actual)/SUM(order_qty)*100
+            const overallCutPct = () => {
+                const sumCut = rows.reduce((s, r) => s + (Number(r?.cut_qty_actual) || 0), 0);
+                const sumOrder = rows.reduce((s, r) => s + (Number(r?.order_qty) || 0), 0);
+                return sumOrder ? (sumCut / sumOrder) * 100 : 0;
+            };
+
+            if (fieldname === "ocn") {
+                return `<b>${__("Totals / Avg")}</b>`;
+            }
+            if (fieldname === "file_consumption") {
+                return `<b>${fmt(avgOf("file_consumption"), 2)}</b>`;
+            }
+            if (fieldname === "actual_consumption") {
+                return `<b>${fmt(avgOf("actual_consumption"), 2)}</b>`;
+            }
+            if (fieldname === "cut_completion_pct") {
+                return `<b>${fmt(overallCutPct(), 2)}%</b>`;
+            }
+
+            // Default: keep frappe's computed total value (usually SUM) for other columns
+            return `<b>${html}</b>`;
+        }
+
+        // ✅ For non-data rows, keep default
+        if (!data) return html;
+
         const isStatus = fieldname === "status";
         const isFolding = fieldname === "folding";
         const isApproval = fieldname === "approval";
+        const isCutPct = fieldname === "cut_completion_pct";
 
         const rowStatus = this.getRowStatus(data);
 
@@ -46,6 +100,13 @@ frappe.query_reports["Cutting Completion Report"] = {
             if (!bg) return content;
             return `<span class="cut-status-bg" style="display:block;background-color:${bg};">${content}</span>`;
         };
+
+        // Cut Completion % (normal rows)
+        if (isCutPct) {
+            const pct = Number(data.cut_completion_pct || 0);
+            const pctHtml = `<span>${fmt(pct, 2)}%</span>`;
+            return wrapWithStatusBg(pctHtml);
+        }
 
         // Folding (editable textarea)
         if (isFolding) {

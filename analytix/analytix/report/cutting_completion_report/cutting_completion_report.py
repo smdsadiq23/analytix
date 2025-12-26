@@ -66,13 +66,15 @@ def get_columns():
             "label": _("File Consumption"),
             "fieldname": "file_consumption",
             "fieldtype": "Float",
-            "width": 140
+            "width": 140,
+            "total": "avg"
         },
         {
             "label": _("Actual Consumption"),
             "fieldname": "actual_consumption",
             "fieldtype": "Float",
-            "width": 160
+            "width": 160,
+            "total": "avg"
         },
         {
             "label": _("Can Cut Qty"),
@@ -92,6 +94,12 @@ def get_columns():
             "fieldtype": "Int",
             "width": 100
         },
+        {
+            "label": _("Cut Completion %"),
+            "fieldname": "cut_completion_pct",
+            "fieldtype": "Percent",
+            "width": 150
+        },        
         {
             "label": _("Status"),
             "fieldname": "status",
@@ -130,6 +138,11 @@ def get_data(filters):
     query = """
         SELECT
             sub_query.*,
+            CASE
+                WHEN sub_query.order_qty > 0
+                    THEN (sub_query.cut_qty_actual / sub_query.order_qty) * 100                     
+                ELSE 0
+            END AS cut_completion_pct, 
             CASE
                 WHEN sub_query.order_qty > 0
                      AND (sub_query.cut_qty_actual / sub_query.order_qty) * 100 >= 98
