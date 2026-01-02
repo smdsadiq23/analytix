@@ -153,6 +153,20 @@
   "sort_order": 4,
   "title": "OSR"
  },
+{
+  "dashboard": null,
+  "description": "Factory OCR List",
+  "docstatus": 0,
+  "doctype": "Analytix Dashboard",
+  "icon": null,
+  "is_enabled": 1,
+  "kpi_group": "Reports",
+  "modified": "2026-01-02 10:14:30.634729",
+  "name": "ljvhb6ahcr",
+  "route_override": "/app/query-report/Factory%20OCR%20List",
+  "sort_order": 5,
+  "title": "Factory OCR List"
+ },
  {
   "dashboard": null,
   "description": "Cutting Completion Report",
