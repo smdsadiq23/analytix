@@ -53,15 +53,33 @@ def get_columns():
         {
             "label": _("Folding"),
             "fieldname": "folding",
-            "fieldtype": "Small Text",
+            "fieldtype": "Data",
             "width": 120
         },
         {
-            "label": _("End Bit"),
-            "fieldname": "end_bit",
-            "fieldtype": "Small Text",
+            "label": _("Calculated End Bit"),
+            "fieldname": "calculated_end_bit",
+            "fieldtype": "Float",
             "width": 120
         },
+        {
+            "label": _("Actual End Bit"),
+            "fieldname": "actual_end_bit",
+            "fieldtype": "Float",
+            "width": 120
+        },
+        {
+            "label": _("Chindi Weight"),
+            "fieldname": "chindi_weight",
+            "fieldtype": "Float",
+            "width": 120
+        },        
+        {
+            "label": _("Balance as per Lay Record"),
+            "fieldname": "balance_as_per_lay_record",
+            "fieldtype": "Float",
+            "width": 180
+        },        
         {
             "label": _("File Consumption"),
             "fieldname": "file_consumption",
@@ -85,7 +103,7 @@ def get_columns():
         {
             "label": _("Cut Qty Actual"),
             "fieldname": "cut_qty_actual",
-            "fieldtype": "Float",
+            "fieldtype": "Int",
             "width": 120
         },
         {
@@ -99,7 +117,19 @@ def get_columns():
             "fieldname": "cut_completion_pct",
             "fieldtype": "Percent",
             "width": 150
-        },        
+        },
+        {
+            "label": _("Profit loss Fabric"),
+            "fieldname": "pl_fabric",
+            "fieldtype": "Percent",
+            "width": 150
+        },            
+        {
+            "label": _("Profit loss Merchant"),
+            "fieldname": "pl_merchant",
+            "fieldtype": "Percent",
+            "width": 150
+        },
         {
             "label": _("Status"),
             "fieldname": "status",
@@ -112,6 +142,12 @@ def get_columns():
             "fieldtype": "Data",
             "width": 120
         },
+        {
+            "label": _("With Replenishment"),
+            "fieldname": "with_replenishment",
+            "fieldtype": "Check",
+            "hidden": 1  # Hide from report
+        },        
         {
             "label": _("Approved By"),
             "fieldname": "custom_approved_by",
@@ -139,15 +175,14 @@ def get_data(filters):
         SELECT
             sub_query.*,
             CASE
-                WHEN sub_query.order_qty > 0
-                    THEN (sub_query.cut_qty_actual / sub_query.order_qty) * 100                     
-                ELSE 0
-            END AS cut_completion_pct, 
-            CASE
-                WHEN sub_query.order_qty > 0
-                     AND (sub_query.cut_qty_actual / sub_query.order_qty) * 100 >= 98
-                    THEN 'Completed'
-                ELSE 'Inprogress'
+                WHEN sub_query.consumption_status IS NOT NULL AND sub_query.consumption_status != ''
+                    THEN sub_query.consumption_status
+                WHEN sub_query.cut_qty_actual = 0 OR sub_query.order_qty = 0
+                    THEN 'Yet to Start'
+                WHEN (sub_query.cut_qty_actual / sub_query.order_qty) * 100 < 98
+                    THEN 'Inprogress'
+                ELSE
+                    'Completed'
             END AS status,
             CASE WHEN rn = 1 THEN 1 ELSE 0 END AS is_first_row
         FROM (
@@ -155,16 +190,20 @@ def get_data(filters):
                 so.name AS ocn,
                 item.custom_style_master AS style,
                 sod.custom_color AS colour,
-                SUM(sod.custom_order_qty) AS order_qty,  -- Aggregated
+                SUM(sod.custom_order_qty) AS order_qty,
                 so.delivery_date,
 
                 cc.fabric_ordered,
                 cc.fabric_issued,
                 cc.folding,
-                clr.end_bit_quantity AS end_bit,
+                clr.end_bit_quantity AS calculated_end_bit,
+                clr.actual_end_bit_quanity AS actual_end_bit,
                 cc.file_consumption,
                 cc.actual_consumption,
                 cc.name AS can_cut_name,
+                cc.with_replenishment,
+                CASE WHEN deviation_under = 'Fabric' THEN cc.profit_loss_value END AS pl_fabric,
+                CASE WHEN deviation_under = 'Merchant' THEN cc.profit_loss_value END AS pl_merchant,
 
                 ROUND(
                     CASE 
@@ -195,9 +234,30 @@ def get_data(filters):
                     ), 0) - SUM(sod.custom_order_qty)
                 ) AS difference,
 
-                so.custom_consumption_status AS approval,
+                so.custom_consumption_status AS consumption_status,
+                so.custom_approval AS approval,
                 so.custom_approved_by,
                 so.custom_approved_on,
+
+                COALESCE((
+                    SELECT SUM(gr_item.received_quantity)
+                    FROM `tabGoods Receipt Note` grn
+                    INNER JOIN `tabGoods Receipt Item` gr_item ON gr_item.parent = grn.name
+                    WHERE grn.docstatus = 1
+                    AND grn.ocn = so.name                -- ✅ ocn in Goods Receipt = Sales Order
+                    AND gr_item.color = sod.custom_color
+                ), 0)
+                -
+                -- ✅ Sum actual_total from Lay Roll Details
+                COALESCE((
+                    SELECT SUM(lrd.actual_total)
+                    FROM `tabCutting Lay Record` clr2
+                    INNER JOIN `tabLay Roll Details` lrd ON lrd.parent = clr2.name
+                    WHERE clr2.ocn = so.name
+                    AND clr2.colour = sod.custom_color
+                    AND clr2.docstatus = 1
+                ), 0)
+                AS balance_as_per_lay_record,
 
                 ROW_NUMBER() OVER (PARTITION BY so.name ORDER BY sod.custom_color) AS rn
 
@@ -208,11 +268,17 @@ def get_data(filters):
                 ON cc.sales_order = so.name 
                 AND cc.colour = sod.custom_color
 
-            LEFT JOIN (SELECT ocn, colour, SUM(end_bit_quantity) AS end_bit_quantity 
-                        FROM `tabCutting Lay Record` 
-                        WHERE docstatus = 1 GROUP BY ocn, colour) clr
-                ON clr.ocn = so.name
-                AND clr.colour = sod.custom_color
+            LEFT JOIN (
+                SELECT 
+                    ocn, 
+                    colour, 
+                    SUM(end_bit_quantity) AS end_bit_quantity, 
+                    SUM(actual_end_bit_quanity) AS actual_end_bit_quanity,
+                    SUM(chindi_weight) AS chindi_weight
+                FROM `tabCutting Lay Record` 
+                WHERE docstatus = 1 
+                GROUP BY ocn, colour
+            ) clr ON clr.ocn = so.name AND clr.colour = sod.custom_color
 
             WHERE so.docstatus = 1
             {conditions}
