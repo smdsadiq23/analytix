@@ -28,7 +28,6 @@ def get_columns():
         {"label": _("Actual End Bit"), "fieldname": "actual_end_bit", "fieldtype": "Float", "width": 120},
         {"label": _("Chindi Weight"), "fieldname": "chindi_weight", "fieldtype": "Float", "width": 120},
 
-        {"label": _("GRN Received Qty"), "fieldname": "grn_received_qty", "fieldtype": "Float", "width": 180},
         {"label": _("Balance as per Lay Record"), "fieldname": "balance_as_per_lay_record", "fieldtype": "Float", "width": 180},
 
         {"label": _("File Consumption"), "fieldname": "file_consumption", "fieldtype": "Float", "width": 140, "total": "avg"},
@@ -299,7 +298,7 @@ def _apply_python_derivations(row, grn_map, lay_map):
     colour = row.get("colour")
     received_qty = float(grn_map.get((ocn, colour), 0) or 0)
     lay_actual_total = float(lay_map.get((ocn, colour), 0) or 0)
-    row["grn_received_qty"] = received_qty
+    frappe.log(f"DEBUG - OCN: {ocn}, Colour: {colour}, Received Qty: {received_qty}")
     row["balance_as_per_lay_record"] = received_qty - lay_actual_total
 
     # cut completion %
