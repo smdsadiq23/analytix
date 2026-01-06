@@ -76,7 +76,7 @@ frappe.query_reports["Cutting Completion Report"] = {
             const canEditStatus = isVerifier && docname && currentApproval !== "Approved";
 
             if (canEditStatus) {
-                const options = ["Inprogress", "Completed", "Verified"].map(opt => {
+                const options = ["Yet to Start", "Inprogress", "Completed", "Verified"].map(opt => {
                     const selected = opt === currentValue ? "selected" : "";
                     return `<option value="${opt}" ${selected}>${opt}</option>`;
                 }).join("");
