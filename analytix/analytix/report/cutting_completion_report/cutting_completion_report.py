@@ -17,7 +17,7 @@ def get_columns():
         {"label": _("OCN"), "fieldname": "ocn", "fieldtype": "Link", "options": "Sales Order", "width": 120},
         {"label": _("Style"), "fieldname": "style", "fieldtype": "Data", "width": 120},
         {"label": _("Colour"), "fieldname": "colour", "fieldtype": "Data", "width": 120},
-        {"label": _("Cut Docket"), "fieldname": "cut_docket", "fieldtype": "Link", "options": "Cut Docket", "width": 140},
+        # {"label": _("Cut Docket"), "fieldname": "cut_docket", "fieldtype": "Link", "options": "Cut Docket", "width": 140},
 
         {"label": _("Order Qty"), "fieldname": "order_qty", "fieldtype": "Int", "width": 100},
         {"label": _("Fabric Ordered"), "fieldname": "fabric_ordered", "fieldtype": "Float", "width": 120},
@@ -241,6 +241,11 @@ def get_data(filters):
         row["cut_qty_actual"] = 0
         row = _apply_python_derivations(row, grn_map, lay_map)
         final.append(row)
+
+    # -------------------------
+    # Filter out "Yet to Start" cases
+    # -------------------------
+    final = [row for row in final if row.get("status") != "Yet to Start"]
 
     # -------------------------
     # rn + is_first_row (partition by ocn)
