@@ -121,13 +121,13 @@ def get_columns():
         {
             "label": _("Profit loss Fabric"),
             "fieldname": "pl_fabric",
-            "fieldtype": "Percent",
+            "fieldtype": "Currency",
             "width": 150
         },            
         {
             "label": _("Profit loss Merchant"),
             "fieldname": "pl_merchant",
-            "fieldtype": "Percent",
+            "fieldtype": "Currency",
             "width": 150
         },
         {
@@ -172,20 +172,8 @@ def get_data(filters):
         conditions += " AND so.delivery_date <= %(to_date)s"
 
     query = """
-        SELECT
-            sub_query.*,
-            CASE
-                WHEN sub_query.consumption_status IS NOT NULL AND sub_query.consumption_status != ''
-                    THEN sub_query.consumption_status
-                WHEN sub_query.cut_qty_actual = 0 OR sub_query.order_qty = 0
-                    THEN 'Yet to Start'
-                WHEN (sub_query.cut_qty_actual / sub_query.order_qty) * 100 < 98
-                    THEN 'Inprogress'
-                ELSE
-                    'Completed'
-            END AS status,
-            CASE WHEN rn = 1 THEN 1 ELSE 0 END AS is_first_row
-        FROM (
+        WITH
+        order_base AS (
             SELECT
                 so.name AS ocn,
                 item.custom_style_master AS style,
@@ -202,92 +190,129 @@ def get_data(filters):
                 cc.actual_consumption,
                 cc.name AS can_cut_name,
                 cc.with_replenishment,
-                CASE WHEN deviation_under = 'Fabric' THEN cc.profit_loss_value END AS pl_fabric,
-                CASE WHEN deviation_under = 'Merchant' THEN cc.profit_loss_value END AS pl_merchant,
+                COALESCE(CASE WHEN deviation_under = 'Fabric' THEN cc.profit_loss_value END, 0) AS pl_fabric,
+                COALESCE(CASE WHEN deviation_under = 'Merchant' THEN cc.profit_loss_value END, 0) AS pl_merchant,
 
                 ROUND(
-                    CASE 
+                    CASE
                         WHEN cc.actual_consumption > 0 THEN (cc.fabric_issued / cc.actual_consumption)
                         ELSE 0
                     END
                 ) AS can_cut_qty,
 
-                COALESCE((
-                    SELECT SUM(cci.confirmed_quantity)
-                    FROM `tabCut Confirmation Item` cci
-                    INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
-                    INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
-                    WHERE cci.sales_order = so.name
-                    AND cd.color = sod.custom_color
-                    AND cci.docstatus = 1
-                ), 0) AS cut_qty_actual,
-
-                ROUND(
-                    COALESCE((
-                        SELECT SUM(cci.confirmed_quantity)
-                        FROM `tabCut Confirmation Item` cci
-                        INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
-                        INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
-                        WHERE cci.sales_order = so.name
-                        AND cd.color = sod.custom_color
-                        AND cci.docstatus = 1
-                    ), 0) - SUM(sod.custom_order_qty)
-                ) AS difference,
-
                 so.custom_consumption_status AS consumption_status,
                 so.custom_approval AS approval,
                 so.custom_approved_by,
-                so.custom_approved_on,
-
-                COALESCE((
-                    SELECT SUM(gr_item.received_quantity)
-                    FROM `tabGoods Receipt Note` grn
-                    INNER JOIN `tabGoods Receipt Item` gr_item ON gr_item.parent = grn.name
-                    WHERE grn.docstatus = 1
-                    AND grn.ocn = so.name                -- ✅ ocn in Goods Receipt = Sales Order
-                    AND gr_item.color = sod.custom_color
-                ), 0)
-                -
-                -- ✅ Sum actual_total from Lay Roll Details
-                COALESCE((
-                    SELECT SUM(lrd.actual_total)
-                    FROM `tabCutting Lay Record` clr2
-                    INNER JOIN `tabLay Roll Details` lrd ON lrd.parent = clr2.name
-                    WHERE clr2.ocn = so.name
-                    AND clr2.colour = sod.custom_color
-                    AND clr2.docstatus = 1
-                ), 0)
-                AS balance_as_per_lay_record,
-
-                ROW_NUMBER() OVER (PARTITION BY so.name ORDER BY sod.custom_color) AS rn
+                so.custom_approved_on
 
             FROM `tabSales Order` so
             INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
             INNER JOIN `tabItem` item ON item.name = sod.item_code
-            LEFT JOIN `tabCan Cut` cc 
-                ON cc.sales_order = so.name 
+
+            LEFT JOIN `tabCan Cut` cc
+                ON cc.sales_order = so.name
                 AND cc.colour = sod.custom_color
 
             LEFT JOIN (
-                SELECT 
-                    ocn, 
-                    colour, 
-                    SUM(end_bit_quantity) AS end_bit_quantity, 
+                SELECT
+                    ocn,
+                    colour,
+                    SUM(end_bit_quantity) AS end_bit_quantity,
                     SUM(actual_end_bit_quanity) AS actual_end_bit_quanity,
                     SUM(chindi_weight) AS chindi_weight
-                FROM `tabCutting Lay Record` 
-                WHERE docstatus = 1 
+                FROM `tabCutting Lay Record`
+                WHERE docstatus = 1
                 GROUP BY ocn, colour
             ) clr ON clr.ocn = so.name AND clr.colour = sod.custom_color
 
             WHERE so.docstatus = 1
             {conditions}
 
-            GROUP BY so.name, sod.custom_color, item.custom_style_master, cc.name
-            ORDER BY so.delivery_date, so.name, sod.custom_color
-        ) sub_query
+            GROUP BY so.name, item.custom_style_master, sod.custom_color
+        ),
+
+        cut_by_docket AS (
+            SELECT
+                cci.sales_order AS ocn,
+                cd.color AS colour,
+                cd.name AS cut_docket,
+                SUM(cci.confirmed_quantity) AS cut_qty_actual
+            FROM `tabCut Confirmation Item` cci
+            INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
+            INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
+            WHERE cci.docstatus = 1
+            AND con.docstatus = 1
+            GROUP BY cci.sales_order, cd.color, cd.name
+        ),
+
+        grn_by_colour AS (
+            SELECT
+                grn.ocn AS ocn,
+                gri.color AS colour,
+                SUM(gri.received_quantity) AS received_qty
+            FROM `tabGoods Receipt Note` grn
+            INNER JOIN `tabGoods Receipt Item` gri ON gri.parent = grn.name
+            WHERE grn.docstatus = 1
+            GROUP BY grn.ocn, gri.color
+        ),
+
+        lay_actual_by_colour AS (
+            SELECT
+                clr2.ocn AS ocn,
+                clr2.colour AS colour,
+                SUM(lrd.actual_total) AS lay_actual_total
+            FROM `tabCutting Lay Record` clr2
+            INNER JOIN `tabLay Roll Details` lrd ON lrd.parent = clr2.name
+            WHERE clr2.docstatus = 1
+            GROUP BY clr2.ocn, clr2.colour
+        )
+
+        SELECT
+            final_q.*,
+            CASE
+                WHEN final_q.consumption_status IS NOT NULL AND final_q.consumption_status != ''
+                    THEN final_q.consumption_status
+                WHEN final_q.cut_qty_actual = 0 OR final_q.order_qty = 0
+                    THEN 'Yet to Start'
+                WHEN (final_q.cut_qty_actual / final_q.order_qty) * 100 < 98
+                    THEN 'Inprogress'
+                ELSE 'Completed'
+            END AS status,
+            CASE WHEN final_q.rn = 1 THEN 1 ELSE 0 END AS is_first_row
+        FROM (
+            SELECT
+                ob.*,
+
+                cbd.cut_docket,
+                COALESCE(cbd.cut_qty_actual, 0) AS cut_qty_actual,
+                ROUND(COALESCE(cbd.cut_qty_actual, 0) - ob.order_qty) AS difference,
+
+                (COALESCE(grn.received_qty, 0) - COALESCE(lay.lay_actual_total, 0)) AS balance_as_per_lay_record,
+
+                ROW_NUMBER() OVER (
+                    PARTITION BY ob.ocn
+                    ORDER BY ob.colour, cbd.cut_docket
+                ) AS rn
+
+            FROM order_base ob
+
+            -- ✅ This is the key join that creates one row per Cut Docket
+            LEFT JOIN cut_by_docket cbd
+                ON cbd.ocn = ob.ocn
+                AND cbd.colour = ob.colour
+
+            LEFT JOIN grn_by_colour grn
+                ON grn.ocn = ob.ocn
+                AND grn.colour = ob.colour
+
+            LEFT JOIN lay_actual_by_colour lay
+                ON lay.ocn = ob.ocn
+                AND lay.colour = ob.colour
+
+        ) final_q
         ORDER BY status, delivery_date, ocn, rn
     """.format(conditions=conditions)
+
 
     data = frappe.db.sql(query, filters, as_dict=1)
     return data
