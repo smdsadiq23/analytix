@@ -302,8 +302,9 @@ def _apply_python_derivations(row, grn_map, lay_map):
     ocn = row.get("ocn")
     colour = row.get("colour")
     received_qty = float(grn_map.get((ocn, colour), 0) or 0)
+
     lay_actual_total = float(lay_map.get((ocn, colour), 0) or 0)
-    frappe.log(f"DEBUG - OCN: {ocn}, Colour: {colour}, Received Qty: {received_qty}")
+    frappe.log(f"DEBUG - OCN: {ocn}, Colour: {colour}, Received Qty: {received_qty}, Lay Actual Total: {lay_actual_total}")
     row["balance_as_per_lay_record"] = received_qty - lay_actual_total
 
     # cut completion %
