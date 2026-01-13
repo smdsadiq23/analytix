@@ -1,13 +1,13 @@
 // Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Factory OCR List"] = {
+frappe.query_reports["DPR"] = {
 	filters: [],
 
 	onload(report) {
 		CX.mountBreadcrumb({
 			wrapper: report.page.wrapper || report.page.$wrapper,
-			trail: [{ label: "KPI Hub", href: "/app/kpi-hub" }, { label: "Factory OCR List" }],
+			trail: [{ label: "KPI Hub", href: "/app/kpi-hub" }, { label: "DPR" }],
 		});
 	},
 };
