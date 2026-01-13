@@ -350,5 +350,68 @@ frappe.query_reports["Cutting Completion Report"] = {
 
         $wrap.on("blur", ".report-editable-field", save);
         $wrap.on("change", ".report-status-select", save);
+    },
+
+    // ✅ Freeze first 4 columns after datatable renders
+    after_datatable_render(datatable) {
+        const numColumnsToFreeze = 5;
+        
+        // Add scroll event listener to body scrollable
+        const bodyScrollable = datatable.bodyScrollable;
+        
+        if (!bodyScrollable) return;
+        
+        bodyScrollable.addEventListener('scroll', (e) => {
+            if (datatable._settingHeaderPosition) return;
+            
+            datatable._settingHeaderPosition = true;
+            
+            requestAnimationFrame(() => {
+                const scrollLeft = e.target.scrollLeft;
+                
+                // Freeze header columns
+                for (let i = 0; i < numColumnsToFreeze; i++) {
+                    const headerCells = $(`.dt-cell--col-${i}`, datatable.header);
+                    headerCells.each(function() {
+                        this.style.transform = `translateX(${scrollLeft}px)`;
+                        this.style.position = 'relative';
+                        this.style.zIndex = '10';
+                        this.style.backgroundColor = '#f5f7fa';
+                    });
+                }
+                
+                // Freeze all body rows - use direct row iteration
+                const $allRows = $(bodyScrollable).find('.dt-row');
+                $allRows.each(function() {
+                    const $row = $(this);
+                    const $cells = $row.find('.dt-cell');
+                    
+                    // Freeze first numColumnsToFreeze cells in each row
+                    for (let i = 0; i < numColumnsToFreeze && i < $cells.length; i++) {
+                        const cell = $cells[i];
+                        cell.style.transform = `translateX(${scrollLeft}px)`;
+                        cell.style.position = 'relative';
+                        cell.style.zIndex = '10';
+                        cell.style.backgroundColor = '#ffffff';
+                    }
+                });
+                
+                // ✅ Freeze footer/total row columns
+                const $footer = $(datatable.wrapper).find('.dt-footer');
+                if ($footer.length) {
+                    for (let i = 0; i < numColumnsToFreeze; i++) {
+                        const footerCells = $(`.dt-cell--col-${i}`, $footer);
+                        footerCells.each(function() {
+                            this.style.transform = `translateX(${scrollLeft}px)`;
+                            this.style.position = 'relative';
+                            this.style.zIndex = '10';
+                            this.style.backgroundColor = '#fafbfc';
+                        });
+                    }
+                }
+                
+                datatable._settingHeaderPosition = false;
+            });
+        });
     }
 };
