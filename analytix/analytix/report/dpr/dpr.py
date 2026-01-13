@@ -207,6 +207,42 @@ def get_data(filters):
         key = (s["ocn"], s["colour"])
         sew_qty_map[key] = float(s.get("sew_qty") or 0)
 
+    # Get Scan Qty data (operation=tor.last_operation)
+    scan_qty_query = """
+        SELECT 
+            itm.custom_style_master AS style,
+            itm.custom_colour_name AS colour,
+            tbc.sales_order AS ocn,
+            COALESCE(SUM(pi.quantity), 0) AS scan_qty
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = tbc.parent
+            AND tor.item IS NOT NULL
+            AND tor.last_operation IS NOT NULL
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabProduction Item` pi
+            ON pi.tracking_order = tor.name
+            AND pi.bundle_configuration = tbc.name
+        INNER JOIN `tabTracking Component` tc 
+            ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabItem Scan Log` isl
+            ON isl.production_item = pi.name
+            AND isl.operation = tor.last_operation
+            AND isl.log_status = 'Completed'
+            AND isl.status IN ('Counted', 'Activated', 'Pass')
+        WHERE tbc.sales_order IN %(ocn_list)s
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.sales_order
+    """
+    
+    scan_qty_rows = frappe.db.sql(scan_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
+    
+    # Create a map for Scan Qty: (ocn, colour) -> scan_qty
+    scan_qty_map = {}
+    for s in scan_qty_rows:
+        key = (s["ocn"], s["colour"])
+        scan_qty_map[key] = float(s.get("scan_qty") or 0)
+
     # Get Dead Stock data (balance_as_per_lay_record for Verified status)
     # GRN received quantity
     grn_query = """
@@ -262,8 +298,7 @@ def get_data(filters):
         row["cut_quantity"] = cut_data["cut_quantity"]
         row["last_cut_date"] = cut_data["last_cut_date"]
         
-        # Factory OCR fields
-        row["scan_quantity"] = factory_data["scan_quantity"]
+        # Factory OCR fields (pack and ship only)
         row["pack_quantity"] = factory_data["pack_quantity"]
         row["ship_quantity"] = factory_data["ship_quantity"]
         
@@ -273,10 +308,14 @@ def get_data(filters):
         pack_qty = float(row.get("pack_quantity") or 0)
         ship_qty = float(row.get("ship_quantity") or 0)
         
-        # Sew Qty and Sew Balance (after order_qty is defined)
+        # Sew Qty and Sew Balance
         sew_qty = sew_qty_map.get(key, 0)
         row["sew_quantity"] = float(sew_qty)
         row["sew_balance"] = int(order_qty - sew_qty)
+        
+        # Scan Qty (from query instead of Factory OCR)
+        scan_qty = scan_qty_map.get(key, 0)
+        row["scan_quantity"] = float(scan_qty)
         
         if order_qty > 0:
             row["cut_pct"] = (cut_qty / order_qty) * 100.0
