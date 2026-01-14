@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-01-12 10:40:34.633101",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-01-12 10:40:34.633101",
+ "modified": "2026-01-14 11:59:36.758718",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "DPR",
