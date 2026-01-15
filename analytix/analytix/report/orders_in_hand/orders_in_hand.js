@@ -55,7 +55,7 @@ frappe.query_reports["Orders in Hand"] = {
             ]
         });
 
-        report.page.add_inner_button(__("Refresh Report"), () => report.refresh());
+        // report.page.add_inner_button(__("Refresh Report"), () => report.refresh());
 
         const $wrap = report.page.wrapper;
 
