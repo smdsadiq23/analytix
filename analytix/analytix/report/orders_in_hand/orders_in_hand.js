@@ -7,7 +7,7 @@ frappe.query_reports["Orders in Hand"] = {
             fieldname: "from_date",
             label: __("From Date"),
             fieldtype: "Date",
-            default: frappe.datetime.add_days(frappe.datetime.get_today(), -30),
+            default: frappe.datetime.get_year_start(),
             reqd: 0
         },
         {
@@ -18,6 +18,16 @@ frappe.query_reports["Orders in Hand"] = {
             reqd: 0
         }
     ],
+
+    onload(report) {
+        CX.mountBreadcrumb({
+        wrapper: report.page.wrapper || report.page.$wrapper,
+        trail: [
+            { label: "KPI Hub", href: "/app/kpi-hub" },
+            { label: "Orders in Hand" }
+        ]
+        });
+    },      
 
     formatter: function(value, row, column, data, default_formatter) {
         if (!data) return default_formatter(value, row, column, data, default_formatter);
