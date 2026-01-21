@@ -182,7 +182,6 @@ def get_data(filters):
         INNER JOIN `tabTracking Order` tor
             ON tor.name = tbc.parent
             AND tor.item IS NOT NULL
-            AND tor.last_operation IS NOT NULL
         INNER JOIN `tabItem` itm
             ON itm.name = tor.item
         INNER JOIN `tabProduction Item` pi
