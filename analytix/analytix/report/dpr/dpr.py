@@ -389,4 +389,14 @@ def get_data(filters):
         
         final_rows.append(row)
 
+    # Sort rows: put "Approved" and "App with Replenishment" at the top
+    def sort_key(row):
+        approval = row.get("customer_approval", "")
+        if approval in ("Approved", "App with Replenishment"):
+            return (0, row["ocn"], row["colour"])  # Top group
+        else:
+            return (1, row["ocn"], row["colour"])  # Rest
+
+    final_rows.sort(key=sort_key)        
+
     return final_rows
