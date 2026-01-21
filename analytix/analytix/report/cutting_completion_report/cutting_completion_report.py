@@ -37,6 +37,7 @@ def get_columns():
         {"label": _("Cut Qty Actual"), "fieldname": "cut_qty_actual", "fieldtype": "Int", "width": 120},
         {"label": _("Difference"), "fieldname": "difference", "fieldtype": "Int", "width": 100},
         {"label": _("Cut Completion %"), "fieldname": "cut_completion_pct", "fieldtype": "Percent", "width": 150},
+        {"label": _("Last Cut Date"), "fieldname": "last_cut_date", "fieldtype": "Date", "width": 160},
 
         {"label": _("Profit loss Fabric"), "fieldname": "pl_fabric", "fieldtype": "Currency", "width": 150},
         {"label": _("Profit loss Merchant"), "fieldname": "pl_merchant", "fieldtype": "Currency", "width": 150},
@@ -210,6 +211,25 @@ def get_data(filters):
     lay_map = {(r["ocn"], r["colour"]): (r.get("lay_actual_total") or 0) for r in lay_rows}
 
     # -------------------------
+    # 5) last_cut_date: SO + colour → max(cut confirmation creation)
+    # -------------------------
+    q_last_cut_date = """
+        SELECT
+            cci.sales_order AS ocn,
+            cd.color AS colour,
+            MAX(con.creation) AS last_cut_date
+        FROM `tabCut Confirmation Item` cci
+        INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
+        INNER JOIN `tabCut Docket` cd ON cd.name = con.cut_po_number
+        WHERE cci.docstatus = 1
+          AND con.docstatus = 1
+          AND cci.sales_order IN %(ocn_list)s
+        GROUP BY cci.sales_order, cd.color
+    """
+    last_cut_rows = frappe.db.sql(q_last_cut_date, params_in, as_dict=1)
+    last_cut_map = {(r["ocn"], r["colour"]): r["last_cut_date"] for r in last_cut_rows}    
+
+    # -------------------------
     # Build final rows (one per docket)
     # If no docket exists, still emit one row with cut_docket = None
     # (matches your LEFT JOIN behavior)
@@ -224,10 +244,10 @@ def get_data(filters):
                 # If cut rows exist for an ocn/colour not in order_base (rare, but safe)
                 continue
 
-            row = dict(base)  # copy base columns
+            row = dict(base)
             row["cut_docket"] = c.get("cut_docket")
             row["cut_qty_actual"] = int(c.get("cut_qty_actual") or 0)
-
+            row["last_cut_date"] = last_cut_map.get(key)
             row = _apply_python_derivations(row, grn_map, lay_map)
             final.append(row)
 
