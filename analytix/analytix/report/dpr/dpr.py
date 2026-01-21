@@ -389,14 +389,25 @@ def get_data(filters):
         
         final_rows.append(row)
 
-    # Sort rows: put "Approved" and "App with Replenishment" at the top
-    def sort_key(row):
-        approval = row.get("customer_approval", "")
-        if approval in ("Approved", "App with Replenishment"):
-            return (0, row["ocn"], row["colour"])  # Top group
+    # Define sort priority for customer_approval values
+    def get_approval_priority(approval):
+        if approval == "Approved":
+            return 0
+        elif approval == "App with Replenishment":
+            return 1
+        elif approval == "Yet to Confirm":
+            return 2
         else:
-            return (1, row["ocn"], row["colour"])  # Rest
+            return 3  # Covers blanks, None, or any unexpected value
 
-    final_rows.sort(key=sort_key)        
+    # Sort by approval priority first, then by delivery_date, OCN, colour for stability
+    final_rows.sort(
+        key=lambda row: (
+            get_approval_priority(row.get("customer_approval", "")),
+            row.get("delivery_date") or "",
+            row["ocn"],
+            row["colour"]
+        )
+    )    
 
     return final_rows
