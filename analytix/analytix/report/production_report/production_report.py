@@ -77,7 +77,7 @@ def execute(filters=None):
     report_date = as_on_date.strftime("%d %b %Y")
     message = f"Report as on {report_date}"
 
-    return get_columns(), list(unit_summary.values()), message
+    return get_columns(), list(unit_summary.values()), message, None, None, get_filters()
 
 
 def get_columns():
