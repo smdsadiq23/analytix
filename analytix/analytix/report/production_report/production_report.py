@@ -1,15 +1,21 @@
 # Copyright (c) 2026 Your Company.
-# Production Report - Showing Factory Name (not ID)
+# Production Report - With As On Date Filter and Factory Names
 
 import frappe
 from datetime import date
 
 def execute(filters=None):
-    today = date.today()
-    first_day_month = today.replace(day=1)
-    first_day_year = today.replace(month=1, day=1)
+    # Get "as_on_date" from filters; default to today
+    as_on_date_str = filters.get("as_on_date") if filters else None
+    if as_on_date_str:
+        as_on_date = frappe.utils.getdate(as_on_date_str)
+    else:
+        as_on_date = date.today()
 
-    rows = get_scan_log_data(from_date=first_day_year, to_date=today)
+    first_day_month = as_on_date.replace(day=1)
+    first_day_year = as_on_date.replace(month=1, day=1)
+
+    rows = get_scan_log_data(from_date=first_day_year, to_date=as_on_date)
 
     unit_summary = {}
 
@@ -18,7 +24,6 @@ def execute(filters=None):
         qty = row.quantity or 0
         scan_date = row.scan_date
 
-        # Determine operation type and get factory name
         if operation == "Endline QC":
             op_type = "sewing"
             factory_name = row.ckp_factory_name
@@ -43,7 +48,7 @@ def execute(filters=None):
             }
 
         # On Date
-        if scan_date == today:
+        if scan_date == as_on_date:
             if op_type == "cutting":
                 unit_summary[factory_name]["cutting_on_date"] += qty
             elif op_type == "sewing":
@@ -52,7 +57,7 @@ def execute(filters=None):
                 unit_summary[factory_name]["finishing_on_date"] += qty
 
         # MTD
-        if scan_date >= first_day_month:
+        if first_day_month <= scan_date <= as_on_date:
             if op_type == "cutting":
                 unit_summary[factory_name]["cutting_mtd"] += qty
             elif op_type == "sewing":
@@ -61,18 +66,18 @@ def execute(filters=None):
                 unit_summary[factory_name]["finishing_mtd"] += qty
 
         # YTD
-        if op_type == "cutting":
-            unit_summary[factory_name]["cutting_ytd"] += qty
-        elif op_type == "sewing":
-            unit_summary[factory_name]["sewing_ytd"] += qty
-        elif op_type == "finishing":
-            unit_summary[factory_name]["finishing_ytd"] += qty
+        if first_day_year <= scan_date <= as_on_date:
+            if op_type == "cutting":
+                unit_summary[factory_name]["cutting_ytd"] += qty
+            elif op_type == "sewing":
+                unit_summary[factory_name]["sewing_ytd"] += qty
+            elif op_type == "finishing":
+                unit_summary[factory_name]["finishing_ytd"] += qty
 
-    # Format date for display
-    report_date = today.strftime("%d %b %Y")
+    report_date = as_on_date.strftime("%d %b %Y")
+    message = f"Report as on {report_date}"
 
-    # Return columns, data, and message
-    return get_columns(), list(unit_summary.values()), f"Report as on {report_date}"
+    return get_columns(), list(unit_summary.values()), message
 
 
 def get_columns():
@@ -97,13 +102,8 @@ def get_scan_log_data(from_date, to_date):
             isl.operation,
             COALESCE(pi.quantity, 0) AS quantity,
             DATE(isl.creation) AS scan_date,
-            
-            -- Factory name for Sewing/Finishing (from Cut Kit Plan)
             f1.factory_name AS ckp_factory_name,
-            
-            -- Factory name for Cutting (from Cut Docket)
             f2.factory_name AS cd_factory_name
-
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi 
             ON pi.name = isl.production_item
@@ -117,15 +117,10 @@ def get_scan_log_data(from_date, to_date):
             ON bc.name = ckp.cut_bundle_order
         LEFT JOIN `tabCut Docket` cd 
             ON cd.name = bc.cut_docket_id
-            
-        -- Join Factory Business Unit for Cut Kit Plan FBU
         LEFT JOIN `tabFactory Business Unit` f1 
             ON f1.name = ckp.factory_business_unit
-            
-        -- Join Factory Business Unit for Cut Docket FBU
         LEFT JOIN `tabFactory Business Unit` f2 
             ON f2.name = cd.factory_business_unit
-
         WHERE 
             isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Activated', 'Pass')
@@ -140,3 +135,15 @@ def get_scan_log_data(from_date, to_date):
         "from_date": from_date,
         "to_date": to_date
     }, as_dict=True)
+
+
+def get_filters():
+    return [
+        {
+            "fieldname": "as_on_date",
+            "label": "As On Date",
+            "fieldtype": "Date",
+            "default": frappe.utils.today(),
+            "reqd": 1
+        }
+    ]
