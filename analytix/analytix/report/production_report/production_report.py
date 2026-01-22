@@ -68,7 +68,11 @@ def execute(filters=None):
         elif op_type == "finishing":
             unit_summary[factory_name]["finishing_ytd"] += qty
 
-    return get_columns(), list(unit_summary.values())
+    # Format date for display
+    report_date = today.strftime("%d %b %Y")
+
+    # Return columns, data, and message
+    return get_columns(), list(unit_summary.values()), f"Report as on {report_date}"
 
 
 def get_columns():
