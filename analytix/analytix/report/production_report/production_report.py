@@ -77,7 +77,10 @@ def execute(filters=None):
     report_date = as_on_date.strftime("%d %b %Y")
     message = f"Report as on {report_date}"
 
-    return get_columns(), list(unit_summary.values()), message
+    # Sort by factory name
+    sorted_data = sorted(unit_summary.values(), key=lambda x: x['unit'])
+
+    return get_columns(), sorted_data, message
 
 
 def get_columns():
