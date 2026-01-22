@@ -77,7 +77,7 @@ def execute(filters=None):
     report_date = as_on_date.strftime("%d %b %Y")
     message = f"Report as on {report_date}"
 
-    return get_columns(), list(unit_summary.values()), message, None, None, get_filters()
+    return get_columns(), list(unit_summary.values()), message
 
 
 def get_columns():
@@ -135,15 +135,3 @@ def get_scan_log_data(from_date, to_date):
         "from_date": from_date,
         "to_date": to_date
     }, as_dict=True)
-
-
-def get_filters():
-    return [
-        {
-            "fieldname": "as_on_date",
-            "label": "As On Date",
-            "fieldtype": "Date",
-            "default": frappe.utils.today(),
-            "reqd": 1
-        }
-    ]
