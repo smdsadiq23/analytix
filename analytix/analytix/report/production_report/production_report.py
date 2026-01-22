@@ -74,15 +74,15 @@ def execute(filters=None):
 def get_columns():
     return [
         {"label": "Unit", "fieldname": "unit", "fieldtype": "Data", "width": 200},
-        {"label": "Cutting - On Date", "fieldname": "cutting_on_date", "fieldtype": "Int", "width": 160},
-        {"label": "Cutting - MTD", "fieldname": "cutting_mtd", "fieldtype": "Int", "width": 150},
-        {"label": "Cutting - YTD", "fieldname": "cutting_ytd", "fieldtype": "Int", "width": 150},
-        {"label": "Sewing - On Date", "fieldname": "sewing_on_date", "fieldtype": "Int", "width": 160},
-        {"label": "Sewing - MTD", "fieldname": "sewing_mtd", "fieldtype": "Int", "width": 150},
-        {"label": "Sewing - YTD", "fieldname": "sewing_ytd", "fieldtype": "Int", "width": 150},
-        {"label": "Finishing - On Date", "fieldname": "finishing_on_date", "fieldtype": "Int", "width": 160},
-        {"label": "Finishing - MTD", "fieldname": "finishing_mtd", "fieldtype": "Int", "width": 150},
-        {"label": "Finishing - YTD", "fieldname": "finishing_ytd", "fieldtype": "Int", "width": 150},
+        {"label": "Cutting - On Date", "fieldname": "cutting_on_date", "fieldtype": "Int", "width": 150},
+        {"label": "Cutting - MTD", "fieldname": "cutting_mtd", "fieldtype": "Int", "width": 120},
+        {"label": "Cutting - YTD", "fieldname": "cutting_ytd", "fieldtype": "Int", "width": 120},
+        {"label": "Sewing - On Date", "fieldname": "sewing_on_date", "fieldtype": "Int", "width": 150},
+        {"label": "Sewing - MTD", "fieldname": "sewing_mtd", "fieldtype": "Int", "width": 120},
+        {"label": "Sewing - YTD", "fieldname": "sewing_ytd", "fieldtype": "Int", "width": 120},
+        {"label": "Finishing - On Date", "fieldname": "finishing_on_date", "fieldtype": "Int", "width": 150},
+        {"label": "Finishing - MTD", "fieldname": "finishing_mtd", "fieldtype": "Int", "width": 120},
+        {"label": "Finishing - YTD", "fieldname": "finishing_ytd", "fieldtype": "Int", "width": 120},
     ]
 
 
