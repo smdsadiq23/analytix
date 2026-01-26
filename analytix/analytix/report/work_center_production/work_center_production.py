@@ -1,7 +1,6 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
-
 import frappe
 from datetime import date
 
@@ -15,16 +14,14 @@ def execute(filters=None):
     if not ocn:
         return get_columns(), [], "Please select an OCN (Sales Order)."
 
-    first_day_year = as_on_date.replace(month=1, day=1)
-
     # Fetch base order info
     order_info = get_sales_order_info(ocn)
     if not order_info:
         return get_columns(), [], "No matching Sales Order found."
 
-    # Fetch production data
-    cutting_rows = get_cutting_data(first_day_year, as_on_date, ocn, unit)
-    sew_fin_rows = get_sewing_finishing_data(first_day_year, as_on_date, ocn, unit)
+    # Fetch production data — ALL history up to as_on_date
+    cutting_rows = get_cutting_data(as_on_date, ocn, unit)
+    sew_fin_rows = get_sewing_finishing_data(as_on_date, ocn, unit)
 
     # Build summary
     summary = {}
@@ -89,8 +86,6 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        # {"label": "Unit", "fieldname": "unit", "fieldtype": "Data", "width": 180},
-        # {"label": "OCN", "fieldname": "ocn", "fieldtype": "Link", "options": "Sales Order", "width": 150},
         {"label": "Style", "fieldname": "style", "fieldtype": "Data", "width": 160},
         {"label": "Order Quantity", "fieldname": "order_quantity", "fieldtype": "Int", "width": 140},
         {"label": "Cutting - On Date", "fieldname": "cutting_on_date", "fieldtype": "Int", "width": 150},
@@ -123,15 +118,14 @@ def get_sales_order_info(ocn):
     return result
 
 
-def get_cutting_data(from_date, to_date, ocn, unit=None):
+def get_cutting_data(to_date, ocn, unit=None):
     conditions = [
         "cci.docstatus = 1",
         "con.docstatus = 1",
         "cci.sales_order = %(ocn)s",
-        "DATE(con.creation) BETWEEN %(from_date)s AND %(to_date)s"
+        "DATE(con.creation) <= %(to_date)s"
     ]
     values = {
-        "from_date": from_date,
         "to_date": to_date,
         "ocn": ocn
     }
@@ -159,16 +153,15 @@ def get_cutting_data(from_date, to_date, ocn, unit=None):
     return frappe.db.sql(query, values, as_dict=True)
 
 
-def get_sewing_finishing_data(from_date, to_date, ocn, unit=None):
+def get_sewing_finishing_data(to_date, ocn, unit=None):
     conditions = [
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Activated', 'Pass')",
         "tbc.sales_order = %(ocn)s",
-        "DATE(isl.creation) BETWEEN %(from_date)s AND %(to_date)s",
+        "DATE(isl.creation) <= %(to_date)s",
         "(isl.operation = 'Endline QC' OR isl.operation LIKE 'Finishing QC%%')"
     ]
     values = {
-        "from_date": from_date,
         "to_date": to_date,
         "ocn": ocn
     }
