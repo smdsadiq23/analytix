@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-01-02 11:16:23.217228",
+ "modified": "2026-01-27 19:51:53.581038",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Factory OCR List",
@@ -31,6 +31,9 @@
   },
   {
    "role": "Can Cut User"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

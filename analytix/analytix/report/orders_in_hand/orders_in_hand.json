@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-01-14 15:30:22.433864",
+ "modified": "2026-01-27 19:51:37.395403",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Orders in Hand",
@@ -49,6 +49,9 @@
   },
   {
    "role": "Custom Admin"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

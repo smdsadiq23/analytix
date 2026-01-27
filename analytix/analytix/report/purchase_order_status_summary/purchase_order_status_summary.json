@@ -11,7 +11,7 @@
  "is_standard": "Yes",
  "json": "{}",
  "letterhead": null,
- "modified": "2025-11-10 16:40:52.299585",
+ "modified": "2026-01-27 19:52:40.290924",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Purchase Order Status Summary",
@@ -29,6 +29,9 @@
   },
   {
    "role": "Purchase User"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

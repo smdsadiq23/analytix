@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-01-22 18:07:27.592845",
+ "modified": "2026-01-27 19:51:25.519932",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Production Report",
@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0

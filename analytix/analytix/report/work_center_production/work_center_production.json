@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-01-26 13:27:43.911043",
+ "modified": "2026-01-27 19:50:08.029825",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Work Center Production",
@@ -49,6 +49,9 @@
   },
   {
    "role": "Custom Admin"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0
