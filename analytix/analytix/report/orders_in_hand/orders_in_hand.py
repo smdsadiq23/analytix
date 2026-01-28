@@ -19,6 +19,7 @@ def get_columns():
         {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer", "width": 150},
         {"label": _("Sales Order No"), "fieldname": "sales_order_no", "fieldtype": "Link", "options": "Sales Order", "width": 120},
         {"label": _("Style No"), "fieldname": "style_no", "fieldtype": "Data", "width": 120},
+        {"label": _("Season"), "fieldname": "season", "fieldtype": "Data", "width": 100},  # ← NEW COLUMN
         {"label": _("Order Received Date"), "fieldname": "order_received_date", "fieldtype": "Date", "width": 120},
         {"label": _("Delivery Date"), "fieldname": "delivery_date", "fieldtype": "Date", "width": 120},
         {"label": _("Order Qty"), "fieldname": "order_qty", "fieldtype": "Float", "width": 100},
@@ -50,12 +51,14 @@ def get_data(filters):
             so.customer AS customer,
             so.name AS sales_order_no,
             sod.custom_style AS style_no,
+            COALESCE(sm.custom_season, '') AS season, 
             so.transaction_date AS order_received_date,
             so.delivery_date AS delivery_date,
             SUM(sod.custom_order_qty) AS order_qty,
             sod.uom AS uom
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
+        LEFT JOIN `tabStyle Master` sm ON sm.name = sod.custom_style
         WHERE {where_clause}
         GROUP BY so.name, so.customer, sod.custom_style, sod.uom, 
                  so.transaction_date, so.delivery_date
