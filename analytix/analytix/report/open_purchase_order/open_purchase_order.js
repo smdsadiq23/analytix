@@ -4,5 +4,15 @@
 frappe.query_reports["Open Purchase Order"] = {
 	"filters": [
 
-	]
+	],
+
+  onload(report) {
+    CX.mountBreadcrumb({
+      wrapper: report.page.wrapper || report.page.$wrapper,
+      trail: [
+        { label: "KPI Hub", href: "/app/kpi-hub" },
+        { label: "Open Purchase Order" }
+      ]
+    });
+  }
 };
