@@ -51,7 +51,7 @@ frappe.query_reports["Orders in Hand"] = {
             wrapper: report.page.wrapper || report.page.$wrapper,
             trail: [
                 { label: "KPI Hub", href: "/app/kpi-hub" },
-                { label: "Orders in Hand" }
+                { label: "Open Sales Order - Overdue Status" }
             ]
         });
 

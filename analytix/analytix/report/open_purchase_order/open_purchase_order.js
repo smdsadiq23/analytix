@@ -11,7 +11,7 @@ frappe.query_reports["Open Purchase Order"] = {
       wrapper: report.page.wrapper || report.page.$wrapper,
       trail: [
         { label: "KPI Hub", href: "/app/kpi-hub" },
-        { label: "Open Purchase Order" }
+        { label: "Open Purchase Order - Overdue Status" }
       ]
     });
   }
