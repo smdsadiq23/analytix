@@ -1,5 +1,6 @@
 # Copyright (c) 2026 Your Company.
 # Production Report - Cutting from Cut Confirmation, Sew/Fin from Scan Log
+# YTD period starts from February 1st for 2026 only (special fiscal year requirement)
 
 import frappe
 from datetime import date
@@ -12,13 +13,18 @@ def execute(filters=None):
         as_on_date = date.today()
 
     first_day_month = as_on_date.replace(day=1)
-    first_day_year = as_on_date.replace(month=1, day=1)
+    
+    # Special YTD logic: Start from Feb 1 for 2026 only, otherwise Jan 1
+    if as_on_date.year == 2026:
+        ytd_start_date = as_on_date.replace(month=2, day=1)
+    else:
+        ytd_start_date = as_on_date.replace(month=1, day=1)
 
     # Fetch cutting data (from Cut Confirmation)
-    cutting_rows = get_cutting_data(from_date=first_day_year, to_date=as_on_date)
+    cutting_rows = get_cutting_data(from_date=ytd_start_date, to_date=as_on_date)
     
     # Fetch sewing & finishing (from Item Scan Log)
-    sew_fin_rows = get_sewing_finishing_data(from_date=first_day_year, to_date=as_on_date)
+    sew_fin_rows = get_sewing_finishing_data(from_date=ytd_start_date, to_date=as_on_date)
 
     unit_summary = {}
 
@@ -43,7 +49,7 @@ def execute(filters=None):
             unit_summary[factory_name]["cutting_on_date"] += qty
         if first_day_month <= scan_date <= as_on_date:
             unit_summary[factory_name]["cutting_mtd"] += qty
-        if first_day_year <= scan_date <= as_on_date:
+        if ytd_start_date <= scan_date <= as_on_date:  # Use conditional YTD start
             unit_summary[factory_name]["cutting_ytd"] += qty
 
     # Process Sewing & Finishing
@@ -84,14 +90,15 @@ def execute(filters=None):
             elif op_type == "finishing":
                 unit_summary[factory_name]["finishing_mtd"] += qty
 
-        if first_day_year <= scan_date <= as_on_date:
+        if ytd_start_date <= scan_date <= as_on_date:  # Use conditional YTD start
             if op_type == "sewing":
                 unit_summary[factory_name]["sewing_ytd"] += qty
             elif op_type == "finishing":
                 unit_summary[factory_name]["finishing_ytd"] += qty
 
     report_date = as_on_date.strftime("%d %b %Y")
-    message = f"Report as on {report_date}"
+    fiscal_note = " (YTD from Feb 1)" if as_on_date.year == 2026 else ""
+    message = f"Report as on {report_date}{fiscal_note}"
 
     sorted_data = sorted(unit_summary.values(), key=lambda x: x['unit'])
     return get_columns(), sorted_data, message
