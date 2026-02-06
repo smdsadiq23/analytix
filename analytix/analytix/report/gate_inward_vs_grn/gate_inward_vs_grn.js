@@ -1,116 +1,144 @@
-// Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
-// For license information, please see license.txt
+// Copyright (c) 2026 Your Company
+// Enables inline editing of Remarks field in report
+
+// Copyright (c) 2026 Your Company
+// Enables inline editing of Remarks field in report
 
 frappe.query_reports["Gate Inward vs GRN"] = {
-	onload: function () {
-		this.setupEditButtonHandler();
+	onload: function (report) {
+		report.page.add_inner_button(
+			__("Refresh"),
+			function () {
+				report.refresh();
+			},
+			__("Actions"),
+		);
 	},
 
-	onrefresh: function () {
-		this.setupEditButtonHandler();
+	formatter: function (value, row, column, data, default_formatter) {
+		// Make Remarks field editable only when GRN exists
+		if (column.fieldname === "remarks" && data.purchase_receipt) {
+			const safe_value = frappe.utils.escape_html(value || "");
+
+			return `
+                <div class="editable-remarks-container"
+                    data-pr-name="${data.purchase_receipt}"
+                    data-original-value="${safe_value}"
+                    style="min-height:24px; padding:3px; cursor:text;
+                           border-radius:3px; background-color:#f8f9fa;">
+                    ${safe_value || '<span class="text-muted">Click to add remarks</span>'}
+                </div>
+            `;
+		}
+
+		return default_formatter(value, row, column, data);
 	},
 
-	setupEditButtonHandler: function () {
-		frappe.after_ajax(() => {
-			setTimeout(() => {
-				const report = frappe.query_report;
-				if (!report || !report.columns || !report.data) return;
+	onrender: function (report) {
+		// Attach click-to-edit behavior (safe rebind)
+		$(report.wrapper)
+			.off("click", ".editable-remarks-container")
+			.on("click", ".editable-remarks-container", function (e) {
+				const $container = $(this);
 
-				// Find button column index
-				const btn_idx = report.columns.findIndex((col) => col.fieldname === "edit_btn");
-				if (btn_idx === -1) return;
+				// Prevent re-entering edit mode
+				if ($container.find("input").length) return;
 
-				// Process each row
-				report.data.forEach((row, i) => {
-					const $cell = report.$report.find(`.dt-row:eq(${i}) .dt-cell--col-${btn_idx}`);
-					if (!$cell.length) return;
+				const pr_name = $container.data("pr-name");
+				const current_value = $container.data("original-value") || "";
 
-					// ONLY show button for editable rows (Draft GRN with PR linked)
-					if (row.purchase_receipt && row.inward_status === "Pending") {
-						$cell.html(`
-                            <button class="btn btn-xs btn-primary edit-remarks-btn" 
-                                    data-pr="${row.purchase_receipt}"
-                                    data-current="${frappe.utils.escape_html(row.remarks || "")}"
-                                    title="Edit Remarks for GRN ${row.purchase_receipt}">
-                                <i class="fa fa-edit"></i> Edit
-                            </button>
-                        `);
-					} else {
-						$cell.html(""); // Clear for non-editable rows
-					}
-				});
+				// Switch to input
+				$container.html(`
+                    <input type="text"
+                        class="editable-remarks-input form-control"
+                        value="${frappe.utils.escape_html(current_value)}"
+                        style="min-width:150px; padding:2px 4px; height:24px;">
+                `);
 
-				// EVENT DELEGATION for edit buttons (works for dynamically added buttons)
-				report.$report
-					.off("click", ".edit-remarks-btn")
-					.on("click", ".edit-remarks-btn", function (e) {
-						e.stopPropagation();
-						const $btn = $(this);
-						const pr_name = $btn.data("pr");
-						const current_remarks = $btn.data("current") || "";
+				const $input = $container.find("input");
+				$input.focus().select();
 
-						// Open edit dialog
-						frappe.prompt(
-							{
-								fieldtype: "Small Text",
-								label: __("Remarks for GRN") + `: ${pr_name}`,
-								fieldname: "remarks",
-								default: current_remarks,
-								reqd: 0,
-								maxlength: 500,
-							},
-							// Callback on save
-							function (values) {
-								frappe.call({
-									method: "frappe.client.set_value",
-									args: {
-										doctype: "Purchase Receipt",
-										name: pr_name,
-										fieldname: "remarks",
-										value: values.remarks,
-									},
-									freeze: true,
-									freeze_message: __("Saving remarks..."),
-									callback: function (r) {
-										if (!r.exc) {
-											frappe.show_alert(
-												{
-													message: __(
-														"Remarks updated successfully for {0}",
-														[pr_name.bold()],
-													),
-													indicator: "green",
-												},
-												3,
-											);
+				// Save on blur or Enter
+				$input
+					.on("blur", function () {
+						save_remarks($container, pr_name, $(this).val());
+					})
+					.on("keydown", function (e) {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							$(this).blur();
+						}
 
-											// Update the row's remarks value in report data
-											const row_idx = report.data.findIndex(
-												(r) => r.purchase_receipt === pr_name,
-											);
-											if (row_idx !== -1) {
-												report.data[row_idx].remarks = values.remarks;
-											}
-
-											// Refresh report to show updated value
-											report.refresh();
-										} else {
-											frappe.msgprint({
-												title: __("Error"),
-												message: __("Failed to update remarks: {0}", [
-													r.exc,
-												]),
-												indicator: "red",
-											});
-										}
-									},
-								});
-							},
-							__("Edit Remarks"),
-							__("Save"),
-						);
+						if (e.key === "Escape") {
+							const safe_original = frappe.utils.escape_html(current_value || "");
+							$container.html(
+								safe_original ||
+									'<span class="text-muted">Click to add remarks</span>',
+							);
+						}
 					});
-			}, 300);
-		});
+			});
 	},
 };
+
+// --------------------------------------------------------
+// SAVE FUNCTION
+// --------------------------------------------------------
+function save_remarks($container, pr_name, new_value) {
+	new_value = (new_value || "").trim();
+
+	const original_value = $container.data("original-value") || "";
+
+	// No change → restore text
+	if (new_value === original_value) {
+		const safe_value = frappe.utils.escape_html(new_value);
+		$container.html(safe_value || '<span class="text-muted">Click to add remarks</span>');
+		return;
+	}
+
+	// Saving indicator
+	$container.html('<span class="text-muted">Saving...</span>');
+
+	frappe.call({
+		method: "frappe.client.set_value",
+		args: {
+			doctype: "Purchase Receipt",
+			name: pr_name,
+			fieldname: "remarks",
+			value: new_value,
+		},
+		callback: function (r) {
+			if (r.message) {
+				$container.data("original-value", new_value);
+
+				const safe_value = frappe.utils.escape_html(new_value);
+				$container.html(
+					safe_value || '<span class="text-muted">Click to add remarks</span>',
+				);
+
+				frappe.show_alert({
+					message: __("Remarks updated"),
+					indicator: "green",
+				});
+			} else {
+				restore_original($container, original_value);
+			}
+		},
+		error: function () {
+			restore_original($container, original_value);
+		},
+	});
+}
+
+// --------------------------------------------------------
+// RESTORE ORIGINAL VALUE
+// --------------------------------------------------------
+function restore_original($container, original_value) {
+	const safe_original = frappe.utils.escape_html(original_value || "");
+	$container.html(safe_original || '<span class="text-muted">Click to add remarks</span>');
+
+	frappe.show_alert({
+		message: __("Failed to update remarks"),
+		indicator: "red",
+	});
+}

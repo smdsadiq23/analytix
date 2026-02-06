@@ -1,6 +1,8 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
+
+
 import frappe
 from frappe import _
 from frappe.utils import getdate
@@ -9,7 +11,7 @@ from frappe.utils.data import date_diff
 def execute(filters=None):
     columns = get_columns()
     data = get_data()
-    return columns, data, None, None, None, 0
+    return columns, data, None, None, None, 0  # columns, data, message, chart, report_summary, skip_total_row
 
 def get_columns():
     return [
@@ -23,8 +25,7 @@ def get_columns():
         {"fieldname": "delivery_qty", "label": _("Delivery Qty"), "fieldtype": "Int", "width": 100},
         {"fieldname": "inward_status", "label": _("Inward Status"), "fieldtype": "Data", "width": 100},
         {"fieldname": "uom", "label": _("UOM"), "fieldtype": "Link", "options": "UOM", "width": 80},
-        {"fieldname": "remarks", "label": _("Remarks"), "fieldtype": "Small Text", "width": 200, "editable": 1},  # REMOVED editable:1
-        {"fieldname": "edit_btn", "label": _("Actions"), "fieldtype": "Data", "width": 100},  # NEW BUTTON COLUMN
+        {"fieldname": "remarks", "label": _("Remarks"), "fieldtype": "Small Text", "width": 200, "editable": 1},
         {"fieldname": "grn_created_on", "label": _("GRN Created On"), "fieldtype": "Date", "width": 110},
         {"fieldname": "unit_name", "label": _("Unit Name"), "fieldtype": "Data", "width": 130},
         {"fieldname": "user_id", "label": _("User Id/Name"), "fieldtype": "Data", "width": 150},
@@ -33,6 +34,7 @@ def get_columns():
     ]
 
 def get_data():
+    # Fetch all submitted Gate Inward Entries with linked Purchase Receipts (GRN)
     data = frappe.db.sql("""
         SELECT 
             DATE(gie.date_time) AS gate_entry_date,
@@ -44,13 +46,11 @@ def get_data():
             pr.set_warehouse AS department,
             gie.custom_qty AS delivery_qty,
             CASE 
-                WHEN pr.name IS NULL THEN 'No GRN'
-                WHEN pr.docstatus = 0 THEN 'Pending'
                 WHEN pr.docstatus = 1 THEN 'Completed'
+                ELSE 'Pending'
             END AS inward_status,
             gie.custom_uom AS uom,
             pr.remarks AS remarks,
-            '' AS edit_btn,  -- Placeholder for button
             pr.posting_date AS grn_created_on,
             'Classic Apparel' AS unit_name,
             pr.owner AS user_id,
@@ -68,10 +68,15 @@ def get_data():
         ORDER BY gie.date_time DESC
     """, as_dict=1)
     
-    # Format user display names
+    # Post-process data
     for row in data:
+        # Format user ID to show full name
         if row.get("user_id"):
-            full_name = frappe.db.get_value("User", row.user_id, "full_name")
-            row["user_id"] = f"{row.user_id} ({full_name})" if full_name else row.user_id
+            user_full_name = frappe.db.get_value("User", row.user_id, "full_name")
+            row["user_id"] = f"{row.user_id} ({user_full_name})" if user_full_name else row.user_id
+        
+        # Calculate age for pending entries (days since gate entry)
+        if row.get("age") is None and row.get("inward_status") == "Pending" and row.get("gate_entry_date"):
+            row["age"] = date_diff(getdate(), getdate(row["gate_entry_date"]))
     
     return data
