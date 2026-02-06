@@ -1,144 +1,78 @@
 // Copyright (c) 2026 Your Company
 // Enables inline editing of Remarks field in report
 
+
 // Copyright (c) 2026 Your Company
 // Enables inline editing of Remarks field in report
 
 frappe.query_reports["Gate Inward vs GRN"] = {
-	onload: function (report) {
-		report.page.add_inner_button(
-			__("Refresh"),
-			function () {
-				report.refresh();
-			},
-			__("Actions"),
-		);
-	},
+  formatter(value, row, column, data, default_formatter) {
+    const html = default_formatter(value, row, column, data, default_formatter);
+    if (!data) return html;
 
-	formatter: function (value, row, column, data, default_formatter) {
-		// Make Remarks field editable only when GRN exists
-		if (column.fieldname === "remarks" && data.purchase_receipt) {
-			const safe_value = frappe.utils.escape_html(value || "");
+    const isRemarks = 
+      (column.fieldname === "remarks") || 
+      (column.label === "Remarks");
 
-			return `
-                <div class="editable-remarks-container"
-                    data-pr-name="${data.purchase_receipt}"
-                    data-original-value="${safe_value}"
-                    style="min-height:24px; padding:3px; cursor:text;
-                           border-radius:3px; background-color:#f8f9fa;">
-                    ${safe_value || '<span class="text-muted">Click to add remarks</span>'}
-                </div>
-            `;
-		}
+    // Only make remarks editable if Purchase Receipt exists AND is in draft (not submitted)
+    if (isRemarks && data.purchase_receipt) {
+      const safe = frappe.utils.escape_html(value || "");
+      const docname = data.purchase_receipt;
+      const isSubmitted = data.pr_docstatus === 1; // Check if submitted
+      
+      // If submitted, show read-only text
+      if (isSubmitted) {
+        return `<div style="padding:4px 6px; color:#6c757d;">${safe || '<span class="text-muted">No remarks</span>'}</div>`;
+      }
+      
+      // If draft, show editable textarea
+      return `
+        <textarea class="report-remark-input"
+                  data-docname="${docname}"
+                  rows="2"
+                  style="width:100%; box-sizing:border-box; padding:4px 6px; resize:vertical;">${safe}</textarea>
+      `;
+    }
+    return html;
+  },
 
-		return default_formatter(value, row, column, data);
-	},
+  onload(report) {
+    const $wrap = report.page.wrapper;
 
-	onrender: function (report) {
-		// Attach click-to-edit behavior (safe rebind)
-		$(report.wrapper)
-			.off("click", ".editable-remarks-container")
-			.on("click", ".editable-remarks-container", function (e) {
-				const $container = $(this);
+		CX.mountBreadcrumb({
+			wrapper: report.page.wrapper || report.page.$wrapper,
+			trail: [{ label: "KPI Hub", href: "/app/kpi-hub" }, { label: "Gate Inward Entry vs GRN" }],
+		});
 
-				// Prevent re-entering edit mode
-				if ($container.find("input").length) return;
+    // Ensure Remarks column is treated as editable text
+    (report.columns || []).forEach(col => {
+      if (col.fieldname === "remarks") {
+        col.fieldtype = "Data";
+        col.align = "left";
+      }
+    });
 
-				const pr_name = $container.data("pr-name");
-				const current_value = $container.data("original-value") || "";
+    const save = frappe.utils.debounce(function (e) {
+      const $el = $(e.currentTarget);
+      $el.css("opacity", 0.6);
+      frappe.call({
+        method: "frappe.client.set_value",
+        args: {
+          doctype: "Purchase Receipt",
+          name: $el.attr("data-docname"),
+          fieldname: "remarks",
+          value: $el.val()
+        },
+        callback() {
+          frappe.show_alert({ message: __("Remarks saved"), indicator: "green" });
+        },
+        always() {
+          $el.css("opacity", 1);
+        }
+      });
+    }, 500);
 
-				// Switch to input
-				$container.html(`
-                    <input type="text"
-                        class="editable-remarks-input form-control"
-                        value="${frappe.utils.escape_html(current_value)}"
-                        style="min-width:150px; padding:2px 4px; height:24px;">
-                `);
-
-				const $input = $container.find("input");
-				$input.focus().select();
-
-				// Save on blur or Enter
-				$input
-					.on("blur", function () {
-						save_remarks($container, pr_name, $(this).val());
-					})
-					.on("keydown", function (e) {
-						if (e.key === "Enter") {
-							e.preventDefault();
-							$(this).blur();
-						}
-
-						if (e.key === "Escape") {
-							const safe_original = frappe.utils.escape_html(current_value || "");
-							$container.html(
-								safe_original ||
-									'<span class="text-muted">Click to add remarks</span>',
-							);
-						}
-					});
-			});
-	},
+    $wrap.on("input", ".report-remark-input", save);
+    $wrap.on("blur", ".report-remark-input", save);
+  }
 };
-
-// --------------------------------------------------------
-// SAVE FUNCTION
-// --------------------------------------------------------
-function save_remarks($container, pr_name, new_value) {
-	new_value = (new_value || "").trim();
-
-	const original_value = $container.data("original-value") || "";
-
-	// No change → restore text
-	if (new_value === original_value) {
-		const safe_value = frappe.utils.escape_html(new_value);
-		$container.html(safe_value || '<span class="text-muted">Click to add remarks</span>');
-		return;
-	}
-
-	// Saving indicator
-	$container.html('<span class="text-muted">Saving...</span>');
-
-	frappe.call({
-		method: "frappe.client.set_value",
-		args: {
-			doctype: "Purchase Receipt",
-			name: pr_name,
-			fieldname: "remarks",
-			value: new_value,
-		},
-		callback: function (r) {
-			if (r.message) {
-				$container.data("original-value", new_value);
-
-				const safe_value = frappe.utils.escape_html(new_value);
-				$container.html(
-					safe_value || '<span class="text-muted">Click to add remarks</span>',
-				);
-
-				frappe.show_alert({
-					message: __("Remarks updated"),
-					indicator: "green",
-				});
-			} else {
-				restore_original($container, original_value);
-			}
-		},
-		error: function () {
-			restore_original($container, original_value);
-		},
-	});
-}
-
-// --------------------------------------------------------
-// RESTORE ORIGINAL VALUE
-// --------------------------------------------------------
-function restore_original($container, original_value) {
-	const safe_original = frappe.utils.escape_html(original_value || "");
-	$container.html(safe_original || '<span class="text-muted">Click to add remarks</span>');
-
-	frappe.show_alert({
-		message: __("Failed to update remarks"),
-		indicator: "red",
-	});
-}

@@ -1,8 +1,6 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
-
-
 import frappe
 from frappe import _
 from frappe.utils import getdate
@@ -25,7 +23,7 @@ def get_columns():
         {"fieldname": "delivery_qty", "label": _("Delivery Qty"), "fieldtype": "Int", "width": 100},
         {"fieldname": "inward_status", "label": _("Inward Status"), "fieldtype": "Data", "width": 100},
         {"fieldname": "uom", "label": _("UOM"), "fieldtype": "Link", "options": "UOM", "width": 80},
-        {"fieldname": "remarks", "label": _("Remarks"), "fieldtype": "Small Text", "width": 200, "editable": 1},
+        {"fieldname": "remarks", "label": _("Remarks"), "fieldtype": "Small Text", "width": 200},
         {"fieldname": "grn_created_on", "label": _("GRN Created On"), "fieldtype": "Date", "width": 110},
         {"fieldname": "unit_name", "label": _("Unit Name"), "fieldtype": "Data", "width": 130},
         {"fieldname": "user_id", "label": _("User Id/Name"), "fieldtype": "Data", "width": 150},
@@ -34,7 +32,6 @@ def get_columns():
     ]
 
 def get_data():
-    # Fetch all submitted Gate Inward Entries with linked Purchase Receipts (GRN)
     data = frappe.db.sql("""
         SELECT 
             DATE(gie.date_time) AS gate_entry_date,
@@ -55,6 +52,7 @@ def get_data():
             'Classic Apparel' AS unit_name,
             pr.owner AS user_id,
             pr.name AS purchase_receipt,
+            pr.docstatus AS pr_docstatus,  -- ← ADD THIS
             CASE 
                 WHEN pr.posting_date IS NOT NULL AND gie.date_time IS NOT NULL 
                 THEN DATEDIFF(pr.posting_date, DATE(gie.date_time))
@@ -62,7 +60,7 @@ def get_data():
             END AS age
         FROM `tabGate Inward Entry` gie
         LEFT JOIN `tabPurchase Receipt` pr 
-            ON pr.custom_gate_inward = gie.name 
+            ON pr.custom_gate_entry_reference = gie.name 
             AND pr.docstatus < 2
         WHERE gie.docstatus = 1
         ORDER BY gie.date_time DESC
@@ -78,5 +76,8 @@ def get_data():
         # Calculate age for pending entries (days since gate entry)
         if row.get("age") is None and row.get("inward_status") == "Pending" and row.get("gate_entry_date"):
             row["age"] = date_diff(getdate(), getdate(row["gate_entry_date"]))
+        
+        # Add is_draft flag for JavaScript
+        row["is_draft"] = 1 if row.get("pr_docstatus") == 0 else 0
     
     return data
