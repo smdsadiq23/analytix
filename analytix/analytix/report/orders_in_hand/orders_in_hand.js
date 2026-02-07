@@ -23,12 +23,28 @@ frappe.query_reports["Orders in Hand"] = {
         if (!data) return default_formatter(value, row, column, data, default_formatter);
 
         const fieldname = column.fieldname;
+
+        // Helper function to wrap content with background color based on overdue_days
+        const wrapWithOverdueBg = (content) => {
+            const overdueDays = parseFloat(data.overdue_days) || 0;
+            let bg = "";
+            
+            if (overdueDays > 0) {
+                bg = "#ffcdd2"; // light red for positive (overdue)
+            } else if (overdueDays < 0) {
+                bg = "#c8e6c9"; // light green for negative (not yet due)
+            }
+            
+            if (!bg) return content;
+            return `<span style="display:block;background-color:${bg};padding:4px;">${content}</span>`;
+        };
+
         if (fieldname === "shipped_qty") {
             const shippedQty = parseFloat(data.shipped_qty) || 0;
             const salesOrder = data.sales_order_no || "";
             const styleNo = data.style_no || "";
 
-            return `
+            const inputHtml = `
                 <div class="editable-shipped-qty"
                      data-sales-order="${frappe.utils.escape_html(salesOrder)}"
                      data-style-no="${frappe.utils.escape_html(styleNo)}"
@@ -41,9 +57,12 @@ frappe.query_reports["Orders in Hand"] = {
                            style="width:80px;padding:2px;border:1px solid #ccc;">
                 </div>
             `;
+            return wrapWithOverdueBg(inputHtml);
         }
 
-        return default_formatter(value, row, column, data, default_formatter);
+        // Wrap all other columns with background color
+        const defaultHtml = default_formatter(value, row, column, data, default_formatter);
+        return wrapWithOverdueBg(defaultHtml);
     },
 
     onload: function(report) {
@@ -91,16 +110,12 @@ frappe.query_reports["Orders in Hand"] = {
                         $row.find('[data-fieldname="shipped_bal"] .dt-cell__content').text(
                             format_number(r.message.shipped_bal || 0)
                         );
-                        $row.find('[data-fieldname="overdue_status"] .dt-cell__content').text(
-                            r.message.overdue_status || ''
-                        );
 
                         // Update in-memory data
                         const rowIndex = $row.index();
                         if (report.data && report.data[rowIndex]) {
                             report.data[rowIndex].shipped_qty = new_value;
                             report.data[rowIndex].shipped_bal = r.message.shipped_bal;
-                            report.data[rowIndex].overdue_status = r.message.overdue_status;
                             report.data[rowIndex].ship_record = r.message.record;
                         }
                     } else {

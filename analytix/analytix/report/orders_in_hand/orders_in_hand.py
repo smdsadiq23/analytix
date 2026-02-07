@@ -209,6 +209,8 @@ def save_shipped_qty(data):
                 delivery_date = getdate(delivery_date)
                 if delivery_date < today:
                     overdue_days = (today - delivery_date).days
+                elif delivery_date > today:
+                    overdue_days = -(delivery_date - today).days
 
             result.update({
                 "shipped_bal": shipped_bal,
