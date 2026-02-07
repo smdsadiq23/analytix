@@ -27,7 +27,7 @@ def get_columns():
         {"label": _("UOM"), "fieldname": "uom", "fieldtype": "Data", "width": 80},
         {"label": _("Shipped Qty"), "fieldname": "shipped_qty", "fieldtype": "Float", "width": 100},
         {"label": _("Ship Bal"), "fieldname": "shipped_bal", "fieldtype": "Float", "width": 100},
-        {"label": _("Overdue Status"), "fieldname": "overdue_status", "fieldtype": "Data", "width": 120},
+        {"label": _("Overdue Days"), "fieldname": "overdue_days", "fieldtype": "Int", "width": 120},
         {"label": _("Ship Record"), "fieldname": "ship_record", "fieldtype": "Link", "options": "Sales Order Ship Qty", "hidden": 1},
     ]
 
@@ -126,24 +126,20 @@ def get_data(filters):
         if shipped_qty >= order_qty:
             continue  # ← Skip this row
 
-        # ✅ ONLY INCLUDE INCOMPLETE ORDERS
         delivery_date = row.get("delivery_date")
+        overdue_days = 0
+
         if delivery_date:
             delivery_date = getdate(delivery_date)
-            if delivery_date > today:
-                overdue_status = "No"
-            else:
-                overdue_status = "Yes"
-        else:
-            # If no delivery date, treat as overdue → "No"
-            overdue_status = "Yes"
+            if delivery_date < today:
+                overdue_days = (today - delivery_date).days
 
         row.update({
             "production_qty": production_qty,
             "shipped_qty": shipped_qty,
             "ship_record": shipped_data["ship_record"],
             "shipped_bal": order_qty - shipped_qty,
-            "overdue_status": overdue_status  # ← "Yes" or "No"
+            "overdue_days": overdue_days
         })
 
         final_rows.append(row)
@@ -204,22 +200,19 @@ def save_shipped_qty(data):
             order_qty = float(data.get("order_qty") or 0)
             shipped_qty_float = float(shipped_qty) if shipped_qty not in [None, ''] else 0
             shipped_bal = order_qty - shipped_qty_float
-
+            
             delivery_date = data.get("delivery_date")
             today = getdate(nowdate())
 
+            overdue_days = 0
             if delivery_date:
                 delivery_date = getdate(delivery_date)
                 if delivery_date < today:
-                    overdue_status = "Shipped" if shipped_qty_float >= order_qty else "Overdue"
-                else:
-                    overdue_status = "Shipped" if shipped_qty_float >= order_qty else "On Track"
-            else:
-                overdue_status = "Shipped" if shipped_qty_float >= order_qty else "Pending"
+                    overdue_days = (today - delivery_date).days
 
             result.update({
                 "shipped_bal": shipped_bal,
-                "overdue_status": overdue_status
+                "overdue_days": overdue_days
             })
 
         return result
