@@ -158,19 +158,19 @@ def get_cutting_data(to_date, unit=None):
     query = f"""
         SELECT
             cci.sales_order AS ocn,
-            soi.custom_style AS style,
+            cd.item_code AS style,
             fbu.factory_name,
             SUM(cci.confirmed_quantity) AS cut_quantity,
             DATE(con.creation) AS scan_date
         FROM `tabCut Confirmation Item` cci
         INNER JOIN `tabCut Confirmation` con 
             ON con.name = cci.parent
+        INNER JOIN `tabCut Docket` cd
+            ON cd.name = con.cut_po_number
         LEFT JOIN `tabFactory Business Unit` fbu 
             ON fbu.name = con.factory_business_unit
-        INNER JOIN `tabSales Order Item` soi
-            ON soi.parent = cci.sales_order AND soi.item_code = cci.item_code
         WHERE {where_clause}
-        GROUP BY cci.sales_order, soi.custom_style, fbu.factory_name, DATE(con.creation)
+        GROUP BY cci.sales_order, cd.item_code, fbu.factory_name, DATE(con.creation)
     """
     return frappe.db.sql(query, values, as_dict=True)
 
@@ -195,7 +195,7 @@ def get_sewing_finishing_data(to_date, unit=None):
     query = f"""
         SELECT 
             tbc.sales_order AS ocn,
-            soi.custom_style AS style,
+            pi.item_code AS style,
             fbu.factory_name,
             pi.quantity,
             DATE(isl.creation) AS scan_date,
@@ -213,8 +213,6 @@ def get_sewing_finishing_data(to_date, unit=None):
             ON ckp.name = ckd.parent
         LEFT JOIN `tabFactory Business Unit` fbu 
             ON fbu.name = ckp.factory_business_unit
-        INNER JOIN `tabSales Order Item` soi
-            ON soi.parent = tbc.sales_order AND soi.item_code = pi.item_code
         WHERE {where_clause}
     """
     return frappe.db.sql(query, values, as_dict=True)
