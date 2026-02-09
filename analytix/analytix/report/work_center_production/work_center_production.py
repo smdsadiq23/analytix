@@ -195,7 +195,7 @@ def get_sewing_finishing_data(to_date, unit=None):
     query = f"""
         SELECT 
             tbc.sales_order AS ocn,
-            pi.item_code AS style,
+            ckp.style AS style,
             fbu.factory_name,
             pi.quantity,
             DATE(isl.creation) AS scan_date,
