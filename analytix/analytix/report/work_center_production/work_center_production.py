@@ -158,7 +158,7 @@ def get_cutting_data(to_date, unit=None):
     query = f"""
         SELECT
             cci.sales_order AS ocn,
-            cd.item_code AS style,
+            cd.style_no AS style,
             fbu.factory_name,
             SUM(cci.confirmed_quantity) AS cut_quantity,
             DATE(con.creation) AS scan_date
@@ -170,7 +170,7 @@ def get_cutting_data(to_date, unit=None):
         LEFT JOIN `tabFactory Business Unit` fbu 
             ON fbu.name = con.factory_business_unit
         WHERE {where_clause}
-        GROUP BY cci.sales_order, cd.item_code, fbu.factory_name, DATE(con.creation)
+        GROUP BY cci.sales_order, cd.style, fbu.factory_name, DATE(con.creation)
     """
     return frappe.db.sql(query, values, as_dict=True)
 
