@@ -9,19 +9,27 @@ def execute(filters=None):
 
     as_on_date = frappe.utils.getdate(filters.as_on_date or date.today())
     unit = filters.get("unit")  # optional string
-    ocn = filters.get("ocn")    # required string
-
-    if not ocn:
-        return get_columns(), [], "Please select an OCN (Sales Order)."
-
-    # Fetch base order info
-    order_info = get_sales_order_info(ocn)
-    if not order_info:
-        return get_columns(), [], "No matching Sales Order found."
 
     # Fetch production data — ALL history up to as_on_date
-    cutting_rows = get_cutting_data(as_on_date, ocn, unit)
-    sew_fin_rows = get_sewing_finishing_data(as_on_date, ocn, unit)
+    cutting_rows = get_cutting_data(as_on_date, unit)
+    sew_fin_rows = get_sewing_finishing_data(as_on_date, unit)
+
+    # Get only OCNs that had activity ON the selected date
+    active_ocns = set()
+    for row in cutting_rows:
+        if row.scan_date == as_on_date:
+            active_ocns.add(row.ocn)
+    for row in sew_fin_rows:
+        if row.scan_date == as_on_date:
+            active_ocns.add(row.ocn)
+
+    if not active_ocns:
+        return get_columns(), [], f"No production activity found on {as_on_date.strftime('%d %b %Y')}."
+
+    # Fetch base order info for active OCNs only
+    order_info = get_sales_order_info(list(active_ocns))
+    if not order_info:
+        return get_columns(), [], "No matching Sales Orders found."
 
     # Build summary
     summary = {}
@@ -41,9 +49,12 @@ def execute(filters=None):
                 "finishing_till_date": 0
             }
 
-    # Process Cutting
+    # Process Cutting - only for active OCNs
     for row in cutting_rows:
         ocn_key = row.ocn
+        if ocn_key not in active_ocns:
+            continue
+            
         style = next(iter(order_info.get(ocn_key, {}).keys()), "")
         key = (ocn_key, style)
         if key in summary:
@@ -52,9 +63,12 @@ def execute(filters=None):
                 summary[key]["cutting_on_date"] += row.cut_quantity
             summary[key]["cutting_till_date"] += row.cut_quantity
 
-    # Process Sewing & Finishing
+    # Process Sewing & Finishing - only for active OCNs
     for row in sew_fin_rows:
         ocn_key = row.ocn
+        if ocn_key not in active_ocns:
+            continue
+            
         style = next(iter(order_info.get(ocn_key, {}).keys()), "")
         key = (ocn_key, style)
         if key in summary:
@@ -80,12 +94,14 @@ def execute(filters=None):
     data = list(summary.values())
     data.sort(key=lambda x: (x["unit"], x["ocn"], x["style"]))
 
-    message = f"Report as on {as_on_date.strftime('%d %b %Y')}"
+    message = f"Production report for {as_on_date.strftime('%d %b %Y')} - showing all OCNs with activity"
     return get_columns(), data, message
 
 
 def get_columns():
     return [
+        {"label": "Unit", "fieldname": "unit", "fieldtype": "Data", "width": 120},
+        {"label": "OCN", "fieldname": "ocn", "fieldtype": "Link", "options": "Sales Order", "width": 140},
         {"label": "Style", "fieldname": "style", "fieldtype": "Data", "width": 160},
         {"label": "Order Quantity", "fieldname": "order_quantity", "fieldtype": "Int", "width": 140},
         {"label": "Cutting - On Date", "fieldname": "cutting_on_date", "fieldtype": "Int", "width": 150},
@@ -97,8 +113,11 @@ def get_columns():
     ]
 
 
-def get_sales_order_info(ocn):
-    """Fetch style and order qty for a single OCN"""
+def get_sales_order_info(ocn_list):
+    """Fetch style and order qty for given OCN(s)"""
+    if not ocn_list:
+        return {}
+    
     query = """
         SELECT 
             so.name AS ocn,
@@ -106,10 +125,10 @@ def get_sales_order_info(ocn):
             SUM(soi.qty) AS order_qty
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
-        WHERE so.name = %(ocn)s
+        WHERE so.name IN %(ocn_list)s
         GROUP BY so.name, soi.custom_style
     """
-    rows = frappe.db.sql(query, {"ocn": ocn}, as_dict=True)
+    rows = frappe.db.sql(query, {"ocn_list": ocn_list}, as_dict=True)
     result = {}
     for r in rows:
         if r.ocn not in result:
@@ -118,16 +137,14 @@ def get_sales_order_info(ocn):
     return result
 
 
-def get_cutting_data(to_date, ocn, unit=None):
+def get_cutting_data(to_date, unit=None):
     conditions = [
         "cci.docstatus = 1",
         "con.docstatus = 1",
-        "cci.sales_order = %(ocn)s",
         "DATE(con.creation) <= %(to_date)s"
     ]
     values = {
-        "to_date": to_date,
-        "ocn": ocn
+        "to_date": to_date
     }
 
     if unit:
@@ -153,17 +170,15 @@ def get_cutting_data(to_date, ocn, unit=None):
     return frappe.db.sql(query, values, as_dict=True)
 
 
-def get_sewing_finishing_data(to_date, ocn, unit=None):
+def get_sewing_finishing_data(to_date, unit=None):
     conditions = [
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Activated', 'Pass')",
-        "tbc.sales_order = %(ocn)s",
         "DATE(isl.creation) <= %(to_date)s",
         "(isl.operation = 'Endline QC' OR isl.operation LIKE 'Finishing QC%%')"
     ]
     values = {
-        "to_date": to_date,
-        "ocn": ocn
+        "to_date": to_date
     }
 
     if unit:

@@ -1,7 +1,6 @@
 // Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 // For license information, please see license.txt
 
-
 frappe.query_reports["Work Center Production"] = {
 	filters: [
 		{
@@ -21,18 +20,6 @@ frappe.query_reports["Work Center Production"] = {
 					filters: { name: ["!=", ""] }
 				};
 			}
-		},
-		{
-			fieldname: "ocn",
-			label: __("OCN (Sales Order)"),
-			fieldtype: "Link",
-			options: "Sales Order",
-			get_query: () => {
-				return {
-					filters: { docstatus: 1 }
-				};
-			},
-			reqd: 1
 		}
 	],
 
