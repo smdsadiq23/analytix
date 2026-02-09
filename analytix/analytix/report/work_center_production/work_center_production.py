@@ -49,28 +49,30 @@ def execute(filters=None):
                 "finishing_till_date": 0
             }
 
-    # Process Cutting - only for active OCNs
+    # Process Cutting - with proper style matching
     for row in cutting_rows:
         ocn_key = row.ocn
+        style_key = row.style  # Now we get the actual style from the query
+        
         if ocn_key not in active_ocns:
             continue
-            
-        style = next(iter(order_info.get(ocn_key, {}).keys()), "")
-        key = (ocn_key, style)
+        
+        key = (ocn_key, style_key)
         if key in summary:
             summary[key]["unit"] = row.factory_name or "-"
             if row.scan_date == as_on_date:
                 summary[key]["cutting_on_date"] += row.cut_quantity
             summary[key]["cutting_till_date"] += row.cut_quantity
 
-    # Process Sewing & Finishing - only for active OCNs
+    # Process Sewing & Finishing - with proper style matching
     for row in sew_fin_rows:
         ocn_key = row.ocn
+        style_key = row.style  # Now we get the actual style from the query
+        
         if ocn_key not in active_ocns:
             continue
-            
-        style = next(iter(order_info.get(ocn_key, {}).keys()), "")
-        key = (ocn_key, style)
+        
+        key = (ocn_key, style_key)
         if key in summary:
             summary[key]["unit"] = row.factory_name or "-"
             if row.operation == "Endline QC":
@@ -156,6 +158,7 @@ def get_cutting_data(to_date, unit=None):
     query = f"""
         SELECT
             cci.sales_order AS ocn,
+            soi.custom_style AS style,
             fbu.factory_name,
             SUM(cci.confirmed_quantity) AS cut_quantity,
             DATE(con.creation) AS scan_date
@@ -164,8 +167,10 @@ def get_cutting_data(to_date, unit=None):
             ON con.name = cci.parent
         LEFT JOIN `tabFactory Business Unit` fbu 
             ON fbu.name = con.factory_business_unit
+        INNER JOIN `tabSales Order Item` soi
+            ON soi.parent = cci.sales_order AND soi.item_code = cci.item_code
         WHERE {where_clause}
-        GROUP BY cci.sales_order, fbu.factory_name, DATE(con.creation)
+        GROUP BY cci.sales_order, soi.custom_style, fbu.factory_name, DATE(con.creation)
     """
     return frappe.db.sql(query, values, as_dict=True)
 
@@ -190,6 +195,7 @@ def get_sewing_finishing_data(to_date, unit=None):
     query = f"""
         SELECT 
             tbc.sales_order AS ocn,
+            soi.custom_style AS style,
             fbu.factory_name,
             pi.quantity,
             DATE(isl.creation) AS scan_date,
@@ -207,6 +213,8 @@ def get_sewing_finishing_data(to_date, unit=None):
             ON ckp.name = ckd.parent
         LEFT JOIN `tabFactory Business Unit` fbu 
             ON fbu.name = ckp.factory_business_unit
+        INNER JOIN `tabSales Order Item` soi
+            ON soi.parent = tbc.sales_order AND soi.item_code = pi.item_code
         WHERE {where_clause}
     """
     return frappe.db.sql(query, values, as_dict=True)
