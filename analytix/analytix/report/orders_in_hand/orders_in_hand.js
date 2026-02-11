@@ -24,21 +24,6 @@ frappe.query_reports["Orders in Hand"] = {
 
         const fieldname = column.fieldname;
 
-        // Helper function to wrap content with background color based on overdue_days
-        const wrapWithOverdueBg = (content) => {
-            const overdueDays = parseFloat(data.overdue_days) || 0;
-            let bg = "";
-            
-            if (overdueDays > 0) {
-                bg = "#ffcdd2"; // light red for positive (overdue)
-            } else if (overdueDays < 0) {
-                bg = "#c8e6c9"; // light green for negative (not yet due)
-            }
-            
-            if (!bg) return content;
-            return `<span style="display:block;background-color:${bg};padding:4px;">${content}</span>`;
-        };
-
         if (fieldname === "shipped_qty") {
             const shippedQty = parseFloat(data.shipped_qty) || 0;
             const salesOrder = data.sales_order_no || "";
@@ -57,12 +42,27 @@ frappe.query_reports["Orders in Hand"] = {
                            style="width:80px;padding:2px;border:1px solid #ccc;">
                 </div>
             `;
-            return wrapWithOverdueBg(inputHtml);
+            return inputHtml;
         }
 
-        // Wrap all other columns with background color
-        const defaultHtml = default_formatter(value, row, column, data, default_formatter);
-        return wrapWithOverdueBg(defaultHtml);
+        // Apply red/green font color only to overdue_days column
+        if (fieldname === "overdue_days") {
+            const overdueDays = parseFloat(data.overdue_days) || 0;
+            let color = "";
+            
+            if (overdueDays > 0) {
+                color = "#d32f2f"; // red for positive (overdue)
+            } else if (overdueDays < 0) {
+                color = "#388e3c"; // green for negative (not yet due)
+            }
+            
+            const defaultHtml = default_formatter(value, row, column, data, default_formatter);
+            if (!color) return defaultHtml;
+            return `<span style="color:${color};font-weight:600;">${defaultHtml}</span>`;
+        }
+
+        // All other columns - no background color
+        return default_formatter(value, row, column, data, default_formatter);
     },
 
     onload: function(report) {

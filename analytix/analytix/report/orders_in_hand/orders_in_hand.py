@@ -133,6 +133,8 @@ def get_data(filters):
             delivery_date = getdate(delivery_date)
             if delivery_date < today:
                 overdue_days = (today - delivery_date).days
+            elif delivery_date > today:
+                overdue_days = -(delivery_date - today).days
 
         row.update({
             "production_qty": production_qty,
@@ -201,20 +203,20 @@ def save_shipped_qty(data):
             shipped_qty_float = float(shipped_qty) if shipped_qty not in [None, ''] else 0
             shipped_bal = order_qty - shipped_qty_float
             
-            delivery_date = data.get("delivery_date")
-            today = getdate(nowdate())
+            # delivery_date = data.get("delivery_date")
+            # today = getdate(nowdate())
 
-            overdue_days = 0
-            if delivery_date:
-                delivery_date = getdate(delivery_date)
-                if delivery_date < today:
-                    overdue_days = (today - delivery_date).days
-                elif delivery_date > today:
-                    overdue_days = -(delivery_date - today).days
+            # overdue_days = 0
+            # if delivery_date:
+            #     delivery_date = getdate(delivery_date)
+            #     if delivery_date < today:
+            #         overdue_days = (today - delivery_date).days
+            #     elif delivery_date > today:
+            #         overdue_days = -(delivery_date - today).days
 
             result.update({
                 "shipped_bal": shipped_bal,
-                "overdue_days": overdue_days
+                # "overdue_days": overdue_days
             })
 
         return result
