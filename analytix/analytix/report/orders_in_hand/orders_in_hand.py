@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, nowdate
 import json
+from typing import Any, Dict
 
 
 def execute(filters=None):
@@ -150,7 +151,7 @@ def get_data(filters):
 
     return final_rows
 
-def update_shipped_qty(sales_order, style_no, shipped_qty):
+def update_shipped_qty(sales_order, style_no, shipped_qty) -> Dict[str, Any]:
     try:
         if not sales_order or not style_no:
             frappe.throw("Sales Order and Style No are required")
