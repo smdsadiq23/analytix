@@ -17,6 +17,7 @@ def execute(filters=None):
 def get_columns():
     return [
         {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer", "width": 150},
+        {"label": _("Customer PO"), "fieldname": "customer_po", "fieldtype": "Data", "width": 120},
         {"label": _("Sales Order No"), "fieldname": "sales_order_no", "fieldtype": "Link", "options": "Sales Order", "width": 120},
         {"label": _("Style No"), "fieldname": "style_no", "fieldtype": "Data", "width": 120},
         {"label": _("Season"), "fieldname": "season", "fieldtype": "Data", "width": 100},  # ← NEW COLUMN
@@ -50,6 +51,7 @@ def get_data(filters):
         SELECT
             so.customer AS customer,
             so.name AS sales_order_no,
+            so.po_no AS customer_po,
             sod.custom_style AS style_no,
             COALESCE(sm.custom_season, '') AS season, 
             so.transaction_date AS order_received_date,
@@ -60,7 +62,7 @@ def get_data(filters):
         INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
         LEFT JOIN `tabStyle Master` sm ON sm.name = sod.custom_style
         WHERE {where_clause}
-        GROUP BY so.name, so.customer, sod.custom_style, sod.uom, 
+        GROUP BY so.customer, so.po_no, so.name, sod.custom_style, sod.uom, 
                  so.transaction_date, so.delivery_date
         ORDER BY so.transaction_date DESC, so.name, sod.custom_style
     """
