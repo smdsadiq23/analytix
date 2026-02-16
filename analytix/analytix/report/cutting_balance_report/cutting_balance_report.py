@@ -17,10 +17,10 @@ def get_columns():
         {"label": _("Unit"), "fieldname": "unit", "fieldtype": "Data", "width": 120},
         {"label": _("PCD"), "fieldname": "pcd", "fieldtype": "Date", "width": 100},
         {"label": _("Delivery Date"), "fieldname": "delivery_date", "fieldtype": "Date", "width": 100},
-        {"label": _("Order Quantity"), "fieldname": "order_quantity", "fieldtype": "Float", "width": 120},
+        {"label": _("Order Quantity"), "fieldname": "order_quantity", "fieldtype": "Int", "width": 120},
         {"label": _("Fabric Available"), "fieldname": "fabric_available", "fieldtype": "Data", "width": 120},
-        {"label": _("Cut Quantity"), "fieldname": "cut_quantity", "fieldtype": "Float", "width": 110},
-        {"label": _("Cut Balance against Order Qty"), "fieldname": "cut_balance", "fieldtype": "Float", "width": 180},
+        {"label": _("Cut Quantity"), "fieldname": "cut_quantity", "fieldtype": "Int", "width": 110},
+        {"label": _("Cut Balance against Order Qty"), "fieldname": "cut_balance", "fieldtype": "Int", "width": 180},
         {"label": _("Remarks"), "fieldname": "remarks", "fieldtype": "Data", "width": 200},
     ]
 
