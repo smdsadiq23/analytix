@@ -86,10 +86,11 @@ def get_data():
     cut_data = frappe.db.sql("""
         SELECT 
             cci.sales_order,
-            cc.factory_business_unit AS unit,
+            fbu.factory_name AS unit,
             SUM(cci.confirmed_quantity) AS cut_qty
         FROM `tabCut Confirmation Item` cci
         LEFT JOIN `tabCut Confirmation` cc ON cci.parent = cc.name
+        LEFT JOIN `tabFactory Business Unit` fbu ON cc.factory_business_unit = fbu.name
         WHERE cc.creation >= '2026-02-01'
         GROUP BY cci.sales_order, cc.factory_business_unit
     """, as_dict=1)
