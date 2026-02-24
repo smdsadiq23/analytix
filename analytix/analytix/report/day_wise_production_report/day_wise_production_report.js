@@ -4,5 +4,15 @@
 frappe.query_reports["Day Wise Production Report"] = {
 	"filters": [
 
-	]
+	],
+
+  onload(report) {
+    CX.mountBreadcrumb({
+      wrapper: report.page.wrapper || report.page.$wrapper,
+      trail: [
+        { label: "KPI Hub", href: "/app/kpi-hub" },
+        { label: "Day Wise Production Report" }
+      ]
+    });
+  }	
 };
