@@ -187,6 +187,8 @@ def get_data(filters):
             completed_percent = round((completed_qty / order_qty) * 100, 2)
         else:
             completed_percent = 0.0
+
+        completed_percent_str = f"{completed_percent:.1f}%"
         
         # Format delivery_date to dd-mm-yyyy
         delivery_date = ""
@@ -205,7 +207,7 @@ def get_data(filters):
             "order_qty": order_qty,
             "completed_qty": completed_qty,
             "balance_qty": balance_qty,
-            "completed_percent": completed_percent
+            "completed_percent": completed_percent_str
         }
         result.append(row)
     
