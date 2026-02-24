@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-11-06 12:44:19.578296",
+ "modified": "2026-01-27 19:52:46.835837",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Rework Percentage",
@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "KPI Viewers"
   }
  ],
  "timeout": 0
