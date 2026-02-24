@@ -94,7 +94,7 @@ def get_order_map(filters):
         INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
         INNER JOIN `tabItem` itm ON itm.name = tor.item
         INNER JOIN `tabStyle Master` stm ON stm.name = itm.custom_style_master
-        WHERE {where_clause}
+        WHERE tbc.parentfield='bundle_configurations' AND {where_clause}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, 
                  so.customer_name, stm.custom_season
     """
@@ -137,7 +137,7 @@ def get_production_data(filters):
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor ON tor.name = pi.tracking_order
-        INNER JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.parent = tor.name
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.parent = tor.name AND parentfield='bundle_configurations'
         INNER JOIN `tabItem` itm ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
