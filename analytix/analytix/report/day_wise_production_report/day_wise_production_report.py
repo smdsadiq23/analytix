@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import formatdate
 
 def execute(filters=None):
     if not filters:
@@ -15,7 +16,8 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "Process Date", "fieldname": "process_date", "fieldtype": "Date", "width": 110},
+        {"label": "Date", "fieldname": "process_date", "fieldtype": "Date", "width": 110},
+        {"label": "Delivery Date", "fieldname": "delivery_date", "fieldtype": "Data", "width": 150},
         {"label": "Department", "fieldname": "department", "fieldtype": "Data", "width": 150},
         {"label": "Buyer", "fieldname": "buyer", "fieldtype": "Data", "width": 150},
         {"label": "Season", "fieldname": "season", "fieldtype": "Data", "width": 100},
@@ -47,6 +49,7 @@ def get_order_map(filters):
             itm.custom_colour_name AS colour,
             tbc.size AS size,
             so.customer_name AS buyer,
+            DATE(so.delivery_date) as delivery_date,
             stm.custom_season AS season,
             COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -143,9 +146,15 @@ def get_data(filters):
             completed_percent = round((completed_qty / order_qty) * 100, 2)
         else:
             completed_percent = 0.0
+
+        # Format delivery_date to dd-mm-yyyy
+        delivery_date = ""
+        if order_info.delivery_date:
+            delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")            
             
         row = {
             "process_date": log.process_date,
+            "delivery_date": delivery_date,
             "department": log.department,
             "buyer": order_info.buyer,
             "season": order_info.season,
