@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-28 22:55:51.394444",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "custom_process",
+  "custom_pcs",
+  "custom_price"
+ ],
+ "fields": [
+  {
+   "fieldname": "custom_process",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Process",
+   "read_only": 1
+  },
+  {
+   "fieldname": "custom_pcs",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Pcs"
+  },
+  {
+   "fieldname": "custom_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Price"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-01-29 16:12:10.458488",
+ "modified_by": "Administrator",
+ "module": "AnalytiX",
+ "name": "CMT Process Costing",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

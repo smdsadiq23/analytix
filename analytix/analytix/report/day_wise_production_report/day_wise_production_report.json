@@ -1,0 +1,36 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2026-02-24 11:08:20.341534",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "javascript": "frappe.query_reports[\"Production Completion Status\"] = {\r\n    filters: [\r\n        {\r\n            fieldname: \"date\",\r\n            label: \"Date\",\r\n            fieldtype: \"Date\"\r\n        },\r\n        {\r\n            fieldname: \"department\",\r\n            label: \"Department\",\r\n            fieldtype: \"Link\",\r\n            options: \"Physical Cell\"\r\n        },\r\n        {\r\n            fieldname: \"buyer\",\r\n            label: \"Buyer\",\r\n            fieldtype: \"Link\",\r\n            options: \"Customer\"\r\n        },\r\n        {\r\n            fieldname: \"style\",\r\n            label: \"Style\",\r\n            fieldtype: \"Link\",\r\n            options: \"Style Master\"\r\n        }\r\n    ],\r\n\r\n    formatter: function(value, row, column, data, default_formatter) {\r\n        value = default_formatter(value, row, column, data);\r\n\r\n        if (column.fieldname === \"completed_percent\" && data) {\r\n            let percent = data.completed_percent || 0;\r\n\r\n            if (percent < 100) {\r\n                value = `<span style=\"color:#d32f2f;font-weight:bold\">${percent}%</span>`;\r\n            } else {\r\n                value = `<span style=\"color:#2e7d32;font-weight:bold\">${percent}%</span>`;\r\n            }\r\n        }\r\n\r\n        return value;\r\n    }\r\n};",
+ "letter_head": null,
+ "modified": "2026-02-24 11:11:25.696038",
+ "modified_by": "Administrator",
+ "module": "AnalytiX",
+ "name": "Day Wise Production Report",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "ref_doctype": "Sales Order",
+ "report_name": "Day Wise Production Report",
+ "report_script": "import frappe\r\n\r\ndef execute(filters=None):\r\n    if not filters:\r\n        filters = {}\r\n\r\n    columns = get_columns()\r\n    data = get_data(filters)\r\n\r\n    return columns, data\r\n\r\n\r\ndef get_columns():\r\n    return [\r\n        {\r\n            \"label\": \"Process Date\",\r\n            \"fieldname\": \"process_date\",\r\n            \"fieldtype\": \"Date\",\r\n            \"width\": 110\r\n        },\r\n        {\r\n            \"label\": \"Department\",\r\n            \"fieldname\": \"department\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 140\r\n        },\r\n        {\r\n            \"label\": \"Buyer\",\r\n            \"fieldname\": \"buyer\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 160\r\n        },\r\n        {\r\n            \"label\": \"Season\",\r\n            \"fieldname\": \"season\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 120\r\n        },\r\n        {\r\n            \"label\": \"Style\",\r\n            \"fieldname\": \"style\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 140\r\n        },\r\n        {\r\n            \"label\": \"Colour\",\r\n            \"fieldname\": \"colour\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 120\r\n        },\r\n        {\r\n            \"label\": \"Size\",\r\n            \"fieldname\": \"size\",\r\n            \"fieldtype\": \"Data\",\r\n            \"width\": 80\r\n        },\r\n        {\r\n            \"label\": \"Order Qty\",\r\n            \"fieldname\": \"order_qty\",\r\n            \"fieldtype\": \"Int\",\r\n            \"width\": 110\r\n        },\r\n        {\r\n            \"label\": \"Completed Qty\",\r\n            \"fieldname\": \"completed_qty\",\r\n            \"fieldtype\": \"Int\",\r\n            \"width\": 120\r\n        },\r\n        {\r\n            \"label\": \"Completed %\",\r\n            \"fieldname\": \"completed_percent\",\r\n            \"fieldtype\": \"Percent\",\r\n            \"width\": 120\r\n        }\r\n    ]\r\n\r\n\r\ndef get_data(filters):\r\n    conditions = []\r\n\r\n    if filters.get(\"buyer\"):\r\n        conditions.append(\"so.customer_name = %(buyer)s\")\r\n\r\n    if filters.get(\"process\"):\r\n        conditions.append(\"pc.name = %(process)s\")\r\n\r\n    if filters.get(\"style\"):\r\n        conditions.append(\"itm.custom_style_master = %(style)s\")\r\n\r\n    condition_sql = \"\"\r\n    if conditions:\r\n        condition_sql = \" AND \" + \" AND \".join(conditions)\r\n\r\n    query = f\"\"\"\r\n        SELECT\r\n            DATE(isl.logged_time) AS process_date,\r\n            pc.cell_name AS department,\r\n            so.customer_name AS buyer,\r\n            stm.custom_season AS season,\r\n            itm.custom_style_master AS style,\r\n            itm.custom_colour_name AS colour,\r\n            tbc.size AS size,\r\n            COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty,\r\n            COALESCE(SUM(pi.quantity), 0) AS completed_qty,\r\n            CASE \r\n                WHEN COALESCE(SUM(soi.custom_order_qty), 0) = 0 THEN 0\r\n                ELSE \r\n                    ROUND(\r\n                        (COALESCE(SUM(pi.quantity), 0) / \r\n                        COALESCE(SUM(soi.custom_order_qty), 0)) * 100, 2\r\n                    )\r\n            END AS completed_percent\r\n        FROM `tabTracking Order Bundle Configuration` tbc\r\n        INNER JOIN `tabTracking Order` tor\r\n            ON tor.name = tbc.parent\r\n            AND tor.item IS NOT NULL\r\n            AND tor.last_operation IS NOT NULL\r\n        INNER JOIN `tabItem` itm\r\n            ON itm.name = tor.item\r\n        INNER JOIN `tabProduction Item` pi\r\n            ON pi.tracking_order = tor.name\r\n            AND pi.bundle_configuration = tbc.name\r\n        INNER JOIN `tabStyle Master` stm\r\n            ON stm.name = itm.custom_style_master\r\n        INNER JOIN `tabTracking Component` tc \r\n            ON tc.name = pi.component AND tc.is_main = 1\r\n        INNER JOIN `tabItem Scan Log` isl\r\n            ON isl.production_item = pi.name\r\n            AND isl.operation = tor.last_operation\r\n            AND isl.log_status = 'Completed'\r\n            AND isl.status IN ('Counted', 'Activated', 'Pass')\r\n        INNER JOIN `tabPhysical Cell` pc \r\n            ON pc.name = isl.physical_cell\r\n        INNER JOIN `tabSales Order` so\r\n            ON so.name = tbc.sales_order\r\n        INNER JOIN `tabSales Order Item` soi\r\n            ON soi.parent = so.name\r\n            AND soi.custom_style = itm.custom_style_master\r\n            AND soi.custom_color = itm.custom_colour_name\r\n            AND soi.custom_size = tbc.size\r\n        WHERE 1=1 {condition_sql}\r\n        GROUP BY \r\n            DATE(isl.logged_time),\r\n            pc.cell_name,\r\n            so.customer_name,\r\n            stm.custom_season,\r\n            itm.custom_style_master,\r\n            itm.custom_colour_name,\r\n            tbc.size\r\n        ORDER BY process_date, department\r\n    \"\"\"\r\n\r\n    return frappe.db.sql(query, filters, as_dict=True)",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "Factory Manager"
+  },
+  {
+   "role": "Can Cut User"
+  },
+  {
+   "role": "Can Cut User"
+  }
+ ],
+ "timeout": 0
+}
