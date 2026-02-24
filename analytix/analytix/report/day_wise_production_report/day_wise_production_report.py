@@ -31,8 +31,7 @@ def get_columns():
 
 def get_order_map(filters):
     """
-    Fetches static order details (Qty, Buyer, Style) mapped by Bundle Configuration.
-    This query is lightweight compared to scan logs.
+    Fetches static order details mapped by (style, colour, size) combination.
     """
     conditions = []
     if filters.get("buyer"):
@@ -44,12 +43,11 @@ def get_order_map(filters):
 
     query = f"""
         SELECT
-            tbc.name AS bundle_config,
-            so.customer_name AS buyer,
-            stm.custom_season AS season,
             itm.custom_style_master AS style,
             itm.custom_colour_name AS colour,
             tbc.size AS size,
+            so.customer_name AS buyer,
+            stm.custom_season AS season,
             COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabSales Order` so ON so.name = tbc.sales_order
@@ -58,82 +56,86 @@ def get_order_map(filters):
         INNER JOIN `tabItem` itm ON itm.name = tor.item
         INNER JOIN `tabStyle Master` stm ON stm.name = itm.custom_style_master
         WHERE {where_clause}
-        GROUP BY tbc.name, so.customer_name, stm.custom_season, 
-                 itm.custom_style_master, itm.custom_colour_name, tbc.size
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, 
+                 so.customer_name, stm.custom_season
     """
     
     data = frappe.db.sql(query, filters, as_dict=True)
-    # Create a dictionary for O(1) lookup: { bundle_config: row_data }
-    return {row.bundle_config: row for row in data}
+    # Create dictionary keyed by (style, colour, size)
+    return {(row.style, row.colour, row.size): row for row in data}
 
 
 def get_production_data(filters):
     """
-    Fetches aggregated production scan data.
-    This isolates the heavy 'Item Scan Log' table joins.
+    Fetches aggregated production data grouped by date, department, style, colour, size.
     """
     conditions = []
     if filters.get("date"):
         conditions.append("DATE(isl.logged_time) = %(date)s")
     if filters.get("department"):
         conditions.append("pc.cell_name = %(department)s")
-    
-    # We also need to filter by bundle_config if the order map was filtered 
-    # to avoid fetching production for orders we won't display.
-    # However, to keep logic simple and robust, we fetch based on log filters 
-    # and merge later. If performance is critical, pass allowed bundle_configs here.
+    if filters.get("buyer"):
+        conditions.append("so.customer_name = %(buyer)s")
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     query = f"""
         SELECT
-            tbc.name AS bundle_config,
             DATE(isl.logged_time) AS process_date,
             pc.cell_name AS department,
+            itm.custom_style_master AS style,
+            itm.custom_colour_name AS colour,
+            tbc.size AS size,
             COALESCE(SUM(pi.quantity), 0) AS completed_qty
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor ON tor.name = pi.tracking_order
         INNER JOIN `tabTracking Order Bundle Configuration` tbc ON tbc.parent = tor.name
+        INNER JOIN `tabItem` itm ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabPhysical Cell First and Last Operation` pcflo ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabSales Order` so ON so.name = tbc.sales_order
         WHERE isl.operation = pcflo.last_operation
             AND isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Activated', 'Pass')
             AND {where_clause}
-        GROUP BY tbc.name, DATE(isl.logged_time), pc.cell_name
+        GROUP BY DATE(isl.logged_time), pc.cell_name, 
+                 itm.custom_style_master, itm.custom_colour_name, tbc.size
+        ORDER BY process_date DESC, pc.cell_name, itm.custom_style_master, tbc.size
     """
     
     return frappe.db.sql(query, filters, as_dict=True)
 
 
 def get_data(filters):
-    # 1. Fetch Order Master Data (Lightweight)
+    # Fetch Order Master Data
     order_map = get_order_map(filters)
     
     if not order_map:
         return []
 
-    # 2. Fetch Production Scan Data (Heavyweight, but aggregated)
+    # Fetch Production Scan Data
     production_logs = get_production_data(filters)
     
     result = []
     
-    # 3. Merge and Calculate in Python
+    # Merge and Calculate in Python
     for log in production_logs:
-        bundle_id = log.bundle_config
+        key = (log.style, log.colour, log.size)
         
-        # Skip if bundle config doesn't exist in our filtered order map
-        if bundle_id not in order_map:
+        # Skip if not in order map
+        if key not in order_map:
             continue
             
-        order_info = order_map[bundle_id]
+        order_info = order_map[key]
         
         order_qty = int(order_info.order_qty)
         completed_qty = int(log.completed_qty)
         
-        # Calculate Balance (Preserving original logic: Completed - Order)
+        # Calculate Balance (Completed - Order)
         balance_qty = completed_qty - order_qty
         
         # Calculate Percentage
@@ -147,17 +149,14 @@ def get_data(filters):
             "department": log.department,
             "buyer": order_info.buyer,
             "season": order_info.season,
-            "style": order_info.style,
-            "colour": order_info.colour,
-            "size": order_info.size,
+            "style": log.style,
+            "colour": log.colour,
+            "size": log.size,
             "order_qty": order_qty,
             "completed_qty": completed_qty,
             "balance_qty": balance_qty,
             "completed_percent": completed_percent
         }
         result.append(row)
-        
-    # Sort by date descending (matching original query behavior)
-    result.sort(key=lambda x: x["process_date"], reverse=True)
     
     return result
