@@ -7,39 +7,75 @@ from frappe.utils import formatdate
 def execute(filters=None):
     if not filters:
         filters = {}
-
+    
     columns = get_columns()
     data = get_data(filters)
-
+    
     return columns, data
 
 
-def get_columns():
+def get_filters():
+    """Define report filters - Frappe will auto-generate the filter UI"""
     return [
-        {"label": "Date", "fieldname": "process_date", "fieldtype": "Date", "width": 110},
-        {"label": "Delivery Date", "fieldname": "delivery_date", "fieldtype": "Data", "width": 150},
-        {"label": "Department", "fieldname": "department", "fieldtype": "Data", "width": 150},
+        {
+            "fieldname": "date",
+            "label": "Date",
+            "fieldtype": "Date",
+            "default": frappe.utils.today()
+        },
+        {
+            "fieldname": "physical_cell",
+            "label": "Department",
+            "fieldtype": "Link",
+            "options": "Physical Cell",
+            "reqd": 0
+        },
+        {
+            "fieldname": "buyer",
+            "label": "Buyer",
+            "fieldtype": "Link",
+            "options": "Customer",
+            "reqd": 0
+        },
+        {
+            "fieldname": "style",
+            "label": "Style",
+            "fieldtype": "Data",
+            "reqd": 0
+        }
+    ]
+
+
+def get_columns():
+    """Define columns with proper widths for alignment"""
+    return [
+        {"label": "Date", "fieldname": "process_date", "fieldtype": "Date", "width": 120},
+        {"label": "Delivery Date", "fieldname": "delivery_date", "fieldtype": "Data", "width": 130},
+        {"label": "Department", "fieldname": "department", "fieldtype": "Data", "width": 130},
         {"label": "Buyer", "fieldname": "buyer", "fieldtype": "Data", "width": 150},
         {"label": "Season", "fieldname": "season", "fieldtype": "Data", "width": 100},
-        {"label": "Style", "fieldname": "style", "fieldtype": "Data", "width": 130},
-        {"label": "Colour", "fieldname": "colour", "fieldtype": "Data", "width": 100},
+        {"label": "Style", "fieldname": "style", "fieldtype": "Data", "width": 140},
+        {"label": "Colour", "fieldname": "colour", "fieldtype": "Data", "width": 120},
         {"label": "Size", "fieldname": "size", "fieldtype": "Data", "width": 80},
-        {"label": "Order Qty", "fieldname": "order_qty", "fieldtype": "Int", "width": 110},
+        {"label": "Order Qty", "fieldname": "order_qty", "fieldtype": "Int", "width": 100},
         {"label": "Completed Qty", "fieldname": "completed_qty", "fieldtype": "Int", "width": 120},
-        {"label": "Balance Qty", "fieldname": "balance_qty", "fieldtype": "Int", "width": 120},
+        {"label": "Balance Qty", "fieldname": "balance_qty", "fieldtype": "Int", "width": 110},
         {"label": "Completed %", "fieldname": "completed_percent", "fieldtype": "Percent", "width": 120}
     ]
 
 
 def get_order_map(filters):
-    """
-    Fetches static order details mapped by (style, colour, size) combination.
-    """
+    """Fetches static order details mapped by (style, colour, size) combination."""
     conditions = []
+    params = {}
+    
     if filters.get("buyer"):
         conditions.append("so.customer_name = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+    
     if filters.get("style"):
         conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
@@ -49,7 +85,7 @@ def get_order_map(filters):
             itm.custom_colour_name AS colour,
             tbc.size AS size,
             so.customer_name AS buyer,
-            DATE(so.delivery_date) as delivery_date,
+            so.delivery_date as delivery_date,
             stm.custom_season AS season,
             COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty
         FROM `tabTracking Order Bundle Configuration` tbc
@@ -63,24 +99,30 @@ def get_order_map(filters):
                  so.customer_name, stm.custom_season
     """
     
-    data = frappe.db.sql(query, filters, as_dict=True)
-    # Create dictionary keyed by (style, colour, size)
+    data = frappe.db.sql(query, params, as_dict=True)
     return {(row.style, row.colour, row.size): row for row in data}
 
 
 def get_production_data(filters):
-    """
-    Fetches aggregated production data grouped by date, department, style, colour, size.
-    """
+    """Fetches aggregated production data grouped by date, department, style, colour, size."""
     conditions = []
+    params = {}
+    
     if filters.get("date"):
         conditions.append("DATE(isl.logged_time) = %(date)s")
+        params["date"] = filters["date"]
+    
     if filters.get("department"):
-        conditions.append("pc.cell_name = %(department)s")
+        conditions.append("pc.name = %(department)s")
+        params["department"] = filters["department"]
+    
     if filters.get("buyer"):
         conditions.append("so.customer_name = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+    
     if filters.get("style"):
         conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
@@ -110,7 +152,7 @@ def get_production_data(filters):
         ORDER BY process_date DESC, pc.cell_name, itm.custom_style_master, tbc.size
     """
     
-    return frappe.db.sql(query, filters, as_dict=True)
+    return frappe.db.sql(query, params, as_dict=True)
 
 
 def get_data(filters):
@@ -129,7 +171,6 @@ def get_data(filters):
     for log in production_logs:
         key = (log.style, log.colour, log.size)
         
-        # Skip if not in order map
         if key not in order_map:
             continue
             
@@ -138,7 +179,7 @@ def get_data(filters):
         order_qty = int(order_info.order_qty)
         completed_qty = int(log.completed_qty)
         
-        # Calculate Balance (Completed - Order)
+        # Calculate Balance
         balance_qty = completed_qty - order_qty
         
         # Calculate Percentage
@@ -146,11 +187,11 @@ def get_data(filters):
             completed_percent = round((completed_qty / order_qty) * 100, 2)
         else:
             completed_percent = 0.0
-
+        
         # Format delivery_date to dd-mm-yyyy
         delivery_date = ""
         if order_info.delivery_date:
-            delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")            
+            delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")
             
         row = {
             "process_date": log.process_date,
