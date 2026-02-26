@@ -65,6 +65,16 @@ frappe.query_reports["Knitting Data Entry"] = {
 
     // ── onload ────────────────────────────────────────────────────────────────
     onload(report) {
+        if (typeof CX !== "undefined" && CX.mountBreadcrumb) {
+            CX.mountBreadcrumb({
+                wrapper: report.page.wrapper || report.page.$wrapper,
+                trail: [
+                    { label: "KPI Hub", href: "/app/kpi-hub" },
+                    { label: "Knitting Data Entry" },
+                ],
+            });
+        }
+
         _injectStyles();
 
         if (!window._kdeListenerAttached) {
