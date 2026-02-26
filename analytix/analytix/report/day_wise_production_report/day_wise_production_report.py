@@ -17,11 +17,11 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "Date",                   "fieldname": "process_date",           "fieldtype": "Date",    "width": 120},
-        {"label": "Delivery Date",          "fieldname": "delivery_date",          "fieldtype": "Data",    "width": 130},
+        {"label": "Date",                   "fieldname": "process_date",           "fieldtype": "Date",    "width": 120},        
         {"label": "Department",             "fieldname": "department",             "fieldtype": "Data",    "width": 130},
         {"label": "Buyer",                  "fieldname": "buyer",                  "fieldtype": "Data",    "width": 150},
         {"label": "Season",                 "fieldname": "season",                 "fieldtype": "Data",    "width": 100},
+        {"label": "Delivery Date",          "fieldname": "delivery_date",          "fieldtype": "Data",    "width": 130},
         {"label": "Style",                  "fieldname": "style",                  "fieldtype": "Data",    "width": 140},
         {"label": "Colour",                 "fieldname": "colour",                 "fieldtype": "Data",    "width": 120},
         {"label": "Size",                   "fieldname": "size",                   "fieldtype": "Data",    "width": 80},
