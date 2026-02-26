@@ -107,7 +107,7 @@ def get_data(filters=None):
         SELECT
             isl.name                                        AS isl_name,
             DATE(isl.logged_time)                           AS process_date,
-            TIME(isl.logged_time)                           AS process_time,
+            TIME_FORMAT(isl.logged_time, '%H:%i:%s')        AS process_time,
             tt.tag_number                                   AS rfid_tag,
             so.customer_name                                AS buyer,
             itm.custom_style_master                         AS style,
