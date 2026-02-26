@@ -38,7 +38,7 @@ frappe.query_reports["Knitting Data Entry"] = {
                     </div>`;
         }
 
-        // ── Actual Weight: store plnd_weight so variance can be computed client-side
+        // ── Actual Weight: embed plnd_weight, tolerance and rfid_qty for client-side validation
         if (column.fieldname === "custom_actual_weight") {
             const display = (value !== null && value !== undefined && value !== "") ? value : "";
             return `<div class="kde-cell"
@@ -47,13 +47,15 @@ frappe.query_reports["Knitting Data Entry"] = {
                         data-fieldtype="Float"
                         data-label="Actual Weight"
                         data-value="${esc(value)}"
-                        data-plnd-weight="${esc(data.plnd_weight)}">
+                        data-plnd-weight="${esc(data.plnd_weight)}"
+                        data-weight-tolerance="${esc(data.weight_tolerance)}"
+                        data-rfid-qty="${esc(data.rfid_qty)}">
                         <span class="kde-label">${esc(display)}</span>
                         <i class="fa fa-pencil kde-icon"></i>
                     </div>`;
         }
 
-        // ── Variance: read-only, colour-coded
+        // ── Variance: read-only, red for any deviation, neutral for zero/empty
         if (column.fieldname === "variance") {
             return _varianceHTML(value, data.isl_name);
         }
@@ -73,12 +75,13 @@ frappe.query_reports["Knitting Data Entry"] = {
                 if (!cell) return;
                 e.stopImmediatePropagation();
                 _openDialog($(cell));
-            }, true); // capture phase
+            }, true); // capture phase — fires before DataTable's handler
         }
     },
 };
 
-// ── Variance cell HTML (shared by formatter + live update) ───────────────────
+// ── Variance cell HTML ────────────────────────────────────────────────────────
+// Both positive and negative variance = red (any deviation from plan is bad)
 
 function _varianceHTML(value, islName) {
     const esc = (v) => frappe.utils.escape_html(String(v ?? ""));
@@ -87,19 +90,34 @@ function _varianceHTML(value, islName) {
         return `<span class="kde-variance kde-var-empty" data-isl="${esc(islName)}">—</span>`;
     }
 
-    const num      = flt(value);
-    const rounded  = Math.round(num * 1000) / 1000;   // 3 decimal places
-    const sign     = num > 0 ? "+" : "";
-    const cls      = num > 0 ? "kde-var-pos" : num < 0 ? "kde-var-neg" : "kde-var-zero";
+    const num     = flt(value);
+    const rounded = Math.round(num * 1000) / 1000;
+    const sign    = num > 0 ? "+" : "";
+    const cls     = num === 0 ? "kde-var-zero" : "kde-var-diff"; // any deviation = red
 
     return `<span class="kde-variance ${cls}" data-isl="${esc(islName)}">${sign}${rounded}</span>`;
 }
 
-// ── Open dialog based on field type ──────────────────────────────────────────
+// ── Open dialog ───────────────────────────────────────────────────────────────
 
 function _openDialog($cell) {
-    const isl       = $cell.attr("data-isl");
     const fieldname = $cell.attr("data-fieldname");
+    const isl       = $cell.attr("data-isl");
+
+    // ── Guard: actual_qty must be saved before actual_weight can be entered ──
+    if (fieldname === "custom_actual_weight") {
+        const $qtyCell = $(`.kde-cell[data-fieldname="custom_actual_quantity"][data-isl="${CSS.escape(isl)}"]`);
+        const savedQty = $qtyCell.attr("data-value");
+
+        if (!savedQty || savedQty === "" || savedQty === "null") {
+            frappe.show_alert({
+                message: __("Please save Actual Qty before entering Actual Weight."),
+                indicator: "orange"
+            }, 5);
+            return; // block dialog from opening
+        }
+    }
+
     const fieldtype = $cell.attr("data-fieldtype");
     const label     = $cell.attr("data-label");
     const curValue  = $cell.attr("data-value");
@@ -125,6 +143,12 @@ function _openDialog($cell) {
             if (fieldtype === "Int"   && newVal !== null) newVal = cint(newVal);
             if (fieldtype === "Float" && newVal !== null) newVal = flt(newVal);
 
+            // ── Tolerance validation for actual_weight before saving ─────────
+            if (fieldname === "custom_actual_weight" && newVal !== null) {
+                const valid = _validateActualWeight(newVal, $cell);
+                if (!valid) return; // descriptive error already shown inside
+            }
+
             await _save(isl, fieldname, newVal, $cell);
         },
     });
@@ -132,7 +156,59 @@ function _openDialog($cell) {
     dlg.show();
 }
 
-// ── Persist + update cell (and variance if actual_weight changed) ─────────────
+// ── Tolerance validation ──────────────────────────────────────────────────────
+
+function _validateActualWeight(actualWeight, $cell) {
+    const isl        = $cell.attr("data-isl");
+    const plndWeight = flt($cell.attr("data-plnd-weight"));
+    const tolerance  = flt($cell.attr("data-weight-tolerance"));
+    const rfidQty    = cint($cell.attr("data-rfid-qty"));
+
+    // Read actual_qty that was saved — from the qty cell's data-value for this row
+    const $qtyCell  = $(`.kde-cell[data-fieldname="custom_actual_quantity"][data-isl="${CSS.escape(isl)}"]`);
+    const actualQty = cint($qtyCell.attr("data-value"));
+
+    const lower = plndWeight - tolerance;
+    const upper = plndWeight + tolerance;
+
+    // ✅ Exact match — always allow
+    if (actualWeight === plndWeight) return true;
+
+    // ✅ Within tolerance band — allow
+    if (actualWeight >= lower && actualWeight <= upper) return true;
+
+    // ⚠️ Below band — allow only if actual_qty < rfid_qty
+    if (actualWeight < lower) {
+        if (actualQty < rfidQty) return true;
+        frappe.show_alert({
+            message: __(
+                "Actual weight {0} is below the tolerance range ({1} to {2}). " +
+                "Actual qty ({3}) must be less than RFID qty ({4}) to save this weight.",
+                [actualWeight, lower.toFixed(3), upper.toFixed(3), actualQty, rfidQty]
+            ),
+            indicator: "red"
+        }, 8);
+        return false;
+    }
+
+    // ⚠️ Above band — allow only if actual_qty > rfid_qty
+    if (actualWeight > upper) {
+        if (actualQty > rfidQty) return true;
+        frappe.show_alert({
+            message: __(
+                "Actual weight {0} exceeds the tolerance range ({1} to {2}). " +
+                "Actual qty ({3}) must be greater than RFID qty ({4}) to save this weight.",
+                [actualWeight, lower.toFixed(3), upper.toFixed(3), actualQty, rfidQty]
+            ),
+            indicator: "red"
+        }, 8);
+        return false;
+    }
+
+    return true;
+}
+
+// ── Persist + live-update cell and variance ───────────────────────────────────
 
 async function _save(isl, fieldname, value, $cell) {
     $cell.css("opacity", 0.5);
@@ -156,13 +232,9 @@ async function _save(isl, fieldname, value, $cell) {
         if (fieldname === "custom_actual_weight") {
             const plndWeight = flt($cell.attr("data-plnd-weight"));
             const variance   = (value !== null) ? flt(value) - plndWeight : null;
-
-            // Frappe DataTable uses <div> rows, not <tr>, so search document-wide
-            // by data-isl — each isl_name is unique so this always hits exactly one cell
-            const $varianceCell = $(`.kde-variance[data-isl="${CSS.escape(isl)}"]`);
-
-            if ($varianceCell.length) {
-                $varianceCell.replaceWith(_varianceHTML(variance, isl));
+            const $varCell   = $(`.kde-variance[data-isl="${CSS.escape(isl)}"]`);
+            if ($varCell.length) {
+                $varCell.replaceWith(_varianceHTML(variance, isl));
             }
         }
 
@@ -220,8 +292,7 @@ function _injectStyles() {
         }
         .kde-var-empty { color: #aaa; }
         .kde-var-zero  { background: #f0f0f0; color: #555; }
-        .kde-var-pos   { background: #fff0f0; color: #d32f2f; }  /* over planned = red */
-        .kde-var-neg   { background: #f0fff4; color: #2e7d32; }  /* under planned = green */
+        .kde-var-diff  { background: #fff0f0; color: #d32f2f; } /* any deviation = red */
     `;
     document.head.appendChild(s);
 }

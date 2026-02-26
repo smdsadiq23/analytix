@@ -17,7 +17,7 @@ def get_columns():
             "fieldname": "isl_name",
             "fieldtype": "Data",
             "width": 0,
-            "hidden": 1,       # hidden but available in row data for save calls
+            "hidden": 1,
         },
         {
             "label": "Process Date",
@@ -67,6 +67,7 @@ def get_columns():
             "fieldtype": "Int",
             "width": 90,
         },
+        # ── Editable custom fields ──────────────────────────────────────────
         {
             "label": "Actual Qty",
             "fieldname": "custom_actual_quantity",
@@ -85,7 +86,7 @@ def get_columns():
             "fieldname": "plnd_weight",
             "fieldtype": "Float",
             "width": 140,
-        },        
+        },
         {
             "label": "Actual Weight",
             "fieldname": "custom_actual_weight",
@@ -97,7 +98,15 @@ def get_columns():
             "fieldname": "variance",
             "fieldtype": "Float",
             "width": 130,
-        }       
+        },
+        # Hidden — used only for client-side tolerance validation via data attribute
+        {
+            "label": "Weight Tolerance",
+            "fieldname": "weight_tolerance",
+            "fieldtype": "Float",
+            "width": 0,
+            "hidden": 1,
+        },
     ]
 
 
@@ -105,24 +114,25 @@ def get_data(filters=None):
     return frappe.db.sql(
         """
         SELECT
-            isl.name                                        AS isl_name,
-            DATE(isl.logged_time)                           AS process_date,
-            TIME_FORMAT(isl.logged_time, '%H:%i:%s')        AS process_time,
-            tt.tag_number                                   AS rfid_tag,
-            so.customer_name                                AS buyer,
-            itm.custom_style_master                         AS style,
-            itm.custom_colour_name                          AS colour,
-            tbc.size                                        AS size,
-            pi.quantity                                     AS rfid_qty,
-            (pi.quantity * bom.custom_final_piece_weight)   AS plnd_weight,
-            isl.custom_actual_quantity                      AS custom_actual_quantity,
-            isl.custom_operator                             AS custom_operator,
-            isl.custom_actual_weight                        AS custom_actual_weight,
+            isl.name                                                AS isl_name,
+            DATE(isl.logged_time)                                   AS process_date,
+            TIME_FORMAT(isl.logged_time, '%H:%i:%s')                AS process_time,
+            tt.tag_number                                           AS rfid_tag,
+            so.customer_name                                        AS buyer,
+            itm.custom_style_master                                 AS style,
+            itm.custom_colour_name                                  AS colour,
+            tbc.size                                                AS size,
+            pi.quantity                                             AS rfid_qty,
+            isl.custom_actual_quantity                              AS custom_actual_quantity,
+            isl.custom_operator                                     AS custom_operator,
+            (pi.quantity * wol.custom_planned_weight)               AS plnd_weight,
+            (pi.quantity * wol.custom_weight_tolerance)             AS weight_tolerance,
+            isl.custom_actual_weight                                AS custom_actual_weight,
             CASE
                 WHEN isl.custom_actual_weight IS NOT NULL
-                THEN isl.custom_actual_weight - (pi.quantity * bom.custom_final_piece_weight)
+                THEN isl.custom_actual_weight - (pi.quantity * wol.custom_planned_weight)
                 ELSE NULL
-            END                                             AS variance            
+            END                                                     AS variance
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi
             ON pi.name = isl.production_item
@@ -144,6 +154,8 @@ def get_data(filters=None):
             ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabSales Order` so
             ON so.name = tbc.sales_order
+        INNER JOIN `tabWork Order Line Item` wol
+            ON wol.parent = tbc.work_order AND wol.size = tbc.size
         WHERE pc.cell_name = 'KNITTING'
             AND isl.operation = 'KNITTING OUT'
             AND isl.log_status = 'Completed'
