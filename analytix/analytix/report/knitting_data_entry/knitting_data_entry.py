@@ -35,7 +35,7 @@ def get_columns():
             "label":     "RFID Tag",
             "fieldname": "rfid_tag",
             "fieldtype": "Data",
-            "width":     250,
+            "width":     100,
         },
         {
             "label":     "Buyer",

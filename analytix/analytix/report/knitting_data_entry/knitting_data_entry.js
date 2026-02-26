@@ -55,6 +55,12 @@ frappe.query_reports["Knitting Data Entry"] = {
                     </div>`;
         }
 
+        // ── RFID Tag: show right-side characters when truncated (direction: rtl)
+        if (column.fieldname === "rfid_tag") {
+            const esc = (v) => frappe.utils.escape_html(String(v ?? ""));
+            return `<div style="direction:rtl; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${esc(value)}">${esc(value)}</div>`;
+        }        
+
         // ── Variance: read-only, red for any deviation, neutral for zero/empty
         if (column.fieldname === "variance") {
             return _varianceHTML(value, data.isl_name);
