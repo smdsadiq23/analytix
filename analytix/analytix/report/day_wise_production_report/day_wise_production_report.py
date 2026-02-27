@@ -111,7 +111,7 @@ def get_production_data(filters):
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
         INNER JOIN `tabTracking Order Bundle Configuration` tbc
-            ON tbc.parent = tor.name AND tbc.parentfield = 'bundle_configurations'
+            ON tbc.parent = tor.name AND tbc.size = pi.size AND tbc.parentfield = 'bundle_configurations'
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
