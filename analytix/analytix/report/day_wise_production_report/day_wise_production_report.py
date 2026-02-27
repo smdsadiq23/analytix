@@ -67,8 +67,7 @@ def get_order_map(filters):
         INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
         INNER JOIN `tabItem` itm                ON itm.name = tor.item
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
-        WHERE tbc.parentfield = 'bundle_configurations'
-            AND {where_clause}
+        WHERE {where_clause}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
                  so.customer_name, stm.custom_season
     """
