@@ -158,7 +158,7 @@ def get_raw_data():
             AND isl.operation = 'KNITTING OUT'
             AND isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Pass')
-        ORDER BY process_date DESC
+        ORDER BY isl.logged_time DESC
         """,
         as_dict=True,
     )
