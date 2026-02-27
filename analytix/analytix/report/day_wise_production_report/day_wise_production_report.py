@@ -17,19 +17,20 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "Date",                   "fieldname": "process_date",           "fieldtype": "Date",    "width": 120},        
-        {"label": "Department",             "fieldname": "department",             "fieldtype": "Data",    "width": 130},
-        {"label": "Buyer",                  "fieldname": "buyer",                  "fieldtype": "Data",    "width": 150},
-        {"label": "Season",                 "fieldname": "season",                 "fieldtype": "Data",    "width": 100},
-        {"label": "Delivery Date",          "fieldname": "delivery_date",          "fieldtype": "Data",    "width": 130},
-        {"label": "Style",                  "fieldname": "style",                  "fieldtype": "Data",    "width": 140},
-        {"label": "Colour",                 "fieldname": "colour",                 "fieldtype": "Data",    "width": 120},
-        {"label": "Size",                   "fieldname": "size",                   "fieldtype": "Data",    "width": 80},
-        {"label": "Order Qty",              "fieldname": "order_qty",              "fieldtype": "Int",     "width": 100},
-        {"label": "Day Completed Qty",      "fieldname": "completed_qty",          "fieldtype": "Int",     "width": 140},
-        {"label": "Cumulative Completed",   "fieldname": "cumulative_completed_qty","fieldtype": "Int",    "width": 160},
-        {"label": "Balance Qty",            "fieldname": "balance_qty",            "fieldtype": "Int",     "width": 110},
-        {"label": "Completed %",            "fieldname": "completed_percent",      "fieldtype": "Percent", "width": 120},
+        {"label": "Date",                   "fieldname": "process_date",            "fieldtype": "Date",    "width": 120},
+        {"label": "Department",             "fieldname": "department",              "fieldtype": "Data",    "width": 130},
+        {"label": "Buyer",                  "fieldname": "buyer",                   "fieldtype": "Data",    "width": 150},
+        {"label": "Season",                 "fieldname": "season",                  "fieldtype": "Data",    "width": 100},
+        {"label": "Delivery Date",          "fieldname": "delivery_date",           "fieldtype": "Data",    "width": 130},
+        {"label": "Style",                  "fieldname": "style",                   "fieldtype": "Data",    "width": 140},
+        {"label": "Colour",                 "fieldname": "colour",                  "fieldtype": "Data",    "width": 120},
+        {"label": "Size",                   "fieldname": "size",                    "fieldtype": "Data",    "width": 80},
+        {"label": "Order Qty",              "fieldname": "order_qty",               "fieldtype": "Int",     "width": 100},
+        {"label": "Planned Qty",            "fieldname": "planned_qty",             "fieldtype": "Int",     "width": 120},
+        {"label": "Day Completed Qty",      "fieldname": "completed_qty",           "fieldtype": "Int",     "width": 140},
+        {"label": "Cumulative Completed",   "fieldname": "cumulative_completed_qty","fieldtype": "Int",     "width": 160},
+        {"label": "Completed %",            "fieldname": "completed_percent",       "fieldtype": "Data",    "width": 120},
+        {"label": "Balance Qty",            "fieldname": "balance_qty",             "fieldtype": "Int",     "width": 110},        
     ]
 
 
@@ -50,13 +51,14 @@ def get_order_map(filters):
 
     query = f"""
         SELECT
-            itm.custom_style_master     AS style,
-            itm.custom_colour_name      AS colour,
-            tbc.size                    AS size,
-            so.customer_name            AS buyer,
-            so.delivery_date            AS delivery_date,
-            stm.custom_season           AS season,
-            COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty
+            itm.custom_style_master                         AS style,
+            itm.custom_colour_name                          AS colour,
+            tbc.size                                        AS size,
+            so.customer_name                                AS buyer,
+            so.delivery_date                                AS delivery_date,
+            stm.custom_season                               AS season,
+            COALESCE(SUM(soi.custom_order_qty), 0)          AS order_qty,
+            COALESCE(SUM(soi.qty), 0)                       AS planned_qty
         FROM (
             SELECT DISTINCT parent, sales_order, size
             FROM `tabTracking Order Bundle Configuration`
@@ -101,12 +103,12 @@ def get_production_data(filters):
 
     query = f"""
         SELECT
-            DATE(isl.logged_time)       AS process_date,
-            pc.cell_name                AS department,
-            itm.custom_style_master     AS style,
-            itm.custom_colour_name      AS colour,
-            tbc.size                    AS size,
-            COALESCE(SUM(pi.quantity), 0) AS completed_qty
+            DATE(isl.logged_time)           AS process_date,
+            pc.cell_name                    AS department,
+            itm.custom_style_master         AS style,
+            itm.custom_colour_name          AS colour,
+            tbc.size                        AS size,
+            COALESCE(SUM(pi.quantity), 0)   AS completed_qty
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
@@ -142,7 +144,6 @@ def get_cumulative_data(filters):
     conditions = []
     params     = {}
 
-    # Use <= date so we capture everything up to the selected date
     if filters.get("date"):
         conditions.append("DATE(isl.logged_time) <= %(date)s")
         params["date"] = filters["date"]
@@ -155,7 +156,6 @@ def get_cumulative_data(filters):
         conditions.append("itm.custom_style_master = %(style)s")
         params["style"] = filters["style"]
 
-    # Add department filter if provided
     if filters.get("department"):
         conditions.append("pc.name = %(department)s")
         params["department"] = filters["department"]
@@ -164,11 +164,11 @@ def get_cumulative_data(filters):
 
     query = f"""
         SELECT
-            pc.cell_name                AS department,
-            itm.custom_style_master     AS style,
-            itm.custom_colour_name      AS colour,
-            tbc.size                    AS size,
-            COALESCE(SUM(pi.quantity), 0) AS cumulative_completed_qty
+            pc.cell_name                        AS department,
+            itm.custom_style_master             AS style,
+            itm.custom_colour_name              AS colour,
+            tbc.size                            AS size,
+            COALESCE(SUM(pi.quantity), 0)       AS cumulative_completed_qty
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
@@ -192,7 +192,6 @@ def get_cumulative_data(filters):
     """
 
     rows = frappe.db.sql(query, params, as_dict=True)
-    # Key by (department, style, colour, size) for O(1) lookup in get_data
     return {(r.department, r.style, r.colour, r.size): int(r.cumulative_completed_qty) for r in rows}
 
 
@@ -202,7 +201,7 @@ def get_data(filters):
         return []
 
     production_logs = get_production_data(filters)
-    cumulative_map  = get_cumulative_data(filters)   # ← updated
+    cumulative_map  = get_cumulative_data(filters)
 
     result = []
 
@@ -214,15 +213,17 @@ def get_data(filters):
 
         order_info    = order_map[key]
         order_qty     = int(order_info.order_qty)
+        planned_qty   = int(order_info.planned_qty or 0)
         completed_qty = int(log.completed_qty)
 
-        # Cumulative - now key includes department
         cum_key = (log.department, log.style, log.colour, log.size)
         cumulative_completed_qty = cumulative_map.get(cum_key, completed_qty)
 
-        # Balance and % now based on cumulative, not daily
-        balance_qty       = cumulative_completed_qty - order_qty
-        completed_percent = round((cumulative_completed_qty / order_qty) * 100, 2) if order_qty > 0 else 0.0
+        # Balance Qty = Planned Qty − Cumulative Completed
+        balance_qty = planned_qty - cumulative_completed_qty
+
+        # Completed % = (Cumulative Completed / Order Qty) × 100
+        completed_percent     = round((cumulative_completed_qty / order_qty) * 100, 1) if order_qty > 0 else 0.0
         completed_percent_str = f"{completed_percent:.1f}%"
 
         delivery_date = ""
@@ -230,19 +231,46 @@ def get_data(filters):
             delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")
 
         result.append({
-            "process_date":            log.process_date,
-            "delivery_date":           delivery_date,
-            "department":              log.department,
-            "buyer":                   order_info.buyer,
-            "season":                  order_info.season,
-            "style":                   log.style,
-            "colour":                  log.colour,
-            "size":                    log.size,
-            "order_qty":               order_qty,
-            "completed_qty":           completed_qty,           # daily — for reference
-            "cumulative_completed_qty": cumulative_completed_qty, # up to selected date per department
-            "balance_qty":             balance_qty,             # based on cumulative
-            "completed_percent":       completed_percent_str,   # based on cumulative
+            "process_date":             log.process_date,
+            "delivery_date":            delivery_date,
+            "department":               log.department,
+            "buyer":                    order_info.buyer,
+            "season":                   order_info.season,
+            "style":                    log.style,
+            "colour":                   log.colour,
+            "size":                     log.size,
+            "order_qty":                order_qty,
+            "planned_qty":              planned_qty,
+            "completed_qty":            completed_qty,
+            "cumulative_completed_qty": cumulative_completed_qty,
+            "balance_qty":              balance_qty,
+            "completed_percent":        completed_percent_str,
+        })
+
+    # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
+    if result:
+        total_order      = sum(r["order_qty"]               for r in result)
+        total_planned    = sum(r["planned_qty"]              for r in result)
+        total_today      = sum(r["completed_qty"]            for r in result)
+        total_cumulative = sum(r["cumulative_completed_qty"] for r in result)
+        total_balance    = sum(r["balance_qty"]              for r in result)
+        total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
+
+        result.append({
+            "process_date":             None,
+            "delivery_date":            "",
+            "department":               "TOTAL / AVERAGE",
+            "buyer":                    "",
+            "season":                   "",
+            "style":                    "",
+            "colour":                   "",
+            "size":                     "",
+            "order_qty":                total_order,
+            "planned_qty":              total_planned,
+            "completed_qty":            total_today,
+            "cumulative_completed_qty": total_cumulative,
+            "balance_qty":              total_balance,
+            "completed_percent":        f"{total_completed:.1f}%",
         })
 
     return result

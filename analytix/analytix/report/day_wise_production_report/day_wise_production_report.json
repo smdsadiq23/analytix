@@ -1,5 +1,5 @@
 {
- "add_total_row": 1,
+ "add_total_row": 0,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-02-24 11:08:20.341534",
@@ -11,7 +11,7 @@
  "is_standard": "Yes",
  "javascript": "frappe.query_reports[\"Production Completion Status\"] = {\r\n    filters: [\r\n        {\r\n            fieldname: \"date\",\r\n            label: \"Date\",\r\n            fieldtype: \"Date\"\r\n        },\r\n        {\r\n            fieldname: \"department\",\r\n            label: \"Department\",\r\n            fieldtype: \"Link\",\r\n            options: \"Physical Cell\"\r\n        },\r\n        {\r\n            fieldname: \"buyer\",\r\n            label: \"Buyer\",\r\n            fieldtype: \"Link\",\r\n            options: \"Customer\"\r\n        },\r\n        {\r\n            fieldname: \"style\",\r\n            label: \"Style\",\r\n            fieldtype: \"Link\",\r\n            options: \"Style Master\"\r\n        }\r\n    ],\r\n\r\n    formatter: function(value, row, column, data, default_formatter) {\r\n        value = default_formatter(value, row, column, data);\r\n\r\n        if (column.fieldname === \"completed_percent\" && data) {\r\n            let percent = data.completed_percent || 0;\r\n\r\n            if (percent < 100) {\r\n                value = `<span style=\"color:#d32f2f;font-weight:bold\">${percent}%</span>`;\r\n            } else {\r\n                value = `<span style=\"color:#2e7d32;font-weight:bold\">${percent}%</span>`;\r\n            }\r\n        }\r\n\r\n        return value;\r\n    }\r\n};",
  "letterhead": null,
- "modified": "2026-02-27 11:37:56.460837",
+ "modified": "2026-02-27 14:34:21.984860",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Day Wise Production Report",

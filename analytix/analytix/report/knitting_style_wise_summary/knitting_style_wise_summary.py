@@ -285,7 +285,7 @@ def get_data(filters):
         total_actual_wt  = round(sum(r["actual_weight"]   for r in result), 3)
         total_variance   = round(total_plnd_wt - total_actual_wt, 3)
         avg_yield        = round((total_actual_wt / total_plnd_wt) * 100, 1) if total_plnd_wt else 0.0
-        total_completed  = round((total_cumulative / total_planned) * 100, 1) if total_planned else 0.0
+        total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
         result.append({
             "row_num":           "",
