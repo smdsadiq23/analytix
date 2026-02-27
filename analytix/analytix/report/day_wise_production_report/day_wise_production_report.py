@@ -203,7 +203,7 @@ def get_data(filters):
     result = []
 
     for log in production_logs:
-        key = (log.style, log.colour, log.size, log.department)
+        key = (log.style, log.colour, log.size)
 
         if key not in order_map:
             continue
@@ -212,7 +212,7 @@ def get_data(filters):
         order_qty     = int(order_info.order_qty)
         completed_qty = int(log.completed_qty)
 
-        # Lookup cumulative using the 4-part key
+        # Cumulative — fall back to daily qty if somehow missing
         cumulative_completed_qty = cumulative_map.get(key, completed_qty)
 
         # Balance and % now based on cumulative, not daily
