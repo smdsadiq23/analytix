@@ -3,7 +3,6 @@
 
 import frappe
 from collections import defaultdict
-from frappe.utils import formatdate
 
 
 def execute(filters=None):
@@ -30,8 +29,11 @@ def get_columns():
     ]
 
 
-def get_order_map(filters):
-    """Order qty + planned qty per (style, colour, size)."""
+def get_order_rows(filters):
+    """
+    Returns list of rows — one per (style, colour, size, buyer, season, work_order).
+    Keying by work_order allows scoping cumulative/daily production correctly.
+    """
     conditions = []
     params     = {}
 
@@ -45,17 +47,18 @@ def get_order_map(filters):
 
     where = " AND ".join(conditions) if conditions else "1=1"
 
-    rows = frappe.db.sql(f"""
+    return frappe.db.sql(f"""
         SELECT
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
+            tbc.work_order                              AS work_order,
             so.customer_name                            AS buyer,
             stm.custom_season                           AS season,
             COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
             COALESCE(SUM(soi.qty), 0)                   AS planned_qty
         FROM (
-            SELECT DISTINCT parent, sales_order, size
+            SELECT DISTINCT parent, sales_order, work_order, size
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc
@@ -66,14 +69,15 @@ def get_order_map(filters):
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
         WHERE {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
-                 so.customer_name, stm.custom_season
+                 tbc.work_order, so.customer_name, stm.custom_season
     """, params, as_dict=True)
-
-    return {(r.style, r.colour, r.size): r for r in rows}
 
 
 def get_daily_map(filters):
-    """Today's output per (style, colour, size) across all departments."""
+    """
+    Today's output per (style, colour, size, work_order).
+    Scoped to the selected date only, across all departments.
+    """
     conditions = []
     params     = {}
 
@@ -96,6 +100,7 @@ def get_daily_map(filters):
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
+            tbc.work_order                              AS work_order,
             COALESCE(SUM(pi.quantity), 0)               AS today_output
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
@@ -109,24 +114,28 @@ def get_daily_map(filters):
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabWork Order` wo
+            ON wo.name = tbc.work_order
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.last_operation
+        WHERE isl.operation = wo.custom_last_operation
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
                 OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
             )
             AND {where}
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, tbc.work_order
     """, params, as_dict=True)
 
-    return {(r.style, r.colour, r.size): int(r.today_output) for r in rows}
+    return {(r.style, r.colour, r.size, r.work_order): int(r.today_output) for r in rows}
 
 
 def get_cumulative_map(filters):
-    """Cumulative output up to and including the selected date, per (style, colour, size)."""
+    """
+    Cumulative output up to and including the selected date,
+    per (style, colour, size, work_order) — scoped per work order to avoid
+    cross-season double counting.
+    """
     conditions = []
     params     = {}
 
@@ -149,6 +158,7 @@ def get_cumulative_map(filters):
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
+            tbc.work_order                              AS work_order,
             COALESCE(SUM(pi.quantity), 0)               AS cumulative_qty
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
@@ -162,31 +172,33 @@ def get_cumulative_map(filters):
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabWork Order` wo
+            ON wo.name = tbc.work_order
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.last_operation
+        WHERE isl.operation = wo.custom_last_operation
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
                 OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
             )
             AND {where}
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, tbc.work_order
     """, params, as_dict=True)
 
-    return {(r.style, r.colour, r.size): int(r.cumulative_qty) for r in rows}
+    return {(r.style, r.colour, r.size, r.work_order): int(r.cumulative_qty) for r in rows}
 
 
 def get_data(filters):
-    order_map      = get_order_map(filters)
-    if not order_map:
+    order_rows     = get_order_rows(filters)
+    if not order_rows:
         return []
 
     daily_map      = get_daily_map(filters)
     cumulative_map = get_cumulative_map(filters)
 
     # ── Aggregate at (buyer, season) level ────────────────────────────────
+    # Key includes work_order so cumulative/daily are scoped correctly per
+    # work order — prevents cross-season double counting.
     agg = defaultdict(lambda: {
         "styles":         set(),
         "order_qty":      0,
@@ -195,13 +207,15 @@ def get_data(filters):
         "cumulative_qty": 0,
     })
 
-    for (style, colour, size), info in order_map.items():
-        key = (info.buyer or "", info.season or "")
-        agg[key]["styles"].add(style)
-        agg[key]["order_qty"]      += int(info.order_qty)
-        agg[key]["planned_qty"]    += int(info.planned_qty or 0)
-        agg[key]["today_output"]   += daily_map.get((style, colour, size), 0)
-        agg[key]["cumulative_qty"] += cumulative_map.get((style, colour, size), 0)
+    for row in order_rows:
+        key    = (row.buyer or "", row.season or "")
+        wo_key = (row.style, row.colour, row.size, row.work_order)
+
+        agg[key]["styles"].add(row.style)
+        agg[key]["order_qty"]      += int(row.order_qty)
+        agg[key]["planned_qty"]    += int(row.planned_qty or 0)
+        agg[key]["today_output"]   += daily_map.get(wo_key, 0)
+        agg[key]["cumulative_qty"] += cumulative_map.get(wo_key, 0)
 
     # ── Build result rows — sort by buyer, season ──────────────────────────
     result = []

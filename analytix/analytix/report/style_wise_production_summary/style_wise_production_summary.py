@@ -112,14 +112,14 @@ def get_daily_map(filters):
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabWork Order` wo
+            ON wo.name = tbc.work_order
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.last_operation
+        WHERE isl.operation = wo.custom_last_operation
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
             )
             AND {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
@@ -165,14 +165,14 @@ def get_cumulative_map(filters):
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabWork Order` wo
+            ON wo.name = tbc.work_order
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.last_operation
+        WHERE isl.operation = wo.custom_last_operation
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
             )
             AND {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
