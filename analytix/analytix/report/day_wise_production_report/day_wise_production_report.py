@@ -57,7 +57,11 @@ def get_order_map(filters):
             so.delivery_date            AS delivery_date,
             stm.custom_season           AS season,
             COALESCE(SUM(soi.custom_order_qty), 0) AS order_qty
-        FROM `tabTracking Order Bundle Configuration` tbc
+        FROM (
+            SELECT DISTINCT parent, sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
         INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
         INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name
         INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
