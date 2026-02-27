@@ -256,7 +256,7 @@ def get_data(filters):
         balance_qty = planned_qty - cumulative_output
 
         # Completed % = (Cumulative Output / Planned Qty) × 100
-        completed_pct = round((cumulative_output / planned_qty) * 100, 1) if planned_qty else 0.0
+        completed_pct = round((cumulative_output / order_qty) * 100, 1) if order_qty else 0.0
         completed_pct_str = f"{completed_pct:.1f}%"
 
         # Yield % = (Actual / Planned) × 100
