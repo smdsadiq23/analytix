@@ -63,7 +63,7 @@ def get_order_map(filters):
             WHERE parentfield = 'bundle_configurations'
         ) tbc
         INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
-        INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name
+        INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name AND soi.custom_size = tbc.size
         INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
         INNER JOIN `tabItem` itm                ON itm.name = tor.item
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
