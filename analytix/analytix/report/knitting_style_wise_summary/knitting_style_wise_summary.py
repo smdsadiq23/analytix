@@ -232,7 +232,7 @@ def get_data(filters):
     result = []
 
     # Sort: buyer → style → colour
-    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["buyer"], k[0], k[1]))
+    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["buyer"] or "", k[0] or "", k[1] or ""))
 
     for style, colour in sorted_keys:
         b = agg[(style, colour)]

@@ -224,7 +224,7 @@ def get_data(filters):
     # ── Build result rows ──────────────────────────────────────────────────
     result = []
 
-    sorted_keys = sorted(agg.keys(), key=lambda k: (k[0], k[1]))
+    sorted_keys = sorted(agg.keys(), key=lambda k: (k[0] or "", k[1] or ""))
 
     for buyer, season in sorted_keys:
         b = agg[(buyer, season)]
