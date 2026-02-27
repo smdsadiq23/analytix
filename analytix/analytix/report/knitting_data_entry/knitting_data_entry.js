@@ -25,14 +25,14 @@ frappe.query_reports["Knitting Data Entry"] = {
                     </div>`;
         }
 
-        // ── Operator
-        if (column.fieldname === "custom_operator") {
+        // ── Operator: display employee_name, but save/edit via custom_operator (employee ID)
+        if (column.fieldname === "operator_name") {
             return `<div class="kde-cell"
                         data-isl="${esc(data.isl_name)}"
                         data-fieldname="custom_operator"
                         data-fieldtype="Link"
                         data-label="Operator"
-                        data-value="${esc(value)}">
+                        data-value="${esc(data.custom_operator)}">
                         <span class="kde-label">${esc(value)}</span>
                         <i class="fa fa-pencil kde-icon"></i>
                     </div>`;
@@ -57,9 +57,8 @@ frappe.query_reports["Knitting Data Entry"] = {
 
         // ── RFID Tag: show right-side characters when truncated (direction: rtl)
         if (column.fieldname === "rfid_tag") {
-            const esc = (v) => frappe.utils.escape_html(String(v ?? ""));
             return `<div style="direction:rtl; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${esc(value)}">${esc(value)}</div>`;
-        }        
+        }
 
         // ── Variance: read-only, red for any deviation, neutral for zero/empty
         if (column.fieldname === "variance") {
@@ -97,8 +96,6 @@ frappe.query_reports["Knitting Data Entry"] = {
 };
 
 // ── Variance cell HTML ────────────────────────────────────────────────────────
-// Both positive and negative variance = red (any deviation from plan is bad)
-
 function _varianceHTML(value, islName) {
     const esc = (v) => frappe.utils.escape_html(String(v ?? ""));
 
@@ -109,13 +106,12 @@ function _varianceHTML(value, islName) {
     const num     = flt(value);
     const rounded = Math.round(num * 1000) / 1000;
     const sign    = num > 0 ? "+" : "";
-    const cls     = num === 0 ? "kde-var-zero" : "kde-var-diff"; // any deviation = red
+    const cls     = num === 0 ? "kde-var-zero" : "kde-var-diff";
 
     return `<span class="kde-variance ${cls}" data-isl="${esc(islName)}">${sign}${rounded}</span>`;
 }
 
 // ── Open dialog ───────────────────────────────────────────────────────────────
-
 function _openDialog($cell) {
     const fieldname = $cell.attr("data-fieldname");
     const isl       = $cell.attr("data-isl");
@@ -130,13 +126,13 @@ function _openDialog($cell) {
                 message: __("Please save Actual Qty before entering Actual Weight."),
                 indicator: "orange"
             }, 5);
-            return; // block dialog from opening
+            return;
         }
     }
 
     const fieldtype = $cell.attr("data-fieldtype");
     const label     = $cell.attr("data-label");
-    const curValue  = $cell.attr("data-value");
+    const curValue  = $cell.attr("data-value"); // always the raw employee ID for operator
 
     let fieldDef;
     if (fieldtype === "Link") {
@@ -159,10 +155,9 @@ function _openDialog($cell) {
             if (fieldtype === "Int"   && newVal !== null) newVal = cint(newVal);
             if (fieldtype === "Float" && newVal !== null) newVal = flt(newVal);
 
-            // ── Tolerance validation for actual_weight before saving ─────────
             if (fieldname === "custom_actual_weight" && newVal !== null) {
                 const valid = _validateActualWeight(newVal, $cell);
-                if (!valid) return; // descriptive error already shown inside
+                if (!valid) return;
             }
 
             await _save(isl, fieldname, newVal, $cell);
@@ -173,27 +168,21 @@ function _openDialog($cell) {
 }
 
 // ── Tolerance validation ──────────────────────────────────────────────────────
-
 function _validateActualWeight(actualWeight, $cell) {
     const isl        = $cell.attr("data-isl");
     const plndWeight = flt($cell.attr("data-plnd-weight"));
     const tolerance  = flt($cell.attr("data-weight-tolerance"));
     const rfidQty    = cint($cell.attr("data-rfid-qty"));
 
-    // Read actual_qty that was saved — from the qty cell's data-value for this row
     const $qtyCell  = $(`.kde-cell[data-fieldname="custom_actual_quantity"][data-isl="${CSS.escape(isl)}"]`);
     const actualQty = cint($qtyCell.attr("data-value"));
 
     const lower = plndWeight - tolerance;
     const upper = plndWeight + tolerance;
 
-    // ✅ Exact match — always allow
     if (actualWeight === plndWeight) return true;
-
-    // ✅ Within tolerance band — allow
     if (actualWeight >= lower && actualWeight <= upper) return true;
 
-    // ⚠️ Below band — allow only if actual_qty < rfid_qty
     if (actualWeight < lower) {
         if (actualQty < rfidQty) return true;
         frappe.show_alert({
@@ -207,7 +196,6 @@ function _validateActualWeight(actualWeight, $cell) {
         return false;
     }
 
-    // ⚠️ Above band — allow only if actual_qty > rfid_qty
     if (actualWeight > upper) {
         if (actualQty > rfidQty) return true;
         frappe.show_alert({
@@ -225,7 +213,6 @@ function _validateActualWeight(actualWeight, $cell) {
 }
 
 // ── Persist + live-update cell and variance ───────────────────────────────────
-
 async function _save(isl, fieldname, value, $cell) {
     $cell.css("opacity", 0.5);
     try {
@@ -241,6 +228,20 @@ async function _save(isl, fieldname, value, $cell) {
                 ? value
                 : $cell.attr("data-rfid-qty");
         }
+        // For operator: after save, fetch the employee_name to show as label
+        if (fieldname === "custom_operator") {
+            if (value) {
+                try {
+                    const empName = await frappe.db.get_value("Employee", value, "employee_name");
+                    displayVal = empName?.message?.employee_name || value;
+                } catch (_) {
+                    displayVal = value;
+                }
+            } else {
+                displayVal = "";
+            }
+        }
+
         $cell.attr("data-value", value ?? "");
         $cell.find(".kde-label").text(String(displayVal ?? ""));
 
@@ -269,7 +270,6 @@ function _injectStyles() {
     const s = document.createElement("style");
     s.id = "kde-styles";
     s.textContent = `
-        /* ── Editable cells ── */
         .kde-cell {
             display: inline-flex;
             align-items: center;
@@ -281,7 +281,6 @@ function _injectStyles() {
             transition: background 0.15s;
         }
         .kde-cell:hover { background: #eef0ff; }
-
         .kde-label {
             flex: 1;
             min-width: 0;
@@ -296,8 +295,6 @@ function _injectStyles() {
             transition: color 0.15s;
         }
         .kde-cell:hover .kde-icon { color: #5e64ff; }
-
-        /* ── Variance chip ── */
         .kde-variance {
             display: inline-block;
             padding: 1px 8px;
@@ -308,7 +305,7 @@ function _injectStyles() {
         }
         .kde-var-empty { color: #aaa; }
         .kde-var-zero  { background: #f0f0f0; color: #555; }
-        .kde-var-diff  { background: #fff0f0; color: #d32f2f; } /* any deviation = red */
+        .kde-var-diff  { background: #fff0f0; color: #d32f2f; }
     `;
     document.head.appendChild(s);
 }

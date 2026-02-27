@@ -75,9 +75,8 @@ def get_columns():
         },
         {
             "label":     "Operator",
-            "fieldname": "custom_operator",
-            "fieldtype": "Link",
-            "options":   "Employee",
+            "fieldname": "operator_name",   # displays employee_name, not the ID
+            "fieldtype": "Data",
             "width":     160,
         },
         {
@@ -98,11 +97,19 @@ def get_columns():
             "fieldtype": "Float",
             "width":     130,
         },
-        # Hidden — passed to JS as data-attribute for client-side tolerance validation
+        # Hidden — passed to JS for client-side tolerance validation
         {
             "label":     "Weight Tolerance",
             "fieldname": "weight_tolerance",
             "fieldtype": "Float",
+            "width":     0,
+            "hidden":    1,
+        },
+        # Hidden — the raw employee ID used when saving edits via save_knitting_entry
+        {
+            "label":     "Operator ID",
+            "fieldname": "custom_operator",
+            "fieldtype": "Data",
             "width":     0,
             "hidden":    1,
         },
@@ -117,20 +124,21 @@ def get_raw_data():
     return frappe.db.sql(
         """
         SELECT
-            isl.name                                AS isl_name,
-            DATE(isl.logged_time)                   AS process_date,
-            TIME_FORMAT(isl.logged_time, '%H:%i:%s') AS process_time,
-            tt.tag_number                           AS rfid_tag,
-            so.customer_name                        AS buyer,
-            itm.custom_style_master                 AS style,
-            itm.custom_colour_name                  AS colour,
-            tbc.size                                AS size,
-            pi.quantity                             AS rfid_qty,
-            isl.custom_actual_quantity              AS custom_actual_quantity,
-            isl.custom_operator                     AS custom_operator,
-            isl.custom_actual_weight                AS custom_actual_weight,
-            wol.custom_planned_weight               AS unit_planned_weight,
-            wol.custom_weight_tolerance             AS unit_weight_tolerance
+            isl.name                                    AS isl_name,
+            DATE(isl.logged_time)                       AS process_date,
+            TIME_FORMAT(isl.logged_time, '%H:%i:%s')    AS process_time,
+            tt.tag_number                               AS rfid_tag,
+            so.customer_name                            AS buyer,
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            pi.quantity                                 AS rfid_qty,
+            isl.custom_actual_quantity                  AS custom_actual_quantity,
+            isl.custom_operator                         AS custom_operator,
+            COALESCE(emp.employee_name, isl.custom_operator) AS operator_name,
+            isl.custom_actual_weight                    AS custom_actual_weight,
+            wol.custom_planned_weight                   AS unit_planned_weight,
+            wol.custom_weight_tolerance                 AS unit_weight_tolerance
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi
             ON pi.name = isl.production_item
@@ -154,6 +162,8 @@ def get_raw_data():
             ON so.name = tbc.sales_order
         INNER JOIN `tabWork Order Line Item` wol
             ON wol.parent = tbc.work_order AND wol.size = tbc.size
+        LEFT JOIN `tabEmployee` emp
+            ON emp.name = isl.custom_operator
         WHERE pc.cell_name = 'KNITTING'
             AND isl.operation = 'KNITTING OUT'
             AND isl.log_status = 'Completed'
@@ -174,27 +184,27 @@ def get_data(filters=None):
         unit_tol          = row.unit_weight_tolerance or 0
         actual_weight     = row.custom_actual_weight
 
-        # All calculations done here in Python
         plnd_weight       = round(qty * unit_plnd, 3)
         weight_tolerance  = round(qty * unit_tol, 3)
         variance          = round(actual_weight - plnd_weight, 3) if actual_weight is not None else None
 
         result.append({
-            "isl_name":              row.isl_name,
-            "process_date":          row.process_date,
-            "process_time":          row.process_time,
-            "rfid_tag":              row.rfid_tag,
-            "buyer":                 row.buyer,
-            "style":                 row.style,
-            "colour":                row.colour,
-            "size":                  row.size,
-            "rfid_qty":              qty,
+            "isl_name":               row.isl_name,
+            "process_date":           row.process_date,
+            "process_time":           row.process_time,
+            "rfid_tag":               row.rfid_tag,
+            "buyer":                  row.buyer,
+            "style":                  row.style,
+            "colour":                 row.colour,
+            "size":                   row.size,
+            "rfid_qty":               qty,
             "custom_actual_quantity": row.custom_actual_quantity,
-            "custom_operator":       row.custom_operator,
-            "plnd_weight":           plnd_weight,
-            "custom_actual_weight":  actual_weight,
-            "variance":              variance,
-            "weight_tolerance":      weight_tolerance,
+            "custom_operator":        row.custom_operator,   # raw ID — hidden, used for saves
+            "operator_name":          row.operator_name,     # display name shown in report
+            "plnd_weight":            plnd_weight,
+            "custom_actual_weight":   actual_weight,
+            "variance":               variance,
+            "weight_tolerance":       weight_tolerance,
         })
 
     return result
