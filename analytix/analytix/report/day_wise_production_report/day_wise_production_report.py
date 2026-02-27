@@ -137,8 +137,7 @@ def get_production_data(filters):
 def get_cumulative_data(filters):
     """
     Cumulative completed qty from the beginning up to and including
-    the selected date, grouped only by style/colour/size.
-    Department filter is intentionally excluded — cumulative is cross-department.
+    the selected date, grouped by department and style/colour/size.
     """
     conditions = []
     params     = {}
@@ -155,6 +154,11 @@ def get_cumulative_data(filters):
     if filters.get("style"):
         conditions.append("itm.custom_style_master = %(style)s")
         params["style"] = filters["style"]
+
+    # Add department filter if provided
+    if filters.get("department"):
+        conditions.append("pc.name = %(department)s")
+        params["department"] = filters["department"]
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
@@ -188,8 +192,8 @@ def get_cumulative_data(filters):
     """
 
     rows = frappe.db.sql(query, params, as_dict=True)
-    # Key by (style, colour, size) for O(1) lookup in get_data
-    return {(r.style, r.colour, r.size): int(r.cumulative_completed_qty) for r in rows}
+    # Key by (department, style, colour, size) for O(1) lookup in get_data
+    return {(r.department, r.style, r.colour, r.size): int(r.cumulative_completed_qty) for r in rows}
 
 
 def get_data(filters):
