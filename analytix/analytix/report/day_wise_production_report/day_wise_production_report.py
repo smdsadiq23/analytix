@@ -172,7 +172,7 @@ def get_cumulative_data(filters):
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc
-            ON tbc.parent = tor.name
+            ON tbc.parent = tor.name AND tbc.size = pi.size
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
