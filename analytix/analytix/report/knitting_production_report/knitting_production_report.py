@@ -28,8 +28,8 @@ def get_columns():
         {"label": "Planned Qty",        "fieldname": "planned_qty",         "fieldtype": "Int",     "width": 100},
         {"label": "Today Output",       "fieldname": "today_output",        "fieldtype": "Int",     "width": 110},
         {"label": "Cumulative Output",  "fieldname": "cumulative_output",   "fieldtype": "Int",     "width": 140},
+        {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",        "fieldname": "completed_pct",       "fieldtype": "Data",    "width": 110},
-        {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},        
         {"label": "Planned Wt",         "fieldname": "planned_weight",      "fieldtype": "Float",   "width": 130},
         {"label": "Actual Wt",          "fieldname": "actual_weight",       "fieldtype": "Float",   "width": 130},
         {"label": "Yield %",            "fieldname": "yield_pct",           "fieldtype": "Data",    "width": 100},
@@ -43,7 +43,7 @@ def get_order_map(filters):
     params     = {}
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.customer = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):
@@ -100,7 +100,7 @@ def get_daily_production(filters):
         params["date"] = filters["date"]
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.customer = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):
@@ -154,7 +154,7 @@ def get_cumulative_map(filters):
         params["date"] = filters["date"]
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.customer = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):
@@ -233,6 +233,7 @@ def get_data(filters):
             "buyer":             order_info.buyer  if order_info else "",
             "season":            order_info.season if order_info else "",
             "delivery_date":     delivery_date,
+            "_delivery_date_raw": order_info.delivery_date if order_info else None,
             "style":             log.style,
             "colour":            log.colour,
             "size":              log.size,
@@ -247,6 +248,11 @@ def get_data(filters):
             "yield_pct":         yield_pct_str,
             "wastage_excess":    wastage_excess_str,
         })
+
+    # ── Sort by delivery date descending, None last ───────────────────────
+    result.sort(key=lambda r: (r["_delivery_date_raw"] or "0000-00-00"), reverse=True)
+    for r in result:
+        r.pop("_delivery_date_raw", None)
 
     # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
     if result:
@@ -263,7 +269,7 @@ def get_data(filters):
         total_completed = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
         result.append({
-            "row_num":           "",
+            "row_num":           None,
             "process_date":      None,
             "buyer":             "TOTAL / AVERAGE",
             "season":            "",

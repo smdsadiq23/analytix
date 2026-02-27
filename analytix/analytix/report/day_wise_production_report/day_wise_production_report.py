@@ -26,11 +26,11 @@ def get_columns():
         {"label": "Colour",                 "fieldname": "colour",                  "fieldtype": "Data",    "width": 120},
         {"label": "Size",                   "fieldname": "size",                    "fieldtype": "Data",    "width": 80},
         {"label": "Order Qty",              "fieldname": "order_qty",               "fieldtype": "Int",     "width": 100},
-        {"label": "Planned Qty",            "fieldname": "planned_qty",             "fieldtype": "Int",     "width": 120},
+        {"label": "Planned Qty",            "fieldname": "planned_qty",             "fieldtype": "Int",     "width": 100},
         {"label": "Day Completed Qty",      "fieldname": "completed_qty",           "fieldtype": "Int",     "width": 140},
         {"label": "Cumulative Completed",   "fieldname": "cumulative_completed_qty","fieldtype": "Int",     "width": 160},
+        {"label": "Balance Qty",            "fieldname": "balance_qty",             "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",            "fieldname": "completed_percent",       "fieldtype": "Data",    "width": 120},
-        {"label": "Balance Qty",            "fieldname": "balance_qty",             "fieldtype": "Int",     "width": 110},        
     ]
 
 
@@ -126,10 +126,7 @@ def get_production_data(filters):
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
         WHERE isl.operation = pcflo.last_operation
             AND isl.log_status = 'Completed'
-            AND (
-                isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-            )
+            AND isl.status IN ('Counted', 'Activated', 'Pass')
             AND {where_clause}
         GROUP BY DATE(isl.logged_time), pc.cell_name,
                  itm.custom_style_master, itm.custom_colour_name, tbc.size
@@ -189,10 +186,7 @@ def get_cumulative_data(filters):
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
         WHERE isl.operation = pcflo.last_operation
             AND isl.log_status = 'Completed'
-            AND (
-                isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-            )
+            AND isl.status IN ('Counted', 'Activated', 'Pass')
             AND {where_clause}
         GROUP BY pc.cell_name, itm.custom_style_master, itm.custom_colour_name, tbc.size
     """
@@ -239,6 +233,7 @@ def get_data(filters):
         result.append({
             "process_date":             log.process_date,
             "delivery_date":            delivery_date,
+            "_delivery_date_raw":       order_info.delivery_date,  # for sorting only
             "department":               log.department,
             "buyer":                    order_info.buyer,
             "season":                   order_info.season,
@@ -252,6 +247,11 @@ def get_data(filters):
             "balance_qty":              balance_qty,
             "completed_percent":        completed_percent_str,
         })
+
+    # ── Sort by delivery date descending, None/empty last ─────────────────
+    result.sort(key=lambda r: (r["_delivery_date_raw"] or "0000-00-00"), reverse=True)
+    for r in result:
+        r.pop("_delivery_date_raw", None)
 
     # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
     if result:

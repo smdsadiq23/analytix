@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import formatdate
 from collections import defaultdict
 
 
@@ -21,12 +22,13 @@ def get_columns():
         {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 150},
         {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
         {"label": "Colour",             "fieldname": "colour",              "fieldtype": "Data",    "width": 120},
+        {"label": "Delivery Date",      "fieldname": "delivery_date",       "fieldtype": "Data",    "width": 120},
         {"label": "Order Qty",          "fieldname": "order_qty",           "fieldtype": "Int",     "width": 100},
         {"label": "Planned Qty",        "fieldname": "planned_qty",         "fieldtype": "Int",     "width": 100},
         {"label": "Today Output",       "fieldname": "today_output",        "fieldtype": "Int",     "width": 110},
         {"label": "Cumulative Output",  "fieldname": "cumulative_output",   "fieldtype": "Int",     "width": 140},
+        {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",        "fieldname": "completed_pct",       "fieldtype": "Data",    "width": 110},
-        {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},        
         {"label": "Planned Wt (kg)",    "fieldname": "planned_weight",      "fieldtype": "Float",   "width": 130},
         {"label": "Actual Wt (kg)",     "fieldname": "actual_weight",       "fieldtype": "Float",   "width": 130},
         {"label": "Variance (kg)",      "fieldname": "variance",            "fieldtype": "Float",   "width": 120},
@@ -66,6 +68,7 @@ def get_order_map(filters):
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
             so.customer_name                            AS buyer,
+            so.delivery_date                            AS delivery_date,
             stm.custom_season                           AS season,
             COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
             COALESCE(SUM(soi.qty), 0)                   AS planned_qty
@@ -81,7 +84,7 @@ def get_order_map(filters):
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
         WHERE {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
-                 so.customer_name, stm.custom_season
+                 so.customer_name, so.delivery_date, stm.custom_season
     """, params, as_dict=True)
 
     return {(r.style, r.colour, r.size): r for r in rows}
@@ -197,6 +200,7 @@ def get_data(filters):
         "cumulative_output": 0,
         "planned_weight":    0.0,
         "actual_weight":     0.0,
+        "delivery_date":     None,
     })
 
     # Collect all (style, colour, size) keys that have either production or orders
@@ -213,6 +217,9 @@ def get_data(filters):
             bucket["season"]      = order_info.season
             bucket["order_qty"]   += int(order_info.order_qty)
             bucket["planned_qty"] += int(order_info.planned_qty or 0)
+            d = order_info.delivery_date
+            if d and (bucket["delivery_date"] is None or d > bucket["delivery_date"]):
+                bucket["delivery_date"] = d
 
         # Find matching daily log for this size
         log = next((l for l in daily_logs if l.style == style and l.colour == colour and l.size == size), None)
@@ -231,8 +238,8 @@ def get_data(filters):
     # ── Build result rows ──────────────────────────────────────────────────
     result = []
 
-    # Sort: buyer → style → colour
-    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["buyer"] or "", k[0] or "", k[1] or ""))
+    # Sort: delivery date descending, None last
+    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["delivery_date"] or "0000-00-00"), reverse=True)
 
     for style, colour in sorted_keys:
         b = agg[(style, colour)]
@@ -256,12 +263,17 @@ def get_data(filters):
         yield_pct = round((actual_weight / planned_weight) * 100, 1) if planned_weight else 0.0
         yield_pct_str = f"{yield_pct:.1f}%"
 
+        delivery_date = ""
+        if b["delivery_date"]:
+            delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
+
         result.append({
             "row_num":           len(result) + 1,
             "style":             style,
             "buyer":             b["buyer"],
             "season":            b["season"],
             "colour":            colour,
+            "delivery_date":     delivery_date,
             "order_qty":         order_qty,
             "planned_qty":       planned_qty,
             "today_output":      today_output,
@@ -288,11 +300,12 @@ def get_data(filters):
         total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
         result.append({
-            "row_num":           "",
+            "row_num":           None,
             "style":             "TOTAL / AVERAGE",
             "buyer":             "",
             "season":            "",
             "colour":            "",
+            "delivery_date":     "",
             "order_qty":         total_order,
             "planned_qty":       total_planned,
             "today_output":      total_today,

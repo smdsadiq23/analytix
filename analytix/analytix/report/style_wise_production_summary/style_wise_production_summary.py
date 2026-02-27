@@ -1,0 +1,275 @@
+# Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
+# For license information, please see license.txt
+
+import frappe
+from collections import defaultdict
+from frappe.utils import formatdate
+
+
+def execute(filters=None):
+    if not filters:
+        filters = {}
+
+    columns = get_columns()
+    data    = get_data(filters)
+    return columns, data
+
+
+def get_columns():
+    return [
+        {"label": "#",                  "fieldname": "row_num",             "fieldtype": "Int",     "width": 50},
+        {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 170},
+        {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
+        {"label": "Style",              "fieldname": "style",               "fieldtype": "Data",    "width": 140},
+        {"label": "Colour",             "fieldname": "colour",              "fieldtype": "Data",    "width": 130},
+        {"label": "Delivery Date",      "fieldname": "delivery_date",       "fieldtype": "Data",    "width": 120},
+        {"label": "Order Qty",          "fieldname": "order_qty",           "fieldtype": "Int",     "width": 100},
+        {"label": "Planned Qty",        "fieldname": "planned_qty",         "fieldtype": "Int",     "width": 100},
+        {"label": "Today Output",       "fieldname": "today_output",        "fieldtype": "Int",     "width": 110},
+        {"label": "Cumulative Output",  "fieldname": "cumulative_qty",      "fieldtype": "Int",     "width": 140},
+        {"label": "Completed %",        "fieldname": "completed_pct",       "fieldtype": "Data",    "width": 110},
+        {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},
+    ]
+
+
+def get_order_map(filters):
+    """Order qty + planned qty per (style, colour, size)."""
+    conditions = []
+    params     = {}
+
+    if filters.get("buyer"):
+        conditions.append("so.customer_name = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            so.customer_name                            AS buyer,
+            so.delivery_date                            AS delivery_date,
+            stm.custom_season                           AS season,
+            COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
+            COALESCE(SUM(soi.qty), 0)                   AS planned_qty
+        FROM (
+            SELECT DISTINCT parent, sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+        INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
+        INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name AND soi.custom_size = tbc.size
+        INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                ON itm.name = tor.item
+        INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
+        WHERE {where}
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
+                 so.customer_name, so.delivery_date, stm.custom_season
+    """, params, as_dict=True)
+
+    return {(r.style, r.colour, r.size): r for r in rows}
+
+
+def get_daily_map(filters):
+    """Today's output per (style, colour, size) across all departments."""
+    conditions = []
+    params     = {}
+
+    if filters.get("date"):
+        conditions.append("DATE(isl.logged_time) = %(date)s")
+        params["date"] = filters["date"]
+
+    if filters.get("buyer"):
+        conditions.append("so.customer_name = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            COALESCE(SUM(pi.quantity), 0)               AS today_output
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.operation = pcflo.last_operation
+            AND isl.log_status = 'Completed'
+            AND (
+                isl.status IN ('Counted', 'Activated', 'Pass')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+            )
+            AND {where}
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, params, as_dict=True)
+
+    return {(r.style, r.colour, r.size): int(r.today_output) for r in rows}
+
+
+def get_cumulative_map(filters):
+    """Cumulative output up to and including the selected date, per (style, colour, size)."""
+    conditions = []
+    params     = {}
+
+    if filters.get("date"):
+        conditions.append("DATE(isl.logged_time) <= %(date)s")
+        params["date"] = filters["date"]
+
+    if filters.get("buyer"):
+        conditions.append("so.customer_name = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            COALESCE(SUM(pi.quantity), 0)               AS cumulative_qty
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.operation = pcflo.last_operation
+            AND isl.log_status = 'Completed'
+            AND (
+                isl.status IN ('Counted', 'Activated', 'Pass')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+            )
+            AND {where}
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, params, as_dict=True)
+
+    return {(r.style, r.colour, r.size): int(r.cumulative_qty) for r in rows}
+
+
+def get_data(filters):
+    order_map      = get_order_map(filters)
+    if not order_map:
+        return []
+
+    daily_map      = get_daily_map(filters)
+    cumulative_map = get_cumulative_map(filters)
+
+    # ── Aggregate at (buyer, season, style, colour) level ─────────────────
+    agg = defaultdict(lambda: {
+        "order_qty":      0,
+        "planned_qty":    0,
+        "today_output":   0,
+        "cumulative_qty": 0,
+        "delivery_date":  None,
+    })
+
+    for (style, colour, size), info in order_map.items():
+        key = (info.buyer or "", info.season or "", style, colour)
+        agg[key]["order_qty"]      += int(info.order_qty)
+        agg[key]["planned_qty"]    += int(info.planned_qty or 0)
+        agg[key]["today_output"]   += daily_map.get((style, colour, size), 0)
+        agg[key]["cumulative_qty"] += cumulative_map.get((style, colour, size), 0)
+
+        d = info.delivery_date
+        if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
+            agg[key]["delivery_date"] = d
+
+    # ── Build result rows ──────────────────────────────────────────────────
+    result = []
+
+    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["delivery_date"] or "0000-00-00"), reverse=True)
+
+    for buyer, season, style, colour in sorted_keys:
+        b = agg[(buyer, season, style, colour)]
+
+        order_qty      = b["order_qty"]
+        planned_qty    = b["planned_qty"]
+        today_output   = b["today_output"]
+        cumulative_qty = b["cumulative_qty"]
+
+        # Completed % = (Cumulative / Order Qty) × 100
+        completed_pct     = round((cumulative_qty / order_qty) * 100, 1) if order_qty else 0.0
+        completed_pct_str = f"{completed_pct:.1f}%"
+
+        # Balance = Planned Qty − Cumulative (positive = work remaining = red)
+        balance_qty = planned_qty - cumulative_qty
+
+        delivery_date = ""
+        if b["delivery_date"]:
+            delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
+
+        result.append({
+            "row_num":        len(result) + 1,
+            "buyer":          buyer,
+            "season":         season,
+            "style":          style,
+            "colour":         colour,
+            "delivery_date":  delivery_date,
+            "order_qty":      order_qty,
+            "planned_qty":    planned_qty,
+            "today_output":   today_output,
+            "cumulative_qty": cumulative_qty,
+            "completed_pct":  completed_pct_str,
+            "balance_qty":    balance_qty,
+        })
+
+    # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
+    if result:
+        total_order      = sum(r["order_qty"]      for r in result)
+        total_planned    = sum(r["planned_qty"]     for r in result)
+        total_today      = sum(r["today_output"]    for r in result)
+        total_cumulative = sum(r["cumulative_qty"]  for r in result)
+        total_balance    = sum(r["balance_qty"]     for r in result)
+        total_pct        = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
+
+        result.append({
+            "row_num":        None,
+            "buyer":          "TOTAL / AVERAGE",
+            "season":         "",
+            "style":          "",
+            "colour":         "",
+            "delivery_date":  "",
+            "order_qty":      total_order,
+            "planned_qty":    total_planned,
+            "today_output":   total_today,
+            "cumulative_qty": total_cumulative,
+            "completed_pct":  f"{total_pct:.1f}%",
+            "balance_qty":    total_balance,
+        })
+
+    return result
