@@ -160,6 +160,7 @@ def get_cumulative_data(filters):
 
     query = f"""
         SELECT
+            pc.cell_name                AS department,
             itm.custom_style_master     AS style,
             itm.custom_colour_name      AS colour,
             tbc.size                    AS size,
@@ -183,7 +184,7 @@ def get_cumulative_data(filters):
             AND isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Activated', 'Pass')
             AND {where_clause}
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+        GROUP BY pc.cell_name, itm.custom_style_master, itm.custom_colour_name, tbc.size
     """
 
     rows = frappe.db.sql(query, params, as_dict=True)
@@ -202,7 +203,7 @@ def get_data(filters):
     result = []
 
     for log in production_logs:
-        key = (log.style, log.colour, log.size)
+        key = (log.style, log.colour, log.size, log.department)
 
         if key not in order_map:
             continue
@@ -211,7 +212,7 @@ def get_data(filters):
         order_qty     = int(order_info.order_qty)
         completed_qty = int(log.completed_qty)
 
-        # Cumulative — fall back to daily qty if somehow missing
+        # Lookup cumulative using the 4-part key
         cumulative_completed_qty = cumulative_map.get(key, completed_qty)
 
         # Balance and % now based on cumulative, not daily
