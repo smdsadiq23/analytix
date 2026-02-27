@@ -167,8 +167,12 @@ def get_cumulative_data(filters):
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
-        INNER JOIN `tabTracking Order Bundle Configuration` tbc
-            ON tbc.parent = tor.name AND tbc.parentfield = 'bundle_configurations'
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name
         INNER JOIN `tabItem` itm                    ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
