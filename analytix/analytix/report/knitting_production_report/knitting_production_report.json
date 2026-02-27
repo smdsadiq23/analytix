@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-02-25 15:01:00.898771",
+ "modified": "2026-02-27 11:37:36.806715",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Knitting Production Report",
@@ -49,6 +49,9 @@
   },
   {
    "role": "Custom Admin"
+  },
+  {
+   "role": "KPI Viewers"
   },
   {
    "role": "KPI Viewers"
