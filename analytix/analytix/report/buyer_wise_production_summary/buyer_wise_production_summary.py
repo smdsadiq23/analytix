@@ -116,7 +116,7 @@ def get_daily_map(filters):
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+                OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
             )
             AND {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
@@ -169,7 +169,7 @@ def get_cumulative_map(filters):
             AND isl.log_status = 'Completed'
             AND (
                 isl.status IN ('Counted', 'Activated', 'Pass')
-                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+                OR (isl.status = 'Unlink Link' AND pi.status <> 'Unlink Link Scrap')
             )
             AND {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
