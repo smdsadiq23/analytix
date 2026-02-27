@@ -198,7 +198,7 @@ def get_data(filters):
         return []
 
     production_logs = get_production_data(filters)
-    cumulative_map  = get_cumulative_data(filters)   # ← new
+    cumulative_map  = get_cumulative_data(filters)   # ← updated
 
     result = []
 
@@ -212,8 +212,9 @@ def get_data(filters):
         order_qty     = int(order_info.order_qty)
         completed_qty = int(log.completed_qty)
 
-        # Cumulative — fall back to daily qty if somehow missing
-        cumulative_completed_qty = cumulative_map.get(key, completed_qty)
+        # Cumulative - now key includes department
+        cum_key = (log.department, log.style, log.colour, log.size)
+        cumulative_completed_qty = cumulative_map.get(cum_key, completed_qty)
 
         # Balance and % now based on cumulative, not daily
         balance_qty       = cumulative_completed_qty - order_qty
@@ -235,7 +236,7 @@ def get_data(filters):
             "size":                    log.size,
             "order_qty":               order_qty,
             "completed_qty":           completed_qty,           # daily — for reference
-            "cumulative_completed_qty": cumulative_completed_qty, # up to selected date
+            "cumulative_completed_qty": cumulative_completed_qty, # up to selected date per department
             "balance_qty":             balance_qty,             # based on cumulative
             "completed_percent":       completed_percent_str,   # based on cumulative
         })
