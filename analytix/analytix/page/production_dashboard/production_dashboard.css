@@ -105,7 +105,7 @@
 	display: block;
 	font-size: 0.58rem;
 	font-weight: 400;
-	color: #484f58 !important;
+	color: #888a8c !important;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
 	margin-top: 3px;
@@ -183,7 +183,7 @@
 .cell-in {
 	font-size: 0.76rem;
 	font-weight: 400;
-	color: #6e7681;
+	color: #8a8e92;
 	line-height: 1.3;
 }
 
