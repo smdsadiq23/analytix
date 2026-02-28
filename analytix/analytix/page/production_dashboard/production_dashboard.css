@@ -1,0 +1,311 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Production TV Dashboard  —  analytix / production_dashboard
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Strip Frappe chrome ─────────────────────────────────────────── */
+.page-content {
+	padding: 0 !important;
+	background: #0d1117 !important;
+	min-height: 100vh;
+}
+
+/* ── Root ────────────────────────────────────────────────────────── */
+.tvd-root {
+	min-height: 100vh;
+	background: #0d1117;
+	color: #c9d1d9;
+	font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+	display: flex;
+	flex-direction: column;
+	padding: 18px 20px 10px;
+	box-sizing: border-box;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────── */
+.tvd-topbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 16px;
+}
+.tvd-brand { display: flex; align-items: center; gap: 12px; }
+.tvd-brand-icon { flex-shrink: 0; }
+.tvd-brand-title {
+	font-size: 1.55rem;
+	font-weight: 700;
+	color: #e6edf3;
+	line-height: 1.15;
+}
+.tvd-brand-sub {
+	font-size: 0.78rem;
+	color: #8b949e;
+	margin-top: 1px;
+}
+.tvd-clock { text-align: right; }
+#tvd-time {
+	font-size: 1.9rem;
+	font-weight: 700;
+	color: #00d4aa;
+	letter-spacing: 1px;
+	line-height: 1.1;
+}
+#tvd-date {
+	font-size: 0.76rem;
+	color: #8b949e;
+	margin-top: 2px;
+}
+
+/* ── Table scroll wrapper ────────────────────────────────────────── */
+.tvd-scroll {
+	flex: 1;
+	overflow-x: auto;
+	border-radius: 8px;
+	border: 1px solid #21262d;
+}
+
+/* ── Table base ──────────────────────────────────────────────────── */
+.tvd-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.82rem;
+	table-layout: auto;
+	white-space: nowrap;
+}
+
+/* ── Single header row ───────────────────────────────────────────── */
+.tvd-head {
+	background: #161b22;
+	border-bottom: 2px solid #21262d;
+}
+
+/* All header cells base */
+.tvd-table thead th {
+	padding: 12px 8px 10px;
+	text-align: center;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+	vertical-align: bottom;
+	line-height: 1.4;
+	color: #00d4aa;             /* identity columns — teal */
+}
+
+/* ORDER QTY / PLANNED QTY — teal, same as identity */
+.th-qty { color: #00d4aa !important; width: 76px; }
+
+/* Cell stage headers — gold */
+.th-cell { color: #f0c040 !important; width: 82px; }
+
+/* COMPLETION — teal */
+.th-completion { color: #00d4aa !important; width: 80px; }
+
+/* "IN / OUT" span inside each cell header — very dim grey */
+.th-inout {
+	display: block;
+	font-size: 0.58rem;
+	font-weight: 400;
+	color: #484f58 !important;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	margin-top: 3px;
+}
+
+/* Identity column widths & alignment */
+.th-style    { width: 90px;  text-align: left !important; padding-left: 12px; }
+.th-buyer    { width: 120px; text-align: left !important; }
+.th-colour   { width: 95px;  text-align: left !important; }
+.th-season   { width: 82px; }
+.th-delivery { width: 95px; }
+
+/* ── Body rows ───────────────────────────────────────────────────── */
+.tvd-row { border-bottom: 1px solid #1c2128; }
+.tvd-row:nth-child(odd)  { background: #0d1117; }
+.tvd-row:nth-child(even) { background: #0f1318; }
+.tvd-row:hover           { background: #161b22; }
+
+.tvd-table tbody td {
+	padding: 12px 8px;
+	vertical-align: middle;
+	color: #c9d1d9;
+}
+
+/* ── Identity cells ──────────────────────────────────────────────── */
+.td-style {
+	font-weight: 700;
+	font-size: 0.9rem;
+	color: #e6edf3;
+	text-align: left;
+	padding-left: 12px;
+}
+.td-buyer    { text-align: left; color: #c9d1d9; font-size: 0.82rem; }
+.td-colour   { text-align: left; }
+.td-season   { text-align: center; }
+.td-delivery { text-align: center; color: #8b949e; font-size: 0.8rem; }
+.td-qty      { text-align: right; font-weight: 600; color: #e6edf3; padding-right: 14px; }
+
+/* ── Colour badge — dark pill ────────────────────────────────────── */
+.colour-badge {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 20px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	background: #21262d;
+	color: #c9d1d9;
+	border: 1px solid #30363d;
+	letter-spacing: 0.02em;
+}
+
+/* ── Season badge ────────────────────────────────────────────────── */
+.szn {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 20px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+.szn-spring  { background: #2d1f52; color: #c084fc; border: 1px solid #7c3aed44; }
+.szn-summer  { background: #2d1f52; color: #c084fc; border: 1px solid #7c3aed44; }
+.szn-winter  { background: #0c1e35; color: #79c0ff; border: 1px solid #388bfd44; }
+.szn-fall    { background: #2d1800; color: #ffa657; border: 1px solid #ffa65744; }
+.szn-default { background: #21262d; color: #8b949e; border: 1px solid #30363d;   }
+
+/* ── Per-cell column ─────────────────────────────────────────────── */
+.td-cell {
+	text-align: center;
+	padding: 8px 6px;
+	border-left: 1px solid #1c2128;
+}
+
+/* IN — dim grey, small, clearly secondary */
+.cell-in {
+	font-size: 0.76rem;
+	font-weight: 400;
+	color: #6e7681;
+	line-height: 1.3;
+}
+
+/* Amber separator line */
+.cell-line {
+	height: 2px;
+	background: #e3a847;
+	margin: 4px 6px;
+	border-radius: 1px;
+}
+
+/* OUT — bright white, bold, prominent */
+.cell-out {
+	font-size: 0.84rem;
+	font-weight: 700;
+	color: #e6edf3;
+	line-height: 1.3;
+}
+
+/* % — base grey, overridden by threshold classes below */
+.cell-pct {
+	font-size: 0.68rem;
+	font-weight: 600;
+	color: #6e7681;
+	margin-top: 2px;
+	line-height: 1;
+}
+/* Combined selector = higher specificity than .cell-pct alone — always wins */
+.cell-pct.pct-green  { color: #4fbe79 !important; }
+.cell-pct.pct-teal   { color: #00d4aa !important; }
+.cell-pct.pct-yellow { color: #f0c040 !important; }
+.cell-pct.pct-red    { color: #f85149 !important; }
+
+/* ── Completion circle ───────────────────────────────────────────── */
+.td-completion {
+	text-align: center;
+	border-left: 2px solid #00d4aa33;
+	padding: 8px 10px;
+}
+.comp-wrap {
+	position: relative;
+	display: inline-block;
+	width: 52px;
+	height: 52px;
+}
+.comp-svg {
+	width: 52px;
+	height: 52px;
+	transform: rotate(-90deg);
+}
+.comp-bg   { fill: none; stroke: #21262d; stroke-width: 3.5; }
+.comp-ring { fill: none; stroke-width: 3.5; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
+.comp-ring.cc-done { stroke: #4fbe79; }
+.comp-ring.cc-good { stroke: #00d4aa; }
+.comp-ring.cc-mid  { stroke: #f0c040; }
+.comp-ring.cc-low  { stroke: #58a6ff; }
+.comp-label {
+	position: absolute;
+	top: 50%; left: 50%;
+	transform: translate(-50%, -50%);
+	font-size: 0.68rem;
+	font-weight: 700;
+	line-height: 1;
+	pointer-events: none;
+}
+.comp-label.cc-done { color: #4fbe79; }
+.comp-label.cc-good { color: #00d4aa; }
+.comp-label.cc-mid  { color: #f0c040; }
+.comp-label.cc-low  { color: #58a6ff; }
+
+/* ── Loading / error ─────────────────────────────────────────────── */
+.tvd-state {
+	text-align: center;
+	padding: 60px 20px !important;
+	color: #8b949e;
+	font-size: 0.95rem;
+}
+.tvd-spinner {
+	display: inline-block;
+	width: 15px; height: 15px;
+	border: 2px solid #30363d;
+	border-top-color: #00d4aa;
+	border-radius: 50%;
+	animation: spin 0.7s linear infinite;
+	vertical-align: middle;
+	margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+.tvd-footer {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-top: 10px;
+	font-size: 0.7rem;
+	color: #484f58;
+}
+.tvd-refresh-note { display: flex; align-items: center; gap: 5px; }
+
+/* ── TV resolution tweaks ────────────────────────────────────────── */
+@media (min-width: 1920px) {
+	.tvd-brand-title    { font-size: 1.85rem; }
+	#tvd-time           { font-size: 2.3rem; }
+	.tvd-table          { font-size: 0.92rem; }
+	.tvd-table thead th { font-size: 0.78rem; padding: 14px 10px 12px; }
+	.tvd-table tbody td { padding: 14px 10px; }
+	.cell-in, .cell-out { font-size: 0.92rem; }
+	.cell-pct           { font-size: 0.75rem; }
+	.comp-wrap, .comp-svg { width: 60px; height: 60px; }
+	.comp-label         { font-size: 0.75rem; }
+	.th-cell            { width: 94px; }
+}
+@media (min-width: 2560px) {
+	.tvd-brand-title    { font-size: 2.2rem; }
+	#tvd-time           { font-size: 2.8rem; }
+	.tvd-table          { font-size: 1.05rem; }
+	.tvd-table thead th { font-size: 0.88rem; padding: 18px 12px 14px; }
+	.tvd-table tbody td { padding: 18px 12px; }
+	.cell-in, .cell-out { font-size: 1.05rem; }
+	.cell-pct           { font-size: 0.85rem; }
+	.comp-wrap, .comp-svg { width: 70px; height: 70px; }
+	.comp-label         { font-size: 0.85rem; }
+	.th-cell            { width: 110px; }
+}

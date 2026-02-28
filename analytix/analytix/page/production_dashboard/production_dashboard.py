@@ -1,0 +1,190 @@
+# Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
+# For license information, please see license.txt
+
+import frappe
+from collections import defaultdict
+from frappe.utils import formatdate
+
+# Physical cell display names (pc.cell_name) in pipeline order
+CELL_ORDER = [
+    "Knitting",
+    "Mending",
+    "Washing",
+    "Cutting",
+    "Linking",
+    "Sewing",
+    "Embroidery",
+    "Production",
+    "Pressing",
+    "Packing",
+]
+
+
+@frappe.whitelist()
+def get_dashboard_data():
+    order_map = _get_order_map()
+    if not order_map:
+        return []
+
+    cell_out_map = _get_cell_out_map()
+
+    # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
+    agg = defaultdict(lambda: {
+        "order_qty":     0,
+        "planned_qty":   0,
+        "delivery_date": None,
+        "cell_out":      defaultdict(int),
+    })
+
+    for (style, colour, size), info in order_map.items():
+        key = (info.buyer or "", info.season or "", style, colour)
+        agg[key]["order_qty"]   += int(info.order_qty or 0)
+        agg[key]["planned_qty"] += int(info.planned_qty or 0)
+
+        d = info.delivery_date
+        if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
+            agg[key]["delivery_date"] = d
+
+        for cell in CELL_ORDER:
+            agg[key]["cell_out"][cell] += cell_out_map.get((style, colour, size, cell), 0)
+
+    # ── Build result rows ─────────────────────────────────────────────────
+    result = []
+    sorted_keys = sorted(
+        agg.keys(),
+        key=lambda k: (agg[k]["delivery_date"] or "0000-00-00")
+    )
+
+    for buyer, season, style, colour in sorted_keys:
+        b = agg[(buyer, season, style, colour)]
+
+        order_qty   = b["order_qty"]
+        planned_qty = b["planned_qty"]
+
+        # ── IN / OUT cascade ──────────────────────────────────────────────
+        # Knitting IN = planned_qty.
+        # Each subsequent cell IN = previous cell OUT.
+        #
+        # SKIP HANDLING: if a cell has 0 output (skipped or not yet started),
+        # we still carry forward the last non-zero qty as the next cell's IN
+        # so percentages don't collapse to 0 for all remaining cells.
+        cells        = {}
+        prev_in      = planned_qty   # tracks what went INTO the previous stage
+        last_nonzero = planned_qty   # last non-zero qty flowing through pipeline
+
+        for cell in CELL_ORDER:
+            cell_in  = last_nonzero          # IN = last qty that actually flowed
+            cell_out = b["cell_out"].get(cell, 0)
+            pct      = round((cell_out / cell_in) * 100) if cell_in else 0
+
+            cells[cell] = {
+                "in":  cell_in,
+                "out": cell_out,
+                "pct": pct,
+            }
+
+            # Only advance the flowing qty if this cell actually produced output
+            if cell_out > 0:
+                last_nonzero = cell_out
+
+        # COMPLETION = Packing OUT / Order Qty * 100
+        packing_out    = cells["Packing"]["out"]
+        completion_pct = round((packing_out / order_qty) * 100, 1) if order_qty else 0.0
+
+        delivery_date = ""
+        if b["delivery_date"]:
+            delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
+
+        result.append({
+            "style":          style,
+            "buyer":          buyer,
+            "colour":         colour,
+            "season":         season,
+            "delivery_date":  delivery_date,
+            "order_qty":      order_qty,
+            "planned_qty":    planned_qty,
+            "cells":          cells,
+            "completion_pct": completion_pct,
+        })
+
+    return result
+
+
+# ── Private helpers ───────────────────────────────────────────────────────────
+
+def _get_order_map():
+    rows = frappe.db.sql("""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            so.customer_name                            AS buyer,
+            so.delivery_date                            AS delivery_date,
+            stm.custom_season                           AS season,
+            COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
+            COALESCE(SUM(soi.qty), 0)                   AS planned_qty
+        FROM (
+            SELECT DISTINCT parent, sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+        INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
+        INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name
+                                               AND soi.custom_size = tbc.size
+        INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                ON itm.name = tor.item
+        INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
+                 so.customer_name, so.delivery_date, stm.custom_season
+    """, as_dict=True)
+    return {(r.style, r.colour, r.size): r for r in rows}
+
+
+def _get_cell_out_map():
+    """
+    Completed output qty per (style, colour, size, cell_name).
+
+    FIX — pcflo joined with AND pcflo.physical_cell = pc.name:
+        tabPhysical Cell First and Last Operation is a child table with
+        one row per physical cell per work order. Without this extra join
+        condition, every scan log fans out to ALL pcflo rows for that
+        work order. The WHERE isl.operation = pcflo.last_operation then
+        filters back — but if two cells share the same last_operation
+        (even accidentally), a scan is double-counted. Pinning
+        pcflo.physical_cell = pc.name ensures we only ever match the
+        pcflo row for the exact cell where the scan happened.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            pc.cell_name                                AS cell_name,
+            COALESCE(SUM(pi.quantity), 0)               AS qty_out
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
+                                                   AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                   ON pcflo.parent = tbc.work_order
+                                                   AND pcflo.physical_cell = pc.name
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.operation = pcflo.last_operation
+          AND isl.log_status = 'Completed'
+          AND pc.cell_name IN ({cell_list})
+          AND isl.status IN ('Counted', 'Activated', 'Pass')
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+    """, as_dict=True)
+
+    return {(r.style, r.colour, r.size, r.cell_name): int(r.qty_out) for r in rows}
