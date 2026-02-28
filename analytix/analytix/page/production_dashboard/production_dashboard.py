@@ -88,7 +88,7 @@ def get_dashboard_data():
                 last_nonzero = cell_out
 
         # COMPLETION = Packing OUT / Order Qty * 100
-        packing_out    = cells["Packing"]["out"]
+        packing_out    = cells["PACKING"]["out"]
         completion_pct = round((packing_out / order_qty) * 100, 1) if order_qty else 0.0
 
         delivery_date = ""
