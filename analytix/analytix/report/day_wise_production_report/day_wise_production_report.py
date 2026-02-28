@@ -126,7 +126,10 @@ def get_production_data(filters):
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
         WHERE isl.operation = pcflo.last_operation
             AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted', 'Activated', 'Pass')
+            AND (
+                isl.status IN ('Counted', 'Activated', 'Pass')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+            )
             AND {where_clause}
         GROUP BY DATE(isl.logged_time), pc.cell_name,
                  itm.custom_style_master, itm.custom_colour_name, tbc.size
@@ -186,7 +189,10 @@ def get_cumulative_data(filters):
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
         WHERE isl.operation = pcflo.last_operation
             AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted', 'Activated', 'Pass')
+            AND (
+                isl.status IN ('Counted', 'Activated', 'Pass')
+                OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+            )
             AND {where_clause}
         GROUP BY pc.cell_name, itm.custom_style_master, itm.custom_colour_name, tbc.size
     """

@@ -183,7 +183,10 @@ def _get_cell_out_map():
         WHERE isl.operation = pcflo.last_operation
           AND isl.log_status = 'Completed'
           AND pc.cell_name IN ({cell_list})
-          AND isl.status IN ('Counted', 'Activated', 'Pass')
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
     """, as_dict=True)
 
