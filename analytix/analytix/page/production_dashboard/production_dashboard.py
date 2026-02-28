@@ -7,16 +7,16 @@ from frappe.utils import formatdate
 
 # Physical cell display names (pc.cell_name) in pipeline order
 CELL_ORDER = [
-    "Knitting",
-    "Mending",
-    "Washing",
-    "Cutting",
-    "Linking",
-    "Sewing",
-    "Embroidery",
-    "Production",
-    "Pressing",
-    "Packing",
+    "KNITTING",
+    "MENDING",
+    "WASHING",
+    "CUTTING",
+    "LINKING",
+    "SEWING",
+    "EMBROIDERY",
+    "PRODUCTION",
+    "PRESSING",
+    "PACKING",
 ]
 
 
