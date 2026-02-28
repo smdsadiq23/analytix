@@ -16,7 +16,7 @@ CELL_ORDER = [
     "EMBROIDERY",
     "PRODUCTION",
     "PRESSING",
-    "PACKING",
+    "PACKING"
 ]
 
 

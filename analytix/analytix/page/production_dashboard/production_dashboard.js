@@ -90,8 +90,16 @@ frappe.pages["production-dashboard"].on_page_hide = function () {
 var _timer = null;
 
 const CELLS = [
-	"Knitting","Mending","Washing","Cutting","Linking",
-	"Sewing","Embroidery","Production","Pressing","Packing"
+    "KNITTING",
+    "MENDING",
+    "WASHING",
+    "CUTTING",
+    "LINKING",
+    "SEWING",
+    "EMBROIDERY",
+    "PRODUCTION",
+    "PRESSING",
+    "PACKING"
 ];
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
