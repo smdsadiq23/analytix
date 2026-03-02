@@ -58,19 +58,17 @@
 }
 
 /* ── Table scroll wrapper ────────────────────────────────────────── */
-/* No horizontal scroll — all 19 cols fit via fixed layout + % widths  */
-/* Vertical scroll only — header is sticky inside this container        */
 .tvd-scroll {
 	flex: 1;
 	overflow-x: hidden;
 	overflow-y: auto;
 	border-radius: 8px;
 	border: 1px solid #21262d;
-	min-height: 0;            /* required for flex child to scroll */
+	min-height: 0;
+	scroll-behavior: smooth; /* Enables smooth scrolling */
 }
 
 /* ── Table base ──────────────────────────────────────────────────── */
-/* table-layout: fixed — forces all columns to share the viewport width */
 .tvd-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -79,7 +77,7 @@
 	white-space: nowrap;
 }
 
-/* ── Header row — sticky so it stays visible while rows scroll ───── */
+/* ── Header row ───────────────────────────────────────────────────── */
 .tvd-head {
 	background: #161b22;
 	border-bottom: 2px solid #21262d;
@@ -88,7 +86,6 @@
 	z-index: 10;
 }
 
-/* All header cells base */
 .tvd-table thead th {
 	padding: 10px 4px 8px;
 	text-align: center;
@@ -103,16 +100,10 @@
 	text-overflow: ellipsis;
 }
 
-/* ORDER QTY / PLANNED QTY — teal */
 .th-qty { color: #00d4aa !important; width: 4.8%; }
-
-/* Cell stage headers — gold */
 .th-cell { color: #f0c040 !important; width: 5%; }
-
-/* COMPLETION — teal */
 .th-completion { color: #00d4aa !important; width: 4.2%; }
 
-/* "IN / OUT" span inside each cell header — very dim grey */
 .th-inout {
 	display: block;
 	font-size: 0.5rem;
@@ -123,9 +114,6 @@
 	margin-top: 2px;
 }
 
-/* Identity column widths — % so they all fit in one viewport width.
-   Total must add up with 11 cell cols (11×5%) + completion (4.2%) + 2 qty cols (2×4.8%)
-   Identity budget = 100 - 55 - 4.2 - 9.6 = 31.2% across 5 cols               */
 .th-style    { width: 7.5%; text-align: left !important; padding-left: 8px; }
 .th-buyer    { width: 7%;   text-align: left !important; }
 .th-colour   { width: 5.5%; text-align: left !important; }
@@ -160,7 +148,7 @@
 .td-delivery { text-align: center; color: #8b949e; font-size: 0.72rem; }
 .td-qty      { text-align: right; font-weight: 600; color: #e6edf3; padding-right: 6px; }
 
-/* ── Colour badge — dark pill ────────────────────────────────────── */
+/* ── Colour badge ────────────────────────────────────────────── */
 .colour-badge {
 	display: inline-block;
 	padding: 2px 7px;
@@ -198,7 +186,6 @@
 	border-left: 1px solid #1c2128;
 }
 
-/* IN — dim grey, small, clearly secondary */
 .cell-in {
 	font-size: 0.68rem;
 	font-weight: 400;
@@ -206,7 +193,6 @@
 	line-height: 1.2;
 }
 
-/* Amber separator line */
 .cell-line {
 	height: 2px;
 	background: #e3a847;
@@ -214,7 +200,6 @@
 	border-radius: 1px;
 }
 
-/* OUT — bright white, bold, prominent */
 .cell-out {
 	font-size: 0.75rem;
 	font-weight: 700;
@@ -222,7 +207,6 @@
 	line-height: 1.2;
 }
 
-/* % — base grey, overridden by threshold classes below */
 .cell-pct {
 	font-size: 0.62rem;
 	font-weight: 600;
@@ -230,7 +214,6 @@
 	margin-top: 2px;
 	line-height: 1;
 }
-/* Combined selector = higher specificity — always wins */
 .cell-pct.pct-green  { color: #4fbe79 !important; }
 .cell-pct.pct-teal   { color: #00d4aa !important; }
 .cell-pct.pct-yellow { color: #f0c040 !important; }

@@ -81,11 +81,16 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 
 	_startClock();
 	_load();
-	_timer = setInterval(_load, 60000);
+	_resetAutoScroll(); // Start auto-scroll after initial load
+	_timer = setInterval(function() {
+		_load();
+		_resetAutoScroll(); // Reset scroll on data refresh
+	}, 60000);
 };
 
 frappe.pages["production-dashboard"].on_page_hide = function () {
 	if (_timer) { clearInterval(_timer); _timer = null; }
+	_stopAutoScroll(); // Clean up scroll timer
 };
 
 var _timer = null;
@@ -105,7 +110,20 @@ const CELLS = [
 	"PACKING"
 ];
 
-// ── Clock ─────────────────────────────────────────────────────────────────────
+// ── Auto-Scroll Configuration ───────────────────────────────────────
+const SCROLL_CONFIG = {
+	step: 45,           // pixels per scroll step
+	interval: 75,       // ms between steps
+	pauseOnHover: true, // pause when mouse hovers (useful for debugging)
+	edgePause: 2000     // ms to pause at top/bottom before reversing
+};
+
+// ── Auto-Scroll State ───────────────────────────────────────────────
+var _scrollTimer = null;
+var _scrollDirection = 1; // 1 = down, -1 = up
+var _edgePauseTimer = null;
+
+// ── Clock ───────────────────────────────────────────────────────────
 function _startClock() {
 	_tick();
 	setInterval(_tick, 1000);
@@ -122,7 +140,7 @@ function _tick() {
 	$("#tvd-date").text(days[d.getDay()] + ", " + months[d.getMonth()] + " " + d.getDate());
 }
 
-// ── Data ──────────────────────────────────────────────────────────────────────
+// ── Data ────────────────────────────────────────────────────────────
 function _load() {
 	frappe.call({
 		method: "analytix.analytix.page.production_dashboard.production_dashboard.get_dashboard_data",
@@ -141,7 +159,7 @@ function _load() {
 	});
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// ── Render ──────────────────────────────────────────────────────────
 function _render(rows) {
 	if (!rows.length) {
 		_setState("No production data found.");
@@ -161,16 +179,11 @@ function _render(rows) {
 		html += '<td class="td-qty">'     + _n(r.order_qty)    + "</td>";
 		html += '<td class="td-qty">'     + _n(r.planned_qty)  + "</td>";
 
-		// Per-cell columns
-		// IN  = first operation output of the cell
-		// OUT = last operation output of the cell (same as IN for single-op cells)
-		// %   = OUT / ORDER QTY × 100
 		var cellData = r.cells || {};
 		CELLS.forEach(function (cell) {
 			var c   = cellData[cell] || {};
 			var pct = c["pct"] || 0;
 
-			// % colour thresholds
 			var pClass = pct >= 90 ? "pct-green"
 			           : pct >= 75 ? "pct-teal"
 			           : pct >= 50 ? "pct-yellow"
@@ -184,7 +197,6 @@ function _render(rows) {
 			html += "</td>";
 		});
 
-		// Completion circle — PACKING OUT / ORDER QTY
 		var cp     = parseFloat(r.completion_pct) || 0;
 		var cpStr  = cp.toFixed(cp % 1 === 0 ? 0 : 1) + "%";
 		var circ   = 113.1;
@@ -205,13 +217,14 @@ function _render(rows) {
 	});
 
 	$("#tvd-tbody").html(html);
+	_resetAutoScroll(); // Reset scroll after new data renders
 }
 
 function _setState(msg) {
 	$("#tvd-tbody").html('<tr><td colspan="19" class="tvd-state">' + msg + "</td></tr>");
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────
 function _e(s) {
 	return String(s || "")
 		.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -227,4 +240,66 @@ function _seasonClass(s) {
 	if (l.includes("winter")) return "szn-winter";
 	if (l.includes("fall") || l.includes("autumn")) return "szn-fall";
 	return "szn-default";
+}
+
+// ── Auto-Scroll Logic ───────────────────────────────────────────────
+function _startAutoScroll() {
+	_stopAutoScroll();
+	
+	var $container = $(".tvd-scroll");
+	if (!$container.length) return;
+	
+	var container = $container[0];
+	var maxScroll = container.scrollHeight - container.clientHeight;
+	if (maxScroll <= 0) return; // Nothing to scroll
+	
+	// Hover pause support
+	if (SCROLL_CONFIG.pauseOnHover) {
+		$container.off("mouseenter.tvdScroll mouseleave.tvdScroll")
+		          .on("mouseenter.tvdScroll", _stopAutoScroll)
+		          .on("mouseleave.tvdScroll", _startAutoScroll);
+	}
+	
+	_scrollTimer = setInterval(function() {
+		var current = $container.scrollTop();
+		var target = current + (_scrollDirection * SCROLL_CONFIG.step);
+		
+		// Handle boundaries with edge pause
+		if (target >= maxScroll) {
+			target = maxScroll;
+			_scrollDirection = -1;
+			_edgePauseTimer = setTimeout(_startAutoScroll, SCROLL_CONFIG.edgePause);
+			return;
+		} else if (target <= 0) {
+			target = 0;
+			_scrollDirection = 1;
+			_edgePauseTimer = setTimeout(_startAutoScroll, SCROLL_CONFIG.edgePause);
+			return;
+		}
+		
+		$container.scrollTop(target);
+	}, SCROLL_CONFIG.interval);
+}
+
+function _stopAutoScroll() {
+	if (_scrollTimer) {
+		clearInterval(_scrollTimer);
+		_scrollTimer = null;
+	}
+	if (_edgePauseTimer) {
+		clearTimeout(_edgePauseTimer);
+		_edgePauseTimer = null;
+	}
+	$(".tvd-scroll").off("mouseenter.tvdScroll mouseleave.tvdScroll");
+}
+
+function _resetAutoScroll() {
+	_stopAutoScroll();
+	_scrollDirection = 1;
+	var $container = $(".tvd-scroll");
+	if ($container.length) {
+		$container.scrollTop(0);
+		// Restart after brief delay to allow render completion
+		setTimeout(_startAutoScroll, 300);
+	}
 }
