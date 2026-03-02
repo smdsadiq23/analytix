@@ -37,7 +37,7 @@ def get_order_map(filters):
     params     = {}
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.custom_brand = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):
@@ -51,7 +51,7 @@ def get_order_map(filters):
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
-            so.customer_name                            AS buyer,
+            so.custom_brand                            AS buyer,
             so.delivery_date                            AS delivery_date,
             stm.custom_season                           AS season,
             COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
@@ -68,7 +68,7 @@ def get_order_map(filters):
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
         WHERE {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
-                 so.customer_name, so.delivery_date, stm.custom_season
+                 so.custom_brand, so.delivery_date, stm.custom_season
     """, params, as_dict=True)
 
     return {(r.style, r.colour, r.size): r for r in rows}
@@ -84,7 +84,7 @@ def get_daily_map(filters):
         params["date"] = filters["date"]
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.custom_brand = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):
@@ -137,7 +137,7 @@ def get_cumulative_map(filters):
         params["date"] = filters["date"]
 
     if filters.get("buyer"):
-        conditions.append("so.customer_name = %(buyer)s")
+        conditions.append("so.custom_brand = %(buyer)s")
         params["buyer"] = filters["buyer"]
 
     if filters.get("style"):

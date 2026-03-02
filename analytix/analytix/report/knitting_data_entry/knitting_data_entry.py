@@ -128,7 +128,7 @@ def get_raw_data():
             DATE(isl.logged_time)                       AS process_date,
             TIME_FORMAT(isl.logged_time, '%H:%i:%s')    AS process_time,
             tt.tag_number                               AS rfid_tag,
-            so.customer_name                            AS buyer,
+            so.custom_brand                             AS buyer,
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,

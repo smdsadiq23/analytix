@@ -95,6 +95,11 @@ def get_dashboard_data():
         if b["delivery_date"]:
             delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
 
+        # ── VALIDATION: Exclude rows where PACKING completion >= 105% ─────
+        if completion_pct >= 105:
+            continue  # Skip this row — order is over-completed
+        # ─────────────────────────────────────────────────────────────────
+
         result.append({
             "style":          style,
             "buyer":          buyer,
@@ -118,7 +123,7 @@ def _get_order_map():
             itm.custom_style_master                     AS style,
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
-            so.customer_name                            AS buyer,
+            so.custom_brand                             AS buyer,
             so.delivery_date                            AS delivery_date,
             stm.custom_season                           AS season,
             COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
@@ -135,7 +140,7 @@ def _get_order_map():
         INNER JOIN `tabItem` itm                ON itm.name = tor.item
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
-                 so.customer_name, so.delivery_date, stm.custom_season
+                 so.custom_brand, so.delivery_date, stm.custom_season
     """, as_dict=True)
     return {(r.style, r.colour, r.size): r for r in rows}
 
