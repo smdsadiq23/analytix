@@ -184,9 +184,8 @@ function _render(rows) {
 			var c   = cellData[cell] || {};
 			var pct = c["pct"] || 0;
 
-			var pClass = pct >= 90 ? "pct-green"
-			           : pct >= 75 ? "pct-teal"
-			           : pct >= 50 ? "pct-yellow"
+			var pClass = pct >= 100 ? "pct-green"
+			           : pct >= 95 ? "pct-yellow"
 			           : "pct-red";
 
 			html += '<td class="td-cell">';
