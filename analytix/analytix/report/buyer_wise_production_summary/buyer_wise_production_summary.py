@@ -16,7 +16,6 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "#",                  "fieldname": "row_num",             "fieldtype": "Int",     "width": 50},
         {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 190},
         {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
         {"label": "No. of Styles",      "fieldname": "style_count",         "fieldtype": "Int",     "width": 110},
@@ -237,7 +236,6 @@ def get_data(filters):
         balance_qty = planned_qty - cumulative_qty
 
         result.append({
-            "row_num":        len(result) + 1,
             "buyer":          buyer,
             "season":         season,
             "style_count":    style_count,

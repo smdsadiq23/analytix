@@ -17,7 +17,6 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "#",                  "fieldname": "row_num",             "fieldtype": "Int",     "width": 50},
         {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 170},
         {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
         {"label": "Style",              "fieldname": "style",               "fieldtype": "Data",    "width": 140},
@@ -234,7 +233,6 @@ def get_data(filters):
             delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
 
         result.append({
-            "row_num":        len(result) + 1,
             "buyer":          buyer,
             "season":         season,
             "style":          style,

@@ -16,7 +16,6 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "#",                  "fieldname": "row_num",             "fieldtype": "Int",     "width": 50},
         {"label": "Date",               "fieldname": "process_date",        "fieldtype": "Date",    "width": 110},
         {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 150},
         {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
@@ -228,7 +227,6 @@ def get_data(filters):
             delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")
 
         result.append({
-            "row_num":           len(result) + 1,
             "process_date":      log.process_date,
             "buyer":             order_info.buyer  if order_info else "",
             "season":            order_info.season if order_info else "",

@@ -16,7 +16,6 @@ def execute(filters=None):
 
 def get_columns():
     return [
-        {"label": "#",                  "fieldname": "row_num",             "fieldtype": "Int",     "width": 50},
         {"label": "Buyer",              "fieldname": "buyer",               "fieldtype": "Data",    "width": 170},
         {"label": "Season",             "fieldname": "season",              "fieldtype": "Data",    "width": 100},
         {"label": "No. of Styles",      "fieldname": "style_count",         "fieldtype": "Int",     "width": 110},
@@ -249,7 +248,6 @@ def get_data(filters):
         yield_pct_str = f"{yield_pct:.1f}%"
 
         result.append({
-            "row_num":           len(result) + 1,
             "buyer":             buyer,
             "season":            season,
             "style_count":       style_count,
