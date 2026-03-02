@@ -114,10 +114,10 @@
 	margin-top: 2px;
 }
 
-.th-style    { width: 7.5%; text-align: left !important; padding-left: 8px; }
 .th-buyer    { width: 7%;   text-align: left !important; }
-.th-colour   { width: 5.5%; text-align: left !important; }
 .th-season   { width: 5%;   }
+.th-style    { width: 7.5%; text-align: left !important; padding-left: 8px; }
+.th-colour   { width: 5.5%; text-align: left !important; }
 .th-delivery { width: 5.5%; }
 
 /* ── Body rows ───────────────────────────────────────────────────── */
@@ -135,6 +135,8 @@
 }
 
 /* ── Identity cells ──────────────────────────────────────────────── */
+.td-buyer    { text-align: left; color: #c9d1d9; font-size: 0.75rem; }
+.td-season   { text-align: center; }
 .td-style {
 	font-weight: 700;
 	font-size: 0.78rem;
@@ -142,9 +144,7 @@
 	text-align: left;
 	padding-left: 8px;
 }
-.td-buyer    { text-align: left; color: #c9d1d9; font-size: 0.75rem; }
 .td-colour   { text-align: left; }
-.td-season   { text-align: center; }
 .td-delivery { text-align: center; color: #8b949e; font-size: 0.72rem; }
 .td-qty      { text-align: right; font-weight: 600; color: #e6edf3; padding-right: 6px; }
 

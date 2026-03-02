@@ -33,10 +33,10 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 				<table class="tvd-table">
 					<thead>
 						<tr class="tvd-head">
-							<th class="th-style">STYLE</th>
-							<th class="th-buyer">BUYER</th>
-							<th class="th-colour">COLOUR</th>
+							<th class="th-buyer">BUYER</th>	
 							<th class="th-season">SEASON</th>
+							<th class="th-style">STYLE</th>							
+							<th class="th-colour">COLOUR</th>						
 							<th class="th-delivery">DELIVERY</th>
 							<th class="th-qty">ORDER<br>QTY</th>
 							<th class="th-qty">PLANNED<br>QTY</th>
@@ -171,10 +171,10 @@ function _render(rows) {
 
 		html += '<tr class="tvd-row">';
 
-		html += '<td class="td-style">'   + _e(r.style)        + "</td>";
 		html += '<td class="td-buyer">'   + _e(r.buyer)        + "</td>";
-		html += '<td class="td-colour"><span class="colour-badge">' + _e(r.colour) + "</span></td>";
 		html += '<td class="td-season"><span class="szn ' + _seasonClass(r.season) + '">' + _e(r.season) + "</span></td>";
+		html += '<td class="td-style">'   + _e(r.style)        + "</td>";		
+		html += '<td class="td-colour"><span class="colour-badge">' + _e(r.colour) + "</span></td>";		
 		html += '<td class="td-delivery">'+ _e(r.delivery_date) + "</td>";
 		html += '<td class="td-qty">'     + _n(r.order_qty)    + "</td>";
 		html += '<td class="td-qty">'     + _n(r.planned_qty)  + "</td>";
