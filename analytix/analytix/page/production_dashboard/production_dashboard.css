@@ -239,9 +239,11 @@
 .comp-bg   { fill: none; stroke: #21262d; stroke-width: 3.5; }
 .comp-ring { fill: none; stroke-width: 3.5; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
 .comp-ring.cc-done { stroke: #4fbe79; }
-.comp-ring.cc-good { stroke: #00d4aa; }
+.comp-label.cc-done { color: #4fbe79; }
 .comp-ring.cc-mid  { stroke: #f0c040; }
-.comp-ring.cc-low  { stroke: #58a6ff; }
+.comp-label.cc-mid  { color: #f0c040; }
+.comp-ring.cc-low  { stroke: #f85149 !important; }
+.comp-label.cc-low { color: #f85149 !important; }
 .comp-label {
 	position: absolute;
 	top: 50%; left: 50%;

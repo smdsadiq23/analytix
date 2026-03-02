@@ -200,7 +200,9 @@ function _render(rows) {
 		var cpStr  = cp.toFixed(cp % 1 === 0 ? 0 : 1) + "%";
 		var circ   = 113.1;
 		var offset = (circ - (cp / 100) * circ).toFixed(1);
-		var cc     = cp >= 100 ? "cc-done" : cp >= 75 ? "cc-good" : cp >= 40 ? "cc-mid" : "cc-low";
+		var cc = cp >= 100 ? "cc-done"   /* Green */
+				: cp >= 95  ? "cc-mid"   /* Yellow */
+				: "cc-low";              /* Red */
 
 		html += '<td class="td-completion">';
 		html += '<div class="comp-wrap">';
