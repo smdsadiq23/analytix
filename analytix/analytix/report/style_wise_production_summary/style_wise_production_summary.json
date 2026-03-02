@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-02-27 17:36:58.490409",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-02-27 17:36:58.490409",
+ "modified": "2026-03-02 17:59:33.171345",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Style wise Production Summary",

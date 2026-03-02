@@ -248,28 +248,28 @@ def get_data(filters):
             "balance_qty":    balance_qty,
         })
 
-    # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
-    if result:
-        total_order      = sum(r["order_qty"]      for r in result)
-        total_planned    = sum(r["planned_qty"]     for r in result)
-        total_today      = sum(r["today_output"]    for r in result)
-        total_cumulative = sum(r["cumulative_qty"]  for r in result)
-        total_balance    = sum(r["balance_qty"]     for r in result)
-        total_pct        = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
+    # # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
+    # if result:
+    #     total_order      = sum(r["order_qty"]      for r in result)
+    #     total_planned    = sum(r["planned_qty"]     for r in result)
+    #     total_today      = sum(r["today_output"]    for r in result)
+    #     total_cumulative = sum(r["cumulative_qty"]  for r in result)
+    #     total_balance    = sum(r["balance_qty"]     for r in result)
+    #     total_pct        = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
-        result.append({
-            "row_num":        None,
-            "buyer":          "TOTAL / AVERAGE",
-            "season":         "",
-            "style":          "",
-            "colour":         "",
-            "delivery_date":  "",
-            "order_qty":      total_order,
-            "planned_qty":    total_planned,
-            "today_output":   total_today,
-            "cumulative_qty": total_cumulative,
-            "completed_pct":  f"{total_pct:.1f}%",
-            "balance_qty":    total_balance,
-        })
+    #     result.append({
+    #         "row_num":        None,
+    #         "buyer":          "TOTAL / AVERAGE",
+    #         "season":         "",
+    #         "style":          "",
+    #         "colour":         "",
+    #         "delivery_date":  "",
+    #         "order_qty":      total_order,
+    #         "planned_qty":    total_planned,
+    #         "today_output":   total_today,
+    #         "cumulative_qty": total_cumulative,
+    #         "completed_pct":  f"{total_pct:.1f}%",
+    #         "balance_qty":    total_balance,
+    #     })
 
     return result

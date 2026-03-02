@@ -265,35 +265,35 @@ def get_data(filters):
             "yield_pct":         yield_pct_str,
         })
 
-    # ── Grand totals row ───────────────────────────────────────────────────
-    if result:
-        total_styles     = sum(r["style_count"]        for r in result)
-        total_order      = sum(r["order_qty"]          for r in result)
-        total_planned    = sum(r["planned_qty"]        for r in result)
-        total_today      = sum(r["today_output"]       for r in result)
-        total_cumulative = sum(r["cumulative_output"]  for r in result)
-        total_balance    = sum(r["balance_qty"]        for r in result)
-        total_plnd_wt    = round(sum(r["planned_weight"]  for r in result), 3)
-        total_actual_wt  = round(sum(r["actual_weight"]   for r in result), 3)
-        total_variance   = round(total_plnd_wt - total_actual_wt, 3)
-        avg_yield        = round((total_actual_wt / total_plnd_wt) * 100, 1) if total_plnd_wt else 0.0
-        total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
+    # # ── Grand totals row ───────────────────────────────────────────────────
+    # if result:
+    #     total_styles     = sum(r["style_count"]        for r in result)
+    #     total_order      = sum(r["order_qty"]          for r in result)
+    #     total_planned    = sum(r["planned_qty"]        for r in result)
+    #     total_today      = sum(r["today_output"]       for r in result)
+    #     total_cumulative = sum(r["cumulative_output"]  for r in result)
+    #     total_balance    = sum(r["balance_qty"]        for r in result)
+    #     total_plnd_wt    = round(sum(r["planned_weight"]  for r in result), 3)
+    #     total_actual_wt  = round(sum(r["actual_weight"]   for r in result), 3)
+    #     total_variance   = round(total_plnd_wt - total_actual_wt, 3)
+    #     avg_yield        = round((total_actual_wt / total_plnd_wt) * 100, 1) if total_plnd_wt else 0.0
+    #     total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
-        result.append({
-            "row_num":           "",
-            "buyer":             "TOTAL / AVERAGE",
-            "season":            "",
-            "style_count":       total_styles,
-            "order_qty":         total_order,
-            "planned_qty":       total_planned,
-            "today_output":      total_today,
-            "cumulative_output": total_cumulative,
-            "balance_qty":       total_balance,
-            "completed_pct":     f"{total_completed:.1f}%",
-            "planned_weight":    total_plnd_wt,
-            "actual_weight":     total_actual_wt,
-            "variance":          total_variance,
-            "yield_pct":         f"{avg_yield:.1f}%",
-        })
+    #     result.append({
+    #         "row_num":           "",
+    #         "buyer":             "TOTAL / AVERAGE",
+    #         "season":            "",
+    #         "style_count":       total_styles,
+    #         "order_qty":         total_order,
+    #         "planned_qty":       total_planned,
+    #         "today_output":      total_today,
+    #         "cumulative_output": total_cumulative,
+    #         "balance_qty":       total_balance,
+    #         "completed_pct":     f"{total_completed:.1f}%",
+    #         "planned_weight":    total_plnd_wt,
+    #         "actual_weight":     total_actual_wt,
+    #         "variance":          total_variance,
+    #         "yield_pct":         f"{avg_yield:.1f}%",
+    #     })
 
     return result

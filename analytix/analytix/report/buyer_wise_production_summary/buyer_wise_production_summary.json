@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-02-27 18:12:51.655404",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-02-27 18:12:51.655404",
+ "modified": "2026-03-02 17:59:28.447303",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Buyer wise Production Summary",

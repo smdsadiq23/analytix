@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-02-27 11:38:57.517007",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-02-27 11:38:57.517007",
+ "modified": "2026-03-02 17:59:43.908398",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Knitting Buyer wise Summary",

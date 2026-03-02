@@ -259,30 +259,30 @@ def get_data(filters):
     for r in result:
         r.pop("_delivery_date_raw", None)
 
-    # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
-    if result:
-        total_order      = sum(r["order_qty"]               for r in result)
-        total_planned    = sum(r["planned_qty"]              for r in result)
-        total_today      = sum(r["completed_qty"]            for r in result)
-        total_cumulative = sum(r["cumulative_completed_qty"] for r in result)
-        total_balance    = sum(r["balance_qty"]              for r in result)
-        total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
+    # # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
+    # if result:
+    #     total_order      = sum(r["order_qty"]               for r in result)
+    #     total_planned    = sum(r["planned_qty"]              for r in result)
+    #     total_today      = sum(r["completed_qty"]            for r in result)
+    #     total_cumulative = sum(r["cumulative_completed_qty"] for r in result)
+    #     total_balance    = sum(r["balance_qty"]              for r in result)
+    #     total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
-        result.append({
-            "process_date":             None,
-            "delivery_date":            "",
-            "department":               "TOTAL / AVERAGE",
-            "buyer":                    "",
-            "season":                   "",
-            "style":                    "",
-            "colour":                   "",
-            "size":                     "",
-            "order_qty":                total_order,
-            "planned_qty":              total_planned,
-            "completed_qty":            total_today,
-            "cumulative_completed_qty": total_cumulative,
-            "balance_qty":              total_balance,
-            "completed_percent":        f"{total_completed:.1f}%",
-        })
+    #     result.append({
+    #         "process_date":             None,
+    #         "delivery_date":            "",
+    #         "department":               "TOTAL / AVERAGE",
+    #         "buyer":                    "",
+    #         "season":                   "",
+    #         "style":                    "",
+    #         "colour":                   "",
+    #         "size":                     "",
+    #         "order_qty":                total_order,
+    #         "planned_qty":              total_planned,
+    #         "completed_qty":            total_today,
+    #         "cumulative_completed_qty": total_cumulative,
+    #         "balance_qty":              total_balance,
+    #         "completed_percent":        f"{total_completed:.1f}%",
+    #     })
 
     return result
