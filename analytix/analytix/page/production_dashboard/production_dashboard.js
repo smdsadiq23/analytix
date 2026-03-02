@@ -113,7 +113,7 @@ const CELLS = [
 // ── Auto-Scroll Configuration ───────────────────────────────────────
 const SCROLL_CONFIG = {
 	step: 45,           // pixels per scroll step
-	interval: 75,       // ms between steps
+	interval: 1000,       // ms between steps
 	pauseOnHover: true, // pause when mouse hovers (useful for debugging)
 	edgePause: 2000     // ms to pause at top/bottom before reversing
 };
