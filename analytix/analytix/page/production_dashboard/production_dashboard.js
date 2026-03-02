@@ -49,13 +49,14 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 							<th class="th-cell">EMBROIDERY<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">PRODUCTION<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">PRESSING<br><span class="th-inout">IN / OUT</span></th>
+							<th class="th-cell">FINISHING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">PACKING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-completion">COMPLETION</th>
 						</tr>
 					</thead>
 					<tbody id="tvd-tbody">
 						<tr>
-							<td colspan="18" class="tvd-state">
+							<td colspan="19" class="tvd-state">
 								<span class="tvd-spinner"></span> Loading data&hellip;
 							</td>
 						</tr>
@@ -89,17 +90,19 @@ frappe.pages["production-dashboard"].on_page_hide = function () {
 
 var _timer = null;
 
+// Must match CELL_ORDER in production_dashboard.py exactly
 const CELLS = [
-    "KNITTING",
-    "MENDING",
-    "WASHING",
-    "CUTTING",
-    "LINKING",
-    "SEWING",
-    "EMBROIDERY",
-    "PRODUCTION",
-    "PRESSING",
-    "PACKING"
+	"KNITTING",
+	"MENDING",
+	"WASHING",
+	"CUTTING",
+	"LINKING",
+	"SEWING",
+	"EMBROIDERY",
+	"PRODUCTION",
+	"PRESSING",
+	"FINISHING",
+	"PACKING"
 ];
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
@@ -150,34 +153,24 @@ function _render(rows) {
 
 		html += '<tr class="tvd-row">';
 
-		// Style
-		html += '<td class="td-style">' + _e(r.style) + "</td>";
-
-		// Buyer
-		html += '<td class="td-buyer">' + _e(r.buyer) + "</td>";
-
-		// Colour — dark pill badge
+		html += '<td class="td-style">'   + _e(r.style)        + "</td>";
+		html += '<td class="td-buyer">'   + _e(r.buyer)        + "</td>";
 		html += '<td class="td-colour"><span class="colour-badge">' + _e(r.colour) + "</span></td>";
-
-		// Season — coloured pill badge
 		html += '<td class="td-season"><span class="szn ' + _seasonClass(r.season) + '">' + _e(r.season) + "</span></td>";
-
-		// Delivery
-		html += '<td class="td-delivery">' + _e(r.delivery_date) + "</td>";
-
-		// Order Qty
-		html += '<td class="td-qty">' + _n(r.order_qty) + "</td>";
-
-		// Planned Qty
-		html += '<td class="td-qty">' + _n(r.planned_qty) + "</td>";
+		html += '<td class="td-delivery">'+ _e(r.delivery_date) + "</td>";
+		html += '<td class="td-qty">'     + _n(r.order_qty)    + "</td>";
+		html += '<td class="td-qty">'     + _n(r.planned_qty)  + "</td>";
 
 		// Per-cell columns
+		// IN  = first operation output of the cell
+		// OUT = last operation output of the cell (same as IN for single-op cells)
+		// %   = OUT / ORDER QTY × 100
 		var cellData = r.cells || {};
 		CELLS.forEach(function (cell) {
 			var c   = cellData[cell] || {};
 			var pct = c["pct"] || 0;
 
-			// % colour: ≥90 green, ≥75 teal, ≥50 yellow, else red
+			// % colour thresholds
 			var pClass = pct >= 90 ? "pct-green"
 			           : pct >= 75 ? "pct-teal"
 			           : pct >= 50 ? "pct-yellow"
@@ -191,7 +184,7 @@ function _render(rows) {
 			html += "</td>";
 		});
 
-		// Completion circle
+		// Completion circle — PACKING OUT / ORDER QTY
 		var cp     = parseFloat(r.completion_pct) || 0;
 		var cpStr  = cp.toFixed(cp % 1 === 0 ? 0 : 1) + "%";
 		var circ   = 113.1;
@@ -215,7 +208,7 @@ function _render(rows) {
 }
 
 function _setState(msg) {
-	$("#tvd-tbody").html('<tr><td colspan="18" class="tvd-state">' + msg + "</td></tr>");
+	$("#tvd-tbody").html('<tr><td colspan="19" class="tvd-state">' + msg + "</td></tr>");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

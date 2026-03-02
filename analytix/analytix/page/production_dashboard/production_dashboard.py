@@ -16,7 +16,8 @@ CELL_ORDER = [
     "EMBROIDERY",
     "PRODUCTION",
     "PRESSING",
-    "PACKING"
+    "FINISHING",
+    "PACKING",
 ]
 
 
@@ -26,13 +27,19 @@ def get_dashboard_data():
     if not order_map:
         return []
 
-    cell_out_map = _get_cell_out_map()
+    # Two separate maps:
+    #   cell_in_map  — qty that completed the FIRST operation of each cell
+    #   cell_out_map — qty that completed the LAST operation of each cell
+    # For a single-operation cell, first = last so both maps return the same qty.
+    cell_in_map  = _get_cell_op_map(op_type="first")
+    cell_out_map = _get_cell_op_map(op_type="last")
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
         "order_qty":     0,
         "planned_qty":   0,
         "delivery_date": None,
+        "cell_in":       defaultdict(int),
         "cell_out":      defaultdict(int),
     })
 
@@ -46,6 +53,7 @@ def get_dashboard_data():
             agg[key]["delivery_date"] = d
 
         for cell in CELL_ORDER:
+            agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
             agg[key]["cell_out"][cell] += cell_out_map.get((style, colour, size, cell), 0)
 
     # ── Build result rows ─────────────────────────────────────────────────
@@ -61,21 +69,17 @@ def get_dashboard_data():
         order_qty   = b["order_qty"]
         planned_qty = b["planned_qty"]
 
-        # ── IN / OUT cascade ──────────────────────────────────────────────
-        # Knitting IN = planned_qty.
-        # Each subsequent cell IN = previous cell OUT.
+        # Build per-cell data:
+        #   IN  = qty that completed the first operation of the cell
+        #   OUT = qty that completed the last operation of the cell
+        #   %   = OUT / ORDER QTY × 100  (not OUT/IN)
         #
-        # SKIP HANDLING: if a cell has 0 output (skipped or not yet started),
-        # we still carry forward the last non-zero qty as the next cell's IN
-        # so percentages don't collapse to 0 for all remaining cells.
-        cells        = {}
-        prev_in      = planned_qty   # tracks what went INTO the previous stage
-        last_nonzero = planned_qty   # last non-zero qty flowing through pipeline
-
+        # If a cell has only one operation, first = last → IN = OUT.
+        cells = {}
         for cell in CELL_ORDER:
-            cell_in  = last_nonzero          # IN = last qty that actually flowed
+            cell_in  = b["cell_in"].get(cell, 0)
             cell_out = b["cell_out"].get(cell, 0)
-            pct      = round((cell_out / cell_in) * 100) if cell_in else 0
+            pct      = round((cell_out / order_qty) * 100) if order_qty else 0
 
             cells[cell] = {
                 "in":  cell_in,
@@ -83,11 +87,7 @@ def get_dashboard_data():
                 "pct": pct,
             }
 
-            # Only advance the flowing qty if this cell actually produced output
-            if cell_out > 0:
-                last_nonzero = cell_out
-
-        # COMPLETION = Packing OUT / Order Qty * 100
+        # OVERALL COMPLETION = PACKING OUT / ORDER QTY × 100
         packing_out    = cells["PACKING"]["out"]
         completion_pct = round((packing_out / order_qty) * 100, 1) if order_qty else 0.0
 
@@ -140,20 +140,22 @@ def _get_order_map():
     return {(r.style, r.colour, r.size): r for r in rows}
 
 
-def _get_cell_out_map():
+def _get_cell_op_map(op_type="last"):
     """
-    Completed output qty per (style, colour, size, cell_name).
+    Returns qty per (style, colour, size, cell_name) for either
+    the first or last operation of each physical cell.
 
-    FIX — pcflo joined with AND pcflo.physical_cell = pc.name:
-        tabPhysical Cell First and Last Operation is a child table with
-        one row per physical cell per work order. Without this extra join
-        condition, every scan log fans out to ALL pcflo rows for that
-        work order. The WHERE isl.operation = pcflo.last_operation then
-        filters back — but if two cells share the same last_operation
-        (even accidentally), a scan is double-counted. Pinning
-        pcflo.physical_cell = pc.name ensures we only ever match the
-        pcflo row for the exact cell where the scan happened.
+    op_type = "first"  →  isl.operation = pcflo.first_operation  →  cell IN
+    op_type = "last"   →  isl.operation = pcflo.last_operation   →  cell OUT
+
+    For a single-operation cell, first_operation = last_operation,
+    so both calls return identical quantities for that cell.
+
+    pcflo join uses AND pcflo.physical_cell = pc.name to pin each
+    scan to exactly its own cell row — prevents double-counting
+    across the child table rows.
     """
+    op_field  = "first_operation" if op_type == "first" else "last_operation"
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
 
     rows = frappe.db.sql(f"""
@@ -162,7 +164,7 @@ def _get_cell_out_map():
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
             pc.cell_name                                AS cell_name,
-            COALESCE(SUM(pi.quantity), 0)               AS qty_out
+            COALESCE(SUM(pi.quantity), 0)               AS qty
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
@@ -180,7 +182,7 @@ def _get_cell_out_map():
                                                    ON pcflo.parent = tbc.work_order
                                                    AND pcflo.physical_cell = pc.name
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.last_operation
+        WHERE isl.operation = pcflo.{op_field}
           AND isl.log_status = 'Completed'
           AND pc.cell_name IN ({cell_list})
           AND (
@@ -190,4 +192,4 @@ def _get_cell_out_map():
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
     """, as_dict=True)
 
-    return {(r.style, r.colour, r.size, r.cell_name): int(r.qty_out) for r in rows}
+    return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
