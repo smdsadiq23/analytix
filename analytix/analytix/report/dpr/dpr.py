@@ -178,7 +178,7 @@ def get_data(filters):
             itm.custom_style_master AS style,
             itm.custom_colour_name AS colour,
             tbc.sales_order AS ocn,
-            COALESCE(SUM(pi.quantity), 0) AS scan_qty
+            COALESCE(SUM(pi.quantity), 0) AS sew_qty
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor
             ON tor.name = tbc.parent

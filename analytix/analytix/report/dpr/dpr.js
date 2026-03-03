@@ -2,7 +2,8 @@
 // For license information, please see license.txt
 
 frappe.query_reports["DPR"] = {
-	filters: [],
+    filters: [
+	],
 
 	onload(report) {
 		CX.mountBreadcrumb({
