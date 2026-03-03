@@ -39,22 +39,14 @@ def get_columns():
     ]
 
 
+# Approval values that are considered "Approved" (shown at bottom / hidden by default)
+APPROVED_STATUSES = {"Approved", "App with Replenishment"}
+
+
 def get_data(filters):
     # Build WHERE conditions
     where_conditions = ["so.docstatus = 1"]
     params = {}
-
-    # if filters.get("from_date"):
-    #     where_conditions.append("so.delivery_date >= %(from_date)s")
-    #     params["from_date"] = filters["from_date"]
-
-    # if filters.get("to_date"):
-    #     where_conditions.append("so.delivery_date <= %(to_date)s")
-    #     params["to_date"] = filters["to_date"]
-
-    # if filters.get("ocn"):
-    #     where_conditions.append("so.name = %(ocn)s")
-    #     params["ocn"] = filters["ocn"]
 
     where_clause = " AND ".join(where_conditions)
 
@@ -172,7 +164,7 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
-    # Get Sew Qty data (operation='Endline QC')
+    # Get Sew Qty data (operation='Sewing Incoming%')
     sew_qty_query = """
         SELECT 
             itm.custom_style_master AS style,
@@ -357,7 +349,6 @@ def get_data(filters):
         row_status = row.get("status") or ""
         with_replenishment = replenishment_map.get(key, 0)
         
-        # Display logic from JS formatter
         display_approval = current_approval
         
         if row_status == "Verified" and not current_approval:
@@ -393,16 +384,23 @@ def get_data(filters):
         
         final_rows.append(row)
 
-    # Define sort priority for customer_approval values
+    # --- Filter: hide Approved records by default unless show_approved is checked ---
+    show_approved = filters.get("show_approved")
+    if not show_approved:
+        final_rows = [r for r in final_rows if r.get("customer_approval") not in APPROVED_STATUSES]
+
+    # --- Sort: pending records first, approved records at the bottom ---
     def get_approval_priority(approval):
-        if approval == "Approved":
+        if approval == "Yet to Confirm":
             return 0
+        elif approval in ("", None):
+            return 1          # blank / unknown — still pending, show near top
         elif approval == "App with Replenishment":
-            return 1
-        elif approval == "Yet to Confirm":
-            return 2
+            return 2          # approved variant — pushed to bottom
+        elif approval == "Approved":
+            return 3          # fully approved — very bottom
         else:
-            return 3  # Covers blanks, None, or any unexpected value
+            return 1          # any other value treated as pending
 
     # Sort by approval priority first, then by delivery_date, OCN, colour for stability
     final_rows.sort(
