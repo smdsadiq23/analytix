@@ -57,14 +57,13 @@ def get_order_rows(filters):
             COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
             COALESCE(SUM(soi.qty), 0)                   AS planned_qty
         FROM (
-            SELECT DISTINCT parent, sales_order, work_order, size
+            SELECT DISTINCT sales_order, work_order, size
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc
         INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
         INNER JOIN `tabSales Order Item` soi    ON soi.parent = so.name AND soi.custom_size = tbc.size
-        INNER JOIN `tabTracking Order` tor      ON tor.name = tbc.parent
-        INNER JOIN `tabItem` itm                ON itm.name = tor.item
+        INNER JOIN `tabItem` itm                ON itm.name = soi.item_code
         INNER JOIN `tabStyle Master` stm        ON stm.name = itm.custom_style_master
         WHERE {where}
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size,
