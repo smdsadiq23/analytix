@@ -39,10 +39,6 @@ def get_columns():
     ]
 
 
-# Approval values that are considered "Approved" (shown at bottom / hidden by default)
-APPROVED_STATUSES = {"Approved", "App with Replenishment"}
-
-
 def get_data(filters):
     # Build WHERE conditions
     where_conditions = ["so.docstatus = 1"]
@@ -93,7 +89,6 @@ def get_data(filters):
     
     can_cut_rows = frappe.db.sql(can_cut_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
-    # Create a map for with_replenishment: (ocn, colour) -> with_replenishment
     replenishment_map = {}
     for cc in can_cut_rows:
         key = (cc["ocn"], cc["colour"])
@@ -117,7 +112,6 @@ def get_data(filters):
     
     cut_rows = frappe.db.sql(cut_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
-    # Create a map for quick lookup: (ocn, colour) -> cut data
     cut_map = {}
     for c in cut_rows:
         key = (c["ocn"], c["colour"])
@@ -150,7 +144,6 @@ def get_data(filters):
     
     factory_ocr_rows = frappe.db.sql(factory_ocr_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
-    # Create a map for Factory OCR data: (ocn, colour) -> factory data
     factory_map = {}
     for f in factory_ocr_rows:
         key = (f["ocn"], f["colour"])
@@ -164,7 +157,7 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
-    # Get Sew Qty data (operation='Sewing Incoming%')
+    # Get Sew Qty data
     sew_qty_query = """
         SELECT 
             itm.custom_style_master AS style,
@@ -193,13 +186,12 @@ def get_data(filters):
     
     sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
-    # Create a map for Sew Qty: (ocn, colour) -> sew_qty
     sew_qty_map = {}
     for s in sew_qty_rows:
         key = (s["ocn"], s["colour"])
         sew_qty_map[key] = float(s.get("sew_qty") or 0)
 
-    # Get Scan Qty data (operation=tor.last_operation)
+    # Get Scan Qty data
     scan_qty_query = """
         SELECT 
             itm.custom_style_master AS style,
@@ -232,13 +224,11 @@ def get_data(filters):
     
     scan_qty_rows = frappe.db.sql(scan_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
-    # Create a map for Scan Qty: (ocn, colour) -> scan_qty
     scan_qty_map = {}
     for s in scan_qty_rows:
         key = (s["ocn"], s["colour"])
         scan_qty_map[key] = float(s.get("scan_qty") or 0)
 
-    # Get Dead Stock data (balance_as_per_lay_record for Verified status)
     # GRN received quantity
     grn_query = """
         SELECT
@@ -275,7 +265,7 @@ def get_data(filters):
     lay_rows = frappe.db.sql(lay_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     lay_map = {(r["ocn"], r["colour"]): float(r.get("lay_actual_total") or 0) for r in lay_rows}
 
-    # Merge cut data into base rows and calculate derived fields
+    # Merge all data into base rows and calculate derived fields
     final_rows = []
     for row in base_rows:
         key = (row["ocn"], row["colour"])
@@ -292,57 +282,31 @@ def get_data(filters):
         
         row["cut_quantity"] = cut_data["cut_quantity"]
         row["last_cut_date"] = cut_data["last_cut_date"]
-        
-        # Factory OCR fields (pack and ship only)
         row["pack_quantity"] = factory_data["pack_quantity"]
         row["ship_quantity"] = factory_data["ship_quantity"]
         
-        # Calculate cut % and cut balance
         order_qty = float(row.get("order_qty") or 0)
         cut_qty = float(row.get("cut_quantity") or 0)
         pack_qty = float(row.get("pack_quantity") or 0)
         ship_qty = float(row.get("ship_quantity") or 0)
         
-        # Sew Qty and Sew Balance
         sew_qty = sew_qty_map.get(key, 0)
         row["sew_quantity"] = float(sew_qty)
         row["sew_balance"] = int(order_qty - sew_qty)
         
-        # Scan Qty (from query instead of Factory OCR)
-        scan_qty = scan_qty_map.get(key, 0)
-        row["scan_quantity"] = float(scan_qty)
+        row["scan_quantity"] = float(scan_qty_map.get(key, 0))
         
-        if order_qty > 0:
-            row["cut_pct"] = (cut_qty / order_qty) * 100.0
-        else:
-            row["cut_pct"] = 0.0
-        
+        row["cut_pct"] = (cut_qty / order_qty * 100.0) if order_qty > 0 else 0.0
         row["cut_balance"] = int(order_qty - cut_qty)
-        
-        # Pack balance
         row["pack_balance"] = int(order_qty - pack_qty)
+        row["cut_to_pack"] = (pack_qty / cut_qty * 100.0) if cut_qty > 0 else 0.0
+        row["order_to_pack"] = (pack_qty / order_qty * 100.0) if order_qty > 0 else 0.0
         
-        # Cut to Pack % and Order to Pack %
-        if cut_qty > 0:
-            row["cut_to_pack"] = (pack_qty / cut_qty) * 100.0
-        else:
-            row["cut_to_pack"] = 0.0
+        cut_to_ship = factory_data.get("cut_to_ship") or 0
+        row["cut_to_ship"] = float(cut_to_ship) if cut_to_ship else ((ship_qty / cut_qty * 100) if cut_qty > 0 else 0)
         
-        if order_qty > 0:
-            row["order_to_pack"] = (pack_qty / order_qty) * 100.0
-        else:
-            row["order_to_pack"] = 0.0
-        
-        # Cut to Ship % and Order to Ship % (from Factory OCR or calculate)
-        cut_to_ship = factory_data.get("cut_to_ship")
-        if cut_to_ship is None or cut_to_ship == 0:
-            cut_to_ship = (ship_qty / cut_qty * 100) if cut_qty > 0 else 0
-        row["cut_to_ship"] = float(cut_to_ship)
-        
-        order_to_ship = factory_data.get("order_to_ship")
-        if order_to_ship is None or order_to_ship == 0:
-            order_to_ship = (ship_qty / order_qty * 100) if order_qty > 0 else 0
-        row["order_to_ship"] = float(order_to_ship)
+        order_to_ship = factory_data.get("order_to_ship") or 0
+        row["order_to_ship"] = float(order_to_ship) if order_to_ship else ((ship_qty / order_qty * 100) if order_qty > 0 else 0)
         
         # Apply customer approval display logic
         current_approval = row.get("customer_approval") or ""
@@ -350,22 +314,15 @@ def get_data(filters):
         with_replenishment = replenishment_map.get(key, 0)
         
         display_approval = current_approval
-        
         if row_status == "Verified" and not current_approval:
             display_approval = "Yet to Confirm"
         elif current_approval == "Approved":
             display_approval = "App with Replenishment" if with_replenishment else "Approved"
-        
         row["customer_approval"] = display_approval
         
-        # Dispatch Qty = Ship Qty from Factory OCR
         row["dispatch_quantity"] = ship_qty
-        
-        # Bal to Dispatch = Order - Ship
         row["bal_to_dispatch"] = int(order_qty - ship_qty)
         
-        # Dead Stock = received_qty - lay_actual_total (only for Verified status)
-        row_status = row.get("status") or ""
         if row_status == "Verified":
             received_qty = grn_map.get(key, 0)
             lay_actual_total = lay_map.get(key, 0)
@@ -376,7 +333,6 @@ def get_data(filters):
         # OCR Status logic
         factory_status = factory_data.get("factory_status") or ""
         ocr_with_replenishment = factory_data.get("with_replenishment") or 0
-        
         if factory_status == "Approved":
             row["ocr_status"] = "Approved with Replenishment" if ocr_with_replenishment == 1 else "Approved"
         else:
@@ -384,25 +340,11 @@ def get_data(filters):
         
         final_rows.append(row)
 
-    # --- Filter: hide Approved records by default unless show_approved is checked ---
-    show_approved = filters.get("show_approved")
-    if not show_approved:
-        final_rows = [r for r in final_rows if r.get("customer_approval") not in APPROVED_STATUSES]
-
-    # --- Sort: pending records first, approved records at the bottom ---
+    # Sort: all non-Approved records first, Approved records at the bottom.
+    # Within each group, maintain delivery_date -> OCN -> colour order.
     def get_approval_priority(approval):
-        if approval == "Yet to Confirm":
-            return 0
-        elif approval in ("", None):
-            return 1          # blank / unknown — still pending, show near top
-        elif approval == "App with Replenishment":
-            return 2          # approved variant — pushed to bottom
-        elif approval == "Approved":
-            return 3          # fully approved — very bottom
-        else:
-            return 1          # any other value treated as pending
+        return 1 if approval in ("Approved", "App with Replenishment") else 0
 
-    # Sort by approval priority first, then by delivery_date, OCN, colour for stability
     final_rows.sort(
         key=lambda row: (
             get_approval_priority(row.get("customer_approval", "")),
@@ -410,6 +352,6 @@ def get_data(filters):
             row["ocn"],
             row["colour"]
         )
-    )    
+    )
 
     return final_rows
