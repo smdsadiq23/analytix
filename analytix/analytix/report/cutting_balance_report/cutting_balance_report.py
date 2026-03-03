@@ -38,6 +38,7 @@ def get_data():
         INNER JOIN `tabItem` item ON item.name = sod.item_code
         WHERE 
             so.docstatus = 1
+            AND so.custom_consumption_status - 'Inprogress'
             AND item.custom_select_master = 'Finished Goods'
             AND sod.name = (
                 SELECT sub_sod.name
