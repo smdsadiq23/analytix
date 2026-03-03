@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Your Company.
-# Production Report - Cutting from Cut Confirmation, Sew/Fin from Scan Log
+# Consolidated Production Report - Cutting from Cut Confirmation, Sew/Fin from Scan Log
 # YTD period starts from February 1st for 2026 only (special fiscal year requirement)
 
 import frappe
