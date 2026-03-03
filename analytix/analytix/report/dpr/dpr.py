@@ -192,7 +192,7 @@ def get_data(filters):
             ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabItem Scan Log` isl
             ON isl.production_item = pi.name
-            AND isl.operation LIKE 'Sewing Incoming%'
+            AND isl.operation LIKE 'Sewing Incoming%%'
             AND isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Activated', 'Pass')
         WHERE tbc.sales_order IN %(ocn_list)s
