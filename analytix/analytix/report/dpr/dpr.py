@@ -172,6 +172,23 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
+    # TEST 1: Single OCN query (bypass ocn_list)
+    test_query = """
+        SELECT 
+            tbc.sales_order AS ocn,
+            tor.name AS tor_name,
+            tor.item AS item,
+            pi.name AS pi_name,
+            pi.quantity AS qty
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
+        INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
+        WHERE tbc.sales_order = 'UBV-OCN00095'
+        LIMIT 5
+    """
+    test_result = frappe.db.sql(test_query, as_dict=1)
+    frappe.log_error(f"TEST SINGLE OCN: {test_result}", "Sew Debug")
+
     # Get Sew Qty data (operation='Endline QC')
     sew_qty_query = """
         SELECT 
