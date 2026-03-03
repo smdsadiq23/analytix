@@ -2,24 +2,40 @@
    Production TV Dashboard  —  analytix / production_dashboard
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ── Strip Frappe chrome ─────────────────────────────────────────── */
-.page-content {
+/* ── Strip Frappe chrome + layout constraints ────────────────────── */
+html, body {
+	margin: 0 !important;
 	padding: 0 !important;
+	overflow-x: hidden !important;
+	width: 100% !important;
+}
+
+.page-content,
+.page-body,
+.layout-main-section,
+.layout-main-section-wrapper {
+	width: 100% !important;
+	max-width: none !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	overflow-x: hidden !important;
 	background: #0d1117 !important;
-	min-height: 100vh;
 }
 
 /* ── Root ────────────────────────────────────────────────────────── */
 .tvd-root {
+	width: 100vw !important;
+	max-width: none !important;
 	height: 100vh;
 	background: #0d1117;
 	color: #c9d1d9;
 	font-family: "Inter", "Segoe UI", system-ui, sans-serif;
 	display: flex;
 	flex-direction: column;
-	padding: 18px 20px 10px;
-	box-sizing: border-box;
+	padding: 18px 20px 10px !important;
+	box-sizing: border-box !important;
 	overflow: hidden;
+	margin: 0 !important;
 }
 
 /* ── Top bar ─────────────────────────────────────────────────────── */
@@ -60,24 +76,29 @@
 /* ── Table scroll wrapper ────────────────────────────────────────── */
 .tvd-scroll {
 	flex: 1;
+	width: 100% !important;
 	overflow-x: hidden;
 	overflow-y: auto;
 	border-radius: 8px;
 	border: 1px solid #21262d;
 	min-height: 0;
-	scroll-behavior: smooth; /* Enables smooth scrolling */
+	margin: 0 !important;
+	padding: 0 !important;
+	scroll-behavior: smooth;
 }
 
 /* ── Table base ──────────────────────────────────────────────────── */
 .tvd-table {
-	width: 100%;
+	width: 100% !important;
 	border-collapse: collapse;
 	font-size: 0.72rem;
 	table-layout: fixed;
 	white-space: nowrap;
+	margin: 0 !important;
+	padding: 0 !important;
 }
 
-/* ── Header row ───────────────────────────────────────────────────── */
+/* ── Header row ──────────────────────────────────────────────────── */
 .tvd-head {
 	background: #161b22;
 	border-bottom: 2px solid #21262d;
@@ -100,9 +121,15 @@
 	text-overflow: ellipsis;
 }
 
-.th-qty { color: #00d4aa !important; width: 4.8%; }
-.th-cell { color: #f0c040 !important; width: 5%; }
-.th-completion { color: #00d4aa !important; width: 4.2%; }
+/* ── Column widths ───────────────────────────────────────────────── */
+.th-buyer      { width: 7%;   text-align: left !important; color: #00d4aa !important; }
+.th-season     { width: 4.5%;                              color: #00d4aa !important; }
+.th-style      { width: 7.5%; text-align: left !important; color: #00d4aa !important; padding-left: 8px; }
+.th-colour     { width: 5%;   text-align: left !important; color: #00d4aa !important; }
+.th-delivery   { width: 5%;                                color: #00d4aa !important; }
+.th-qty        { width: 4%;                                color: #00d4aa !important; }
+.th-cell       { width: 4.8%;                              color: #f0c040 !important; }
+.th-completion { width: auto !important; min-width: 5.2%;  color: #00d4aa !important; }
 
 .th-inout {
 	display: block;
@@ -113,12 +140,6 @@
 	text-transform: uppercase;
 	margin-top: 2px;
 }
-
-.th-buyer    { width: 7%;   text-align: left !important; }
-.th-season   { width: 5%;   }
-.th-style    { width: 7.5%; text-align: left !important; padding-left: 8px; }
-.th-colour   { width: 5.5%; text-align: left !important; }
-.th-delivery { width: 5.5%; }
 
 /* ── Body rows ───────────────────────────────────────────────────── */
 .tvd-row { border-bottom: 1px solid #1c2128; }
@@ -135,20 +156,14 @@
 }
 
 /* ── Identity cells ──────────────────────────────────────────────── */
-.td-buyer    { text-align: left; color: #c9d1d9; font-size: 0.75rem; }
+.td-buyer    { text-align: left;   color: #c9d1d9; font-size: 0.75rem; }
 .td-season   { text-align: center; }
-.td-style {
-	font-weight: 700;
-	font-size: 0.78rem;
-	color: #e6edf3;
-	text-align: left;
-	padding-left: 8px;
-}
+.td-style    { font-weight: 700; font-size: 0.78rem; color: #e6edf3; text-align: left; padding-left: 8px; }
 .td-colour   { text-align: left; }
 .td-delivery { text-align: center; color: #8b949e; font-size: 0.72rem; }
-.td-qty      { text-align: right; font-weight: 600; color: #e6edf3; padding-right: 6px; }
+.td-qty      { text-align: right;  font-weight: 600; color: #e6edf3; padding-right: 6px; }
 
-/* ── Colour badge ────────────────────────────────────────────── */
+/* ── Colour badge ────────────────────────────────────────────────── */
 .colour-badge {
 	display: inline-block;
 	padding: 2px 7px;
@@ -185,35 +200,10 @@
 	padding: 6px 3px;
 	border-left: 1px solid #1c2128;
 }
-
-.cell-in {
-	font-size: 0.68rem;
-	font-weight: 400;
-	color: #8a8e92;
-	line-height: 1.2;
-}
-
-.cell-line {
-	height: 2px;
-	background: #e3a847;
-	margin: 3px 4px;
-	border-radius: 1px;
-}
-
-.cell-out {
-	font-size: 0.75rem;
-	font-weight: 700;
-	color: #e6edf3;
-	line-height: 1.2;
-}
-
-.cell-pct {
-	font-size: 0.62rem;
-	font-weight: 600;
-	color: #6e7681;
-	margin-top: 2px;
-	line-height: 1;
-}
+.cell-in   { font-size: 0.68rem; font-weight: 400; color: #8a8e92; line-height: 1.2; }
+.cell-line { height: 2px; background: #e3a847; margin: 3px 4px; border-radius: 1px; }
+.cell-out  { font-size: 0.75rem; font-weight: 700; color: #e6edf3; line-height: 1.2; }
+.cell-pct  { font-size: 0.62rem; font-weight: 600; color: #6e7681; margin-top: 2px; line-height: 1; }
 .cell-pct.pct-green  { color: #4fbe79 !important; }
 .cell-pct.pct-teal   { color: #00d4aa !important; }
 .cell-pct.pct-yellow { color: #f0c040 !important; }
@@ -239,11 +229,8 @@
 .comp-bg   { fill: none; stroke: #21262d; stroke-width: 3.5; }
 .comp-ring { fill: none; stroke-width: 3.5; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
 .comp-ring.cc-done { stroke: #4fbe79; }
-.comp-label.cc-done { color: #4fbe79; }
 .comp-ring.cc-mid  { stroke: #f0c040; }
-.comp-label.cc-mid  { color: #f0c040; }
-.comp-ring.cc-low  { stroke: #f85149 !important; }
-.comp-label.cc-low { color: #f85149 !important; }
+.comp-ring.cc-low  { stroke: #f85149; }
 .comp-label {
 	position: absolute;
 	top: 50%; left: 50%;
@@ -254,9 +241,8 @@
 	pointer-events: none;
 }
 .comp-label.cc-done { color: #4fbe79; }
-.comp-label.cc-good { color: #00d4aa; }
 .comp-label.cc-mid  { color: #f0c040; }
-.comp-label.cc-low  { color: #58a6ff; }
+.comp-label.cc-low  { color: #f85149; }
 
 /* ── Loading / error ─────────────────────────────────────────────── */
 .tvd-state {
@@ -299,7 +285,8 @@
 	.cell-in            { font-size: 0.76rem; }
 	.cell-out           { font-size: 0.84rem; }
 	.cell-pct           { font-size: 0.68rem; }
-	.comp-wrap, .comp-svg { width: 52px; height: 52px; }
+	.comp-wrap,
+	.comp-svg           { width: 52px; height: 52px; }
 	.comp-label         { font-size: 0.68rem; }
 }
 @media (min-width: 2560px) {
@@ -311,6 +298,7 @@
 	.cell-in            { font-size: 0.86rem; }
 	.cell-out           { font-size: 0.94rem; }
 	.cell-pct           { font-size: 0.76rem; }
-	.comp-wrap, .comp-svg { width: 60px; height: 60px; }
+	.comp-wrap,
+	.comp-svg           { width: 60px; height: 60px; }
 	.comp-label         { font-size: 0.75rem; }
 }
