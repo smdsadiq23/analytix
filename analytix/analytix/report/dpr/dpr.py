@@ -44,17 +44,17 @@ def get_data(filters):
     where_conditions = ["so.docstatus = 1"]
     params = {}
 
-    if filters.get("from_date"):
-        where_conditions.append("so.delivery_date >= %(from_date)s")
-        params["from_date"] = filters["from_date"]
+    # if filters.get("from_date"):
+    #     where_conditions.append("so.delivery_date >= %(from_date)s")
+    #     params["from_date"] = filters["from_date"]
 
-    if filters.get("to_date"):
-        where_conditions.append("so.delivery_date <= %(to_date)s")
-        params["to_date"] = filters["to_date"]
+    # if filters.get("to_date"):
+    #     where_conditions.append("so.delivery_date <= %(to_date)s")
+    #     params["to_date"] = filters["to_date"]
 
-    if filters.get("ocn"):
-        where_conditions.append("so.name = %(ocn)s")
-        params["ocn"] = filters["ocn"]
+    # if filters.get("ocn"):
+    #     where_conditions.append("so.name = %(ocn)s")
+    #     params["ocn"] = filters["ocn"]
 
     where_clause = " AND ".join(where_conditions)
 
@@ -172,6 +172,10 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
+    frappe.log_error(f"OCN LIST TYPE: {type(ocn_list)}", "Sew Debug")
+    frappe.log_error(f"OCN LIST CONTENT: {ocn_list[:5]}", "Sew Debug")  # First 5 items
+    frappe.log_error(f"OCN LIST LENGTH: {len(ocn_list)}", "Sew Debug")
+
     # Get Sew Qty data (operation='Endline QC')
     sew_qty_query = """
         SELECT 
@@ -204,15 +208,7 @@ def get_data(filters):
     """
     
     sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
-
-    # DEBUG: Check if UBV-OCN00095 is in results
-    frappe.log_error(f"SEW ROWS COUNT: {len(sew_qty_rows)}", "Sew Debug")
-    frappe.log_error(f"SEW ROWS: {sew_qty_rows}", "Sew Debug")
-
-    # Check specifically for UBV-OCN00095
-    ubv_95_rows = [r for r in sew_qty_rows if r.get("ocn") == "UBV-OCN00095"]
-    frappe.log_error(f"UBV-OCN00095 SEW ROWS: {ubv_95_rows}", "Sew Debug")    
-        
+    
     # Create a map for Sew Qty: (ocn, colour) -> sew_qty
     sew_qty_map = {}
     for s in sew_qty_rows:
