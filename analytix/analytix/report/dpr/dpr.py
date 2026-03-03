@@ -44,17 +44,17 @@ def get_data(filters):
     where_conditions = ["so.docstatus = 1"]
     params = {}
 
-    if filters.get("from_date"):
-        where_conditions.append("so.delivery_date >= %(from_date)s")
-        params["from_date"] = filters["from_date"]
+    # if filters.get("from_date"):
+    #     where_conditions.append("so.delivery_date >= %(from_date)s")
+    #     params["from_date"] = filters["from_date"]
 
-    if filters.get("to_date"):
-        where_conditions.append("so.delivery_date <= %(to_date)s")
-        params["to_date"] = filters["to_date"]
+    # if filters.get("to_date"):
+    #     where_conditions.append("so.delivery_date <= %(to_date)s")
+    #     params["to_date"] = filters["to_date"]
 
-    if filters.get("ocn"):
-        where_conditions.append("so.name = %(ocn)s")
-        params["ocn"] = filters["ocn"]
+    # if filters.get("ocn"):
+    #     where_conditions.append("so.name = %(ocn)s")
+    #     params["ocn"] = filters["ocn"]
 
     where_clause = " AND ".join(where_conditions)
 
@@ -99,12 +99,12 @@ def get_data(filters):
         WHERE cc.sales_order IN %(ocn_list)s
     """
     
-    can_cut_rows = frappe.db.sql(can_cut_query, {"ocn_list": ocn_list}, as_dict=1)
+    can_cut_rows = frappe.db.sql(can_cut_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
     # Create a map for with_replenishment: (ocn, colour) -> with_replenishment
     replenishment_map = {}
     for cc in can_cut_rows:
-        key = ((cc["ocn"] or "").strip(), (cc["colour"] or "").strip())
+        key = (cc["ocn"], cc["colour"])
         replenishment_map[key] = int(cc.get("with_replenishment") or 0)
 
     # Get cut quantities and last cut date by OCN and colour
@@ -123,12 +123,12 @@ def get_data(filters):
         GROUP BY cci.sales_order, cd.color
     """
     
-    cut_rows = frappe.db.sql(cut_query, {"ocn_list": ocn_list}, as_dict=1)
+    cut_rows = frappe.db.sql(cut_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
     # Create a map for quick lookup: (ocn, colour) -> cut data
     cut_map = {}
     for c in cut_rows:
-        key = ((c["ocn"] or "").strip(), (c["colour"] or "").strip())
+        key = (c["ocn"], c["colour"])
         cut_map[key] = {
             "cut_quantity": int(c.get("cut_quantity") or 0),
             "last_cut_date": c.get("last_cut_date")
@@ -156,12 +156,12 @@ def get_data(filters):
           AND fo.ocn IN %(ocn_list)s
     """
     
-    factory_ocr_rows = frappe.db.sql(factory_ocr_query, {"ocn_list": ocn_list}, as_dict=1)
+    factory_ocr_rows = frappe.db.sql(factory_ocr_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
     # Create a map for Factory OCR data: (ocn, colour) -> factory data
     factory_map = {}
     for f in factory_ocr_rows:
-        key = ((f["ocn"] or "").strip(), (f["colour"] or "").strip())
+        key = (f["ocn"], f["colour"])
         factory_map[key] = {
             "scan_quantity": float(f.get("scan_quantity") or 0),
             "pack_quantity": float(f.get("pack_quantity") or 0),
@@ -172,7 +172,7 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
-    # Get Sew Qty data - SIMPLIFIED QUERY (removed restrictive JOINs)
+    # Get Sew Qty data (operation='Endline QC')
     sew_qty_query = """
         SELECT 
             itm.custom_style_master AS style,
@@ -188,51 +188,62 @@ def get_data(filters):
         INNER JOIN `tabProduction Item` pi
             ON pi.tracking_order = tor.name
             AND pi.bundle_configuration = tbc.name
+        INNER JOIN `tabTracking Component` tc 
+            ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabItem Scan Log` isl
+            ON isl.production_item = pi.name
+            AND isl.operation LIKE 'Sewing Incoming%'
+            AND isl.log_status = 'Completed'
+            AND isl.status IN ('Counted', 'Activated', 'Pass')
         WHERE tbc.sales_order IN %(ocn_list)s
-          AND pi.quantity > 0
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.sales_order
     """
     
-    sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": ocn_list}, as_dict=1)
-    
-    # Debug logging (can be removed after testing)
-    frappe.log_error(f"SEW ROWS COUNT: {len(sew_qty_rows)}", "DPR Debug")
-    if sew_qty_rows:
-        frappe.log_error(f"SEW SAMPLE: {sew_qty_rows[:3]}", "DPR Debug")
+    sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
     # Create a map for Sew Qty: (ocn, colour) -> sew_qty
     sew_qty_map = {}
     for s in sew_qty_rows:
-        key = ((s["ocn"] or "").strip(), (s["colour"] or "").strip())
+        key = (s["ocn"], s["colour"])
         sew_qty_map[key] = float(s.get("sew_qty") or 0)
 
-    # Get Scan Qty data - SIMPLIFIED QUERY (removed restrictive JOINs)
+    # Get Scan Qty data (operation=tor.last_operation)
     scan_qty_query = """
         SELECT 
             itm.custom_style_master AS style,
             itm.custom_colour_name AS colour,
             tbc.sales_order AS ocn,
-            COALESCE(SUM(pi.quantity), 0) AS scan_qty
+            COALESCE(SUM(pi.quantity), 0) AS sew_qty
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor
             ON tor.name = tbc.parent
             AND tor.item IS NOT NULL
-            AND tor.last_operation IS NOT NULL
         INNER JOIN `tabItem` itm
             ON itm.name = tor.item
         INNER JOIN `tabProduction Item` pi
             ON pi.tracking_order = tor.name
             AND pi.bundle_configuration = tbc.name
+        INNER JOIN `tabTracking Component` tc 
+            ON tc.name = pi.component AND tc.is_main = 1
+		INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd 
+		     ON ckpbd.`production_item_id` = pi.name
+		 INNER JOIN `tabCut Kit Plan` ckp
+		     ON ckp.`name` = ckpbd.parent                 
+        INNER JOIN `tabItem Scan Log` isl
+            ON isl.production_item = pi.name
+            AND isl.operation = ckp.last_operation
+            AND isl.log_status = 'Completed'
+            AND isl.status IN ('Counted', 'Activated', 'Pass')
         WHERE tbc.sales_order IN %(ocn_list)s
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.sales_order
     """
     
-    scan_qty_rows = frappe.db.sql(scan_qty_query, {"ocn_list": ocn_list}, as_dict=1)
+    scan_qty_rows = frappe.db.sql(scan_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     
     # Create a map for Scan Qty: (ocn, colour) -> scan_qty
     scan_qty_map = {}
     for s in scan_qty_rows:
-        key = ((s["ocn"] or "").strip(), (s["colour"] or "").strip())
+        key = (s["ocn"], s["colour"])
         scan_qty_map[key] = float(s.get("scan_qty") or 0)
 
     # Get Dead Stock data (balance_as_per_lay_record for Verified status)
@@ -251,8 +262,8 @@ def get_data(filters):
         GROUP BY grn.ocn, gri.color
     """
     
-    grn_rows = frappe.db.sql(grn_query, {"ocn_list": ocn_list}, as_dict=1)
-    grn_map = {((r["ocn"] or "").strip(), (r["colour"] or "").strip()): float(r.get("received_qty") or 0) for r in grn_rows}
+    grn_rows = frappe.db.sql(grn_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
+    grn_map = {(r["ocn"], r["colour"]): float(r.get("received_qty") or 0) for r in grn_rows}
     
     # Lay actual total
     lay_query = """
@@ -269,15 +280,13 @@ def get_data(filters):
         GROUP BY clr.ocn, clr.colour
     """
     
-    lay_rows = frappe.db.sql(lay_query, {"ocn_list": ocn_list}, as_dict=1)
-    lay_map = {((r["ocn"] or "").strip(), (r["colour"] or "").strip()): float(r.get("lay_actual_total") or 0) for r in lay_rows}
+    lay_rows = frappe.db.sql(lay_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
+    lay_map = {(r["ocn"], r["colour"]): float(r.get("lay_actual_total") or 0) for r in lay_rows}
 
     # Merge cut data into base rows and calculate derived fields
     final_rows = []
     for row in base_rows:
-        # Normalize key for all lookups
-        key = ((row["ocn"] or "").strip(), (row["colour"] or "").strip())
-        
+        key = (row["ocn"], row["colour"])
         cut_data = cut_map.get(key, {"cut_quantity": 0, "last_cut_date": None})
         factory_data = factory_map.get(key, {
             "scan_quantity": 0,
@@ -365,6 +374,7 @@ def get_data(filters):
         row["bal_to_dispatch"] = int(order_qty - ship_qty)
         
         # Dead Stock = received_qty - lay_actual_total (only for Verified status)
+        row_status = row.get("status") or ""
         if row_status == "Verified":
             received_qty = grn_map.get(key, 0)
             lay_actual_total = lay_map.get(key, 0)
