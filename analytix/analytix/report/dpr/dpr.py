@@ -72,7 +72,7 @@ def get_data(filters):
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
         INNER JOIN `tabItem` item ON item.name = sod.item_code
-        INNER JOIN `tabFactory Business Unit` fbu ON fbu.name = so.custom_fbu
+        LEFT JOIN `tabFactory Business Unit` fbu ON so.custom_fbu = fbu.name
         WHERE {where_clause}
         GROUP BY so.name, item.custom_style_master, sod.custom_color
         ORDER BY so.delivery_date, so.name, sod.custom_color
