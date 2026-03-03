@@ -205,7 +205,6 @@ def get_data(filters):
     
     sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     # Debug: Check ocn_list before sew query
-    frappe.log_error(f"OCN LIST BEFORE SEW: {ocn_list}", "Sew Debug")
     frappe.log_error(f"UBV-OCN00095 IN LIST: {'UBV-OCN00095' in ocn_list}", "Sew Debug")
 
     # Debug: Check if base_rows has UBV-OCN00095
