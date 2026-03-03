@@ -63,7 +63,7 @@ def get_data(filters):
         SELECT
             so.name AS ocn,
             item.custom_style_master AS style,
-            so.custom_fbu AS unit,
+            fbu.factory_name AS unit,
             sod.custom_color AS colour,
             SUM(sod.custom_order_qty) AS order_qty,
             so.custom_approval AS customer_approval,
@@ -72,6 +72,7 @@ def get_data(filters):
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
         INNER JOIN `tabItem` item ON item.name = sod.item_code
+        INNER JOIN `tabFactory Business Unit` fbu ON fbu.name = so.custom_fbu
         WHERE {where_clause}
         GROUP BY so.name, item.custom_style_master, sod.custom_color
         ORDER BY so.delivery_date, so.name, sod.custom_color
@@ -177,7 +178,7 @@ def get_data(filters):
             itm.custom_style_master AS style,
             itm.custom_colour_name AS colour,
             tbc.sales_order AS ocn,
-            COALESCE(SUM(pi.quantity), 0) AS sew_qty
+            COALESCE(SUM(pi.quantity), 0) AS scan_qty
         FROM `tabTracking Order Bundle Configuration` tbc
         INNER JOIN `tabTracking Order` tor
             ON tor.name = tbc.parent
@@ -189,9 +190,13 @@ def get_data(filters):
             AND pi.bundle_configuration = tbc.name
         INNER JOIN `tabTracking Component` tc 
             ON tc.name = pi.component AND tc.is_main = 1
+		INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd 
+		     ON ckpbd.`production_item_id` = pi.name
+		 INNER JOIN `tabCut Kit Plan` ckp
+		     ON ckp.`name` = ckpbd.parent                 
         INNER JOIN `tabItem Scan Log` isl
             ON isl.production_item = pi.name
-            AND isl.operation = 'Endline QC'
+            AND isl.operation = ckp.last_operation
             AND isl.log_status = 'Completed'
             AND isl.status IN ('Counted', 'Activated', 'Pass')
         WHERE tbc.sales_order IN %(ocn_list)s
