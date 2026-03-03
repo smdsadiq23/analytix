@@ -204,6 +204,19 @@ def get_data(filters):
     """
     
     sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
+    # Debug: Check ocn_list before sew query
+    frappe.log_error(f"OCN LIST BEFORE SEW: {ocn_list}", "Sew Debug")
+    frappe.log_error(f"UBV-OCN00095 IN LIST: {'UBV-OCN00095' in ocn_list}", "Sew Debug")
+
+    # Debug: Check if base_rows has UBV-OCN00095
+    base_ocns = [r["ocn"] for r in base_rows]
+    frappe.log_error(f"BASE ROWS OCNS: {base_ocns}", "Sew Debug")
+    frappe.log_error(f"UBV-OCN00095 IN BASE: {'UBV-OCN00095' in base_ocns}", "Sew Debug")
+
+    # Now run sew query
+    sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
+    frappe.log_error(f"SEW ROWS COUNT: {len(sew_qty_rows)}", "Sew Debug")
+    frappe.log_error(f"SEW ROWS: {sew_qty_rows}", "Sew Debug")
     
     # Create a map for Sew Qty: (ocn, colour) -> sew_qty
     sew_qty_map = {}
@@ -286,7 +299,6 @@ def get_data(filters):
 
     # Merge cut data into base rows and calculate derived fields
     final_rows = []
-    frappe.log_error(f"SEW MAP KEYS: {list(sew_qty_map.keys())}", "Sew Debug")
     for row in base_rows:
         key = (row["ocn"], row["colour"])
         cut_data = cut_map.get(key, {"cut_quantity": 0, "last_cut_date": None})
@@ -316,7 +328,6 @@ def get_data(filters):
         # Sew Qty and Sew Balance
         sew_qty = sew_qty_map.get(key, 0)
         row["sew_quantity"] = float(sew_qty)
-        frappe.msgprint(str(row["sew_quantity"]))        
         row["sew_balance"] = int(order_qty - sew_qty)
         
         # Scan Qty (from query instead of Factory OCR)
