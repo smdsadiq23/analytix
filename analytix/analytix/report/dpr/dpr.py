@@ -173,8 +173,8 @@ def get_data(filters):
         }
 
     frappe.log_error(f"OCN LIST TYPE: {type(ocn_list)}", "Sew Debug")
-    frappe.log_error(f"OCN LIST CONTENT: {ocn_list[:5]}", "Sew Debug")  # First 5 items
     frappe.log_error(f"OCN LIST LENGTH: {len(ocn_list)}", "Sew Debug")
+    frappe.log_error(f"OCN LIST ALL: {ocn_list}", "Sew Debug")
 
     # Get Sew Qty data (operation='Endline QC')
     sew_qty_query = """
