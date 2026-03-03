@@ -244,7 +244,7 @@ def get_data(filters):
         completed_pct = round((cumulative_output / order_qty) * 100, 1) if order_qty else 0.0
         completed_pct_str = f"{completed_pct:.1f}%"
 
-        yield_pct = round((actual_weight / planned_weight) * 100, 1) if planned_weight else 0.0
+        yield_pct = round((planned_weight / actual_weight) * 100, 1) if actual_weight else 0.0
         yield_pct_str = f"{yield_pct:.1f}%"
 
         result.append({

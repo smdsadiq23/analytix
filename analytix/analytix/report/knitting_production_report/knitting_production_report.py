@@ -214,7 +214,7 @@ def get_data(filters):
         completed_pct_str = f"{completed_pct:.1f}%"
 
         # Yield % = (Actual Wt / Planned Wt) × 100  — > 100% means over-consumed
-        yield_pct     = round((actual_weight / planned_weight) * 100, 2) if planned_weight else 0.0
+        yield_pct     = round((planned_weight / actual_weight) * 100, 2) if actual_weight else 0.0
         yield_pct_str = f"{yield_pct:.1f}%"
 
         # Wastage/Excess: positive = saved (good), negative = over-used (bad)
