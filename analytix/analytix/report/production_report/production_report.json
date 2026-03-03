@@ -13,11 +13,11 @@
  "modified": "2026-01-27 19:51:25.519932",
  "modified_by": "Administrator",
  "module": "AnalytiX",
- "name": "Production Report",
+ "name": "Consolidated Production Report",
  "owner": "Administrator",
  "prepared_report": 0,
  "ref_doctype": "Item Scan Log",
- "report_name": "Production Report",
+ "report_name": "Consolidated Production Report",
  "report_type": "Script Report",
  "roles": [
   {
