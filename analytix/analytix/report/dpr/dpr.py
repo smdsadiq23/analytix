@@ -172,53 +172,41 @@ def get_data(filters):
             "factory_status": f.get("factory_status") or ""
         }
 
-    # TEST 1: Single OCN query (bypass ocn_list)
-    test_query = """
-        SELECT 
-            tbc.sales_order AS ocn,
-            tor.name AS tor_name,
-            tor.item AS item,
-            pi.name AS pi_name,
-            pi.quantity AS qty
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor ON tor.name = tbc.parent
-        INNER JOIN `tabProduction Item` pi ON pi.tracking_order = tor.name AND pi.bundle_configuration = tbc.name
-        WHERE tbc.sales_order = 'UBV-OCN00095'
-        LIMIT 5
-    """
-    test_result = frappe.db.sql(test_query, as_dict=1)
-    frappe.log_error(f"TEST SINGLE OCN: {test_result}", "Sew Debug")
-
     # Get Sew Qty data (operation='Endline QC')
-    sew_qty_query = """
-        SELECT 
-            itm.custom_style_master AS style,
-            itm.custom_colour_name AS colour,
-            tbc.sales_order AS ocn,
-            COALESCE(SUM(pi.quantity), 0) AS sew_qty
-        FROM `tabTracking Order Bundle Configuration` tbc
-        INNER JOIN `tabTracking Order` tor
-            ON tor.name = tbc.parent
-            AND tor.item IS NOT NULL
-        INNER JOIN `tabItem` itm
-            ON itm.name = tor.item
-        INNER JOIN `tabProduction Item` pi
-            ON pi.tracking_order = tor.name
-            AND pi.bundle_configuration = tbc.name
-        INNER JOIN `tabTracking Component` tc 
-            ON tc.name = pi.component AND tc.is_main = 1
-		INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd 
-		     ON ckpbd.`production_item_id` = pi.name
-		 INNER JOIN `tabCut Kit Plan` ckp
-		     ON ckp.`name` = ckpbd.parent                 
-        INNER JOIN `tabItem Scan Log` isl
-            ON isl.production_item = pi.name
-            AND isl.operation = ckp.last_operation
-            AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted', 'Activated', 'Pass')
-        WHERE tbc.sales_order IN %(ocn_list)s
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.sales_order
-    """
+    if ocn_list:
+        placeholders = ','.join(['%s'] * len(ocn_list))    
+        sew_qty_query = """
+            SELECT 
+                itm.custom_style_master AS style,
+                itm.custom_colour_name AS colour,
+                tbc.sales_order AS ocn,
+                COALESCE(SUM(pi.quantity), 0) AS sew_qty
+            FROM `tabTracking Order Bundle Configuration` tbc
+            INNER JOIN `tabTracking Order` tor
+                ON tor.name = tbc.parent
+                AND tor.item IS NOT NULL
+            INNER JOIN `tabItem` itm
+                ON itm.name = tor.item
+            INNER JOIN `tabProduction Item` pi
+                ON pi.tracking_order = tor.name
+                AND pi.bundle_configuration = tbc.name
+            INNER JOIN `tabTracking Component` tc 
+                ON tc.name = pi.component AND tc.is_main = 1
+            INNER JOIN `tabCut Kit Plan Bundle Details` ckpbd 
+                ON ckpbd.`production_item_id` = pi.name
+            INNER JOIN `tabCut Kit Plan` ckp
+                ON ckp.`name` = ckpbd.parent                 
+            INNER JOIN `tabItem Scan Log` isl
+                ON isl.production_item = pi.name
+                AND isl.operation = ckp.last_operation
+                AND isl.log_status = 'Completed'
+                AND isl.status IN ('Counted', 'Activated', 'Pass')
+            WHERE tbc.sales_order IN %(ocn_list)s
+            GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.sales_order
+        """
+        sew_qty_rows = frappe.db.sql(sew_qty_query, ocn_list, as_dict=1)
+    else:
+        sew_qty_rows = []
     
     sew_qty_rows = frappe.db.sql(sew_qty_query, {"ocn_list": tuple(ocn_list)}, as_dict=1)
     # Debug: Check ocn_list before sew query
