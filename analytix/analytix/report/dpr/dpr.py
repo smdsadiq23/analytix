@@ -209,7 +209,6 @@ def get_data(filters):
 
     # Debug: Check if base_rows has UBV-OCN00095
     base_ocns = [r["ocn"] for r in base_rows]
-    frappe.log_error(f"BASE ROWS OCNS: {base_ocns}", "Sew Debug")
     frappe.log_error(f"UBV-OCN00095 IN BASE: {'UBV-OCN00095' in base_ocns}", "Sew Debug")
 
     # Now run sew query
