@@ -61,7 +61,6 @@ def get_data(filters):
         SELECT
             so.name                         AS ocn,
             item.custom_style_master        AS style,
-            fbu.factory_name                AS unit,
             sod.custom_color                AS colour,
             SUM(sod.custom_order_qty)       AS order_qty,
             so.custom_approval              AS custom_consumption_status,
@@ -71,7 +70,6 @@ def get_data(filters):
         FROM `tabSales Order` so
         INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
         INNER JOIN `tabItem` item            ON item.name  = sod.item_code
-        LEFT  JOIN `tabFactory Business Unit` fbu ON so.custom_fbu = fbu.name
         LEFT  JOIN `tabCan Cut` cc
                ON  cc.sales_order = so.name
                AND cc.colour      = sod.custom_color
@@ -91,11 +89,13 @@ def get_data(filters):
         SELECT
             cci.sales_order             AS ocn,
             cd.color                    AS colour,
+            fbu.factory_name            AS unit,
             SUM(cci.confirmed_quantity) AS cut_quantity,
             MAX(con.creation)           AS last_cut_date
         FROM `tabCut Confirmation Item` cci
-        INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
-        INNER JOIN `tabCut Docket`       cd  ON cd.name  = con.cut_po_number
+        INNER JOIN `tabCut Confirmation`   con ON con.name = cci.parent
+        INNER JOIN `tabCut Docket`          cd ON cd.name  = con.cut_po_number
+        LEFT  JOIN `tabFactory Business Unit` fbu ON fbu.name = cd.factory_business_unit
         WHERE cci.docstatus = 1
           AND con.docstatus = 1
           AND cci.sales_order IN %(ocn_list)s
@@ -104,6 +104,7 @@ def get_data(filters):
         cut_map[(c["ocn"], c["colour"])] = {
             "cut_quantity": int(c.get("cut_quantity") or 0),
             "last_cut_date": c.get("last_cut_date"),
+            "unit": c.get("unit") or "",
         }
 
     # ── 3. Factory OCR ───────────────────────────────────────────────────────
@@ -231,7 +232,7 @@ def get_data(filters):
     final_rows = []
     for row in base_rows:
         key         = (row["ocn"], row["colour"])
-        cut_data    = cut_map.get(key) or {"cut_quantity": 0, "last_cut_date": None}
+        cut_data    = cut_map.get(key) or {"cut_quantity": 0, "last_cut_date": None, "unit": ""}
         fdata       = factory_map.get(key) or _empty_factory
 
         order_qty   = float(row.get("order_qty") or 0)
@@ -242,6 +243,7 @@ def get_data(filters):
 
         row["cut_quantity"]  = int(cut_qty)
         row["last_cut_date"] = cut_data["last_cut_date"]
+        row["unit"]          = cut_data["unit"]
         row["sew_quantity"]  = sew_qty
         row["sew_balance"]   = int(order_qty - sew_qty)
         row["scan_quantity"] = scan_map.get(key, 0.0)
