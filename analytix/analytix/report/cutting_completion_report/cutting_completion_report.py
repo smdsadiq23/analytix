@@ -302,7 +302,7 @@ def get_data(filters):
                 "size":      size,
                 "order_qty": oq,
                 "cut_qty":   cq,
-                "balance":   cq - oq,
+                "balance":   oq - cq,
             })
         size_wise_balance_map[key] = rows
 
