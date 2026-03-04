@@ -1,6 +1,7 @@
 # Copyright (c) 2025, Cognitonx Logic India Private limited and contributors
 # For license information, please see license.txt
 
+import json
 import frappe
 from frappe import _
 
@@ -53,6 +54,9 @@ def get_columns():
         # helper fields for your frontend grouping (optional)
         {"label": _("Row No"), "fieldname": "rn", "fieldtype": "Int", "width": 80, "hidden": 1},
         {"label": _("Is First Row"), "fieldname": "is_first_row", "fieldtype": "Check", "width": 100, "hidden": 1},
+
+        # Size-wise balance JSON for hover popup
+        {"label": _("Size Wise Balance"), "fieldname": "size_wise_balance", "fieldtype": "Data", "width": 0, "hidden": 1},
     ]
 
 
@@ -71,7 +75,6 @@ def get_data(filters):
         where_so += " AND so.delivery_date <= %(to_date)s"
         params["to_date"] = filters["to_date"]
 
-    # If you have additional filters (ocn/style/colour), add them here safely.
     if filters.get("ocn"):
         where_so += " AND so.name = %(ocn)s"
         params["ocn"] = filters["ocn"]
@@ -82,54 +85,63 @@ def get_data(filters):
     q_order_base = f"""
         SELECT
             so.name AS ocn,
-            item.custom_style_master AS style,
-            sod.custom_color AS colour,
-            SUM(sod.custom_order_qty) AS order_qty,
+            soi_agg.style,
+            soi_agg.colour,
+            soi_agg.order_qty,
             so.delivery_date,
 
             cc.fabric_ordered,
             cc.fabric_issued,
             cc.folding,
 
-            clr.end_bit_quantity AS calculated_end_bit,
-            clr.actual_end_bit_quanity AS actual_end_bit,
-            clr.chindi_weight AS chindi_weight,
+            clr.end_bit_quantity        AS calculated_end_bit,
+            clr.actual_end_bit_quanity  AS actual_end_bit,
+            clr.chindi_weight           AS chindi_weight,
 
             cc.file_consumption,
             cc.actual_consumption,
             cc.name AS can_cut_name,
             cc.with_replenishment,
 
-            COALESCE(CASE WHEN cc.deviation_under = 'Fabric' THEN cc.profit_loss_value END, 0) AS pl_fabric,
+            COALESCE(CASE WHEN cc.deviation_under = 'Fabric'   THEN cc.profit_loss_value END, 0) AS pl_fabric,
             COALESCE(CASE WHEN cc.deviation_under = 'Merchant' THEN cc.profit_loss_value END, 0) AS pl_merchant,
 
             so.custom_consumption_status AS consumption_status,
-            so.custom_approval AS approval,
+            so.custom_approval           AS approval,
             so.custom_approved_by,
             so.custom_approved_on
 
         FROM `tabSales Order` so
-        INNER JOIN `tabSales Order Item` sod ON sod.parent = so.name
-        INNER JOIN `tabItem` item ON item.name = sod.item_code
+
+        -- Pre-aggregate SO Items BEFORE any other joins to prevent row multiplication
+        INNER JOIN (
+            SELECT
+                sod.parent                      AS ocn,
+                item.custom_style_master        AS style,
+                sod.custom_color                AS colour,
+                SUM(sod.custom_order_qty)       AS order_qty
+            FROM `tabSales Order Item` sod
+            INNER JOIN `tabItem` item ON item.name = sod.item_code
+            GROUP BY sod.parent, item.custom_style_master, sod.custom_color
+        ) soi_agg ON soi_agg.ocn = so.name
 
         LEFT JOIN `tabCan Cut` cc
             ON cc.sales_order = so.name
-            AND cc.colour = sod.custom_color
+            AND cc.colour = soi_agg.colour
 
         LEFT JOIN (
             SELECT
                 ocn,
                 colour,
-                SUM(end_bit_quantity) AS end_bit_quantity,
+                SUM(end_bit_quantity)       AS end_bit_quantity,
                 SUM(actual_end_bit_quanity) AS actual_end_bit_quanity,
-                SUM(chindi_weight) AS chindi_weight
+                SUM(chindi_weight)          AS chindi_weight
             FROM `tabCutting Lay Record`
             WHERE docstatus = 1
             GROUP BY ocn, colour
-        ) clr ON clr.ocn = so.name AND clr.colour = sod.custom_color
+        ) clr ON clr.ocn = so.name AND clr.colour = soi_agg.colour
 
         WHERE {where_so}
-        GROUP BY so.name, item.custom_style_master, sod.custom_color
     """
     order_rows = frappe.db.sql(q_order_base, params, as_dict=1)
 
@@ -139,21 +151,18 @@ def get_data(filters):
     # Build a fast lookup for base rows by (ocn, colour)
     base_by_key = {}
     ocn_set = set()
-    colour_set = set()
 
     for r in order_rows:
         ocn_set.add(r["ocn"])
-        colour_set.add(r["colour"])
         base_by_key[(r["ocn"], r["colour"])] = r
 
     # -------------------------
-    # Prepare "IN" filters for the other queries (reduces scanned rows a lot)
+    # Prepare "IN" filters for the other queries
     # -------------------------
     ocn_list = sorted(list(ocn_set))
     if not ocn_list:
         return []
 
-    # Use tuple params for IN
     params_in = dict(params)
     params_in["ocn_list"] = tuple(ocn_list)
 
@@ -227,12 +236,78 @@ def get_data(filters):
         GROUP BY cci.sales_order, cd.color
     """
     last_cut_rows = frappe.db.sql(q_last_cut_date, params_in, as_dict=1)
-    last_cut_map = {(r["ocn"], r["colour"]): r["last_cut_date"] for r in last_cut_rows}    
+    last_cut_map = {(r["ocn"], r["colour"]): r["last_cut_date"] for r in last_cut_rows}
+
+    # -------------------------
+    # 6) size_wise_order_qty: SO + colour + size from Sales Order Item
+    # -------------------------
+    q_size_order_qty = """
+        SELECT
+            sod.parent          AS ocn,
+            sod.custom_color    AS colour,
+            sod.custom_size     AS size,
+            SUM(sod.custom_order_qty) AS order_qty
+        FROM `tabSales Order Item` sod
+        WHERE sod.parent IN %(ocn_list)s
+        GROUP BY sod.parent, sod.custom_color, sod.custom_size
+        ORDER BY sod.parent, sod.custom_color, sod.custom_size
+    """
+    size_order_rows = frappe.db.sql(q_size_order_qty, params_in, as_dict=1)
+
+    # Build map: (ocn, colour) → { size: order_qty }
+    size_order_map = {}
+    for r in size_order_rows:
+        key = (r["ocn"], r["colour"])
+        size_order_map.setdefault(key, {})[r.get("size") or ""] = int(r.get("order_qty") or 0)
+
+    # -------------------------
+    # 7) size_wise_cut_qty: SO + colour + size from Cut Confirmation Item
+    # -------------------------
+    q_size_cut_qty = """
+        SELECT
+            cci.sales_order     AS ocn,
+            cd.color            AS colour,
+            cci.size            AS size,
+            SUM(cci.confirmed_quantity) AS cut_qty
+        FROM `tabCut Confirmation Item` cci
+        INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
+        INNER JOIN `tabCut Docket`       cd  ON cd.name  = con.cut_po_number
+        WHERE cci.docstatus = 1
+          AND con.docstatus = 1
+          AND cci.sales_order IN %(ocn_list)s
+        GROUP BY cci.sales_order, cd.color, cci.size
+        ORDER BY cci.sales_order, cd.color, cci.size
+    """
+    size_cut_rows = frappe.db.sql(q_size_cut_qty, params_in, as_dict=1)
+
+    # Build map: (ocn, colour) → { size: cut_qty }
+    size_cut_map = {}
+    for r in size_cut_rows:
+        key = (r["ocn"], r["colour"])
+        size_cut_map.setdefault(key, {})[r.get("size") or ""] = int(r.get("cut_qty") or 0)
+
+    # Combine into size_wise_balance_map: (ocn, colour) → [ {size, order_qty, cut_qty, balance} ]
+    # Union of all sizes from both order and cut
+    size_wise_balance_map = {}
+    all_keys = set(size_order_map.keys()) | set(size_cut_map.keys())
+    for key in all_keys:
+        order_by_size = size_order_map.get(key, {})
+        cut_by_size   = size_cut_map.get(key, {})
+        all_sizes = sorted(set(list(order_by_size.keys()) + list(cut_by_size.keys())))
+        rows = []
+        for size in all_sizes:
+            oq = order_by_size.get(size, 0)
+            cq = cut_by_size.get(size, 0)
+            rows.append({
+                "size":      size,
+                "order_qty": oq,
+                "cut_qty":   cq,
+                "balance":   oq - cq,
+            })
+        size_wise_balance_map[key] = rows
 
     # -------------------------
     # Build final rows (one per docket)
-    # If no docket exists, still emit one row with cut_docket = None
-    # (matches your LEFT JOIN behavior)
     # -------------------------
     final = []
 
@@ -241,25 +316,23 @@ def get_data(filters):
             key = (c["ocn"], c["colour"])
             base = base_by_key.get(key)
             if not base:
-                # If cut rows exist for an ocn/colour not in order_base (rare, but safe)
                 continue
-
             row = dict(base)
-            row["cut_docket"] = c.get("cut_docket")
+            row["cut_docket"]     = c.get("cut_docket")
             row["cut_qty_actual"] = int(c.get("cut_qty_actual") or 0)
-            row["last_cut_date"] = last_cut_map.get(key)
-            row = _apply_python_derivations(row, grn_map, lay_map)
+            row["last_cut_date"]  = last_cut_map.get(key)
+            row = _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map)
             final.append(row)
 
-    # Emit rows where there is no cut docket (LEFT JOIN behavior)
+    # Emit rows where there is no cut docket (LEFT JOIN behaviour)
     docket_keys = {(r["ocn"], r["colour"]) for r in cut_rows} if cut_rows else set()
     for (ocn, colour), base in base_by_key.items():
         if (ocn, colour) in docket_keys:
             continue
         row = dict(base)
-        row["cut_docket"] = None
+        row["cut_docket"]     = None
         row["cut_qty_actual"] = 0
-        row = _apply_python_derivations(row, grn_map, lay_map)
+        row = _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map)
         final.append(row)
 
     # -------------------------
@@ -284,7 +357,7 @@ def get_data(filters):
         r["rn"] = rn_counter[ocn]
         r["is_first_row"] = 1 if r["rn"] == 1 else 0
 
-    # Final sort (same as your SQL ORDER BY status, delivery_date, ocn, rn)
+    # Final sort
     final.sort(key=lambda r: (
         r.get("status") or "",
         r.get("delivery_date") or "",
@@ -295,20 +368,21 @@ def get_data(filters):
     return final
 
 
-def _apply_python_derivations(row, grn_map, lay_map):
+def _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map=None):
     """
     Fill derived fields:
-    - can_cut_qty (python-side)
+    - can_cut_qty
     - difference
     - balance_as_per_lay_record
     - cut_completion_pct
     - status
+    - size_wise_balance (JSON for hover popup)
     """
-    order_qty = float(row.get("order_qty") or 0)
+    order_qty     = float(row.get("order_qty") or 0)
     cut_qty_actual = float(row.get("cut_qty_actual") or 0)
 
     # can_cut_qty
-    fabric_issued = float(row.get("fabric_issued") or 0)
+    fabric_issued      = float(row.get("fabric_issued") or 0)
     actual_consumption = float(row.get("actual_consumption") or 0)
     if actual_consumption > 0:
         row["can_cut_qty"] = int(round(fabric_issued / actual_consumption))
@@ -319,10 +393,9 @@ def _apply_python_derivations(row, grn_map, lay_map):
     row["difference"] = int(round(cut_qty_actual - order_qty))
 
     # balance_as_per_lay_record
-    ocn = row.get("ocn")
+    ocn    = row.get("ocn")
     colour = row.get("colour")
-    received_qty = float(grn_map.get((ocn, colour), 0) or 0)
-
+    received_qty     = float(grn_map.get((ocn, colour), 0) or 0)
     lay_actual_total = float(lay_map.get((ocn, colour), 0) or 0)
     frappe.log(f"DEBUG - OCN: {ocn}, Colour: {colour}, Received Qty: {received_qty}, Lay Actual Total: {lay_actual_total}")
     row["balance_as_per_lay_record"] = received_qty - lay_actual_total
@@ -333,7 +406,7 @@ def _apply_python_derivations(row, grn_map, lay_map):
     else:
         row["cut_completion_pct"] = 0.0
 
-    # status (same logic)
+    # status
     cs = row.get("consumption_status")
     if isinstance(cs, str) and cs.strip():
         row["status"] = cs
@@ -344,7 +417,13 @@ def _apply_python_derivations(row, grn_map, lay_map):
         row["status"] = "Inprogress" if pct < 98 else "Completed"
 
     # Ensure pl fields are always numeric
-    row["pl_fabric"] = float(row.get("pl_fabric") or 0)
+    row["pl_fabric"]   = float(row.get("pl_fabric") or 0)
     row["pl_merchant"] = float(row.get("pl_merchant") or 0)
+
+    # Size-wise balance JSON for hover popup  (order_qty - cut_qty per size)
+    key = (ocn, colour)
+    row["size_wise_balance"] = json.dumps(
+        (size_wise_balance_map or {}).get(key, [])
+    )
 
     return row
