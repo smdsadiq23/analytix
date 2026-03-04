@@ -81,6 +81,7 @@ def get_data(filters):
 
     # -------------------------
     # 1) order_base: SO + style + colour summary
+    # Pre-aggregate SO Items BEFORE any other joins to prevent row multiplication
     # -------------------------
     q_order_base = f"""
         SELECT
@@ -113,13 +114,12 @@ def get_data(filters):
 
         FROM `tabSales Order` so
 
-        -- Pre-aggregate SO Items BEFORE any other joins to prevent row multiplication
         INNER JOIN (
             SELECT
-                sod.parent                      AS ocn,
-                item.custom_style_master        AS style,
-                sod.custom_color                AS colour,
-                SUM(sod.custom_order_qty)       AS order_qty
+                sod.parent                  AS ocn,
+                item.custom_style_master    AS style,
+                sod.custom_color            AS colour,
+                SUM(sod.custom_order_qty)   AS order_qty
             FROM `tabSales Order Item` sod
             INNER JOIN `tabItem` item ON item.name = sod.item_code
             GROUP BY sod.parent, item.custom_style_master, sod.custom_color
@@ -240,12 +240,13 @@ def get_data(filters):
 
     # -------------------------
     # 6) size_wise_order_qty: SO + colour + size from Sales Order Item
+    # Use float to preserve decimals and match the totals calculation
     # -------------------------
     q_size_order_qty = """
         SELECT
-            sod.parent          AS ocn,
-            sod.custom_color    AS colour,
-            sod.custom_size     AS size,
+            sod.parent              AS ocn,
+            sod.custom_color        AS colour,
+            sod.custom_size         AS size,
             SUM(sod.custom_order_qty) AS order_qty
         FROM `tabSales Order Item` sod
         WHERE sod.parent IN %(ocn_list)s
@@ -254,20 +255,21 @@ def get_data(filters):
     """
     size_order_rows = frappe.db.sql(q_size_order_qty, params_in, as_dict=1)
 
-    # Build map: (ocn, colour) → { size: order_qty }
+    # Build map: (ocn, colour) → { size: order_qty }  — keep as float
     size_order_map = {}
     for r in size_order_rows:
         key = (r["ocn"], r["colour"])
-        size_order_map.setdefault(key, {})[r.get("size") or ""] = int(r.get("order_qty") or 0)
+        size_order_map.setdefault(key, {})[r.get("size") or ""] = float(r.get("order_qty") or 0)
 
     # -------------------------
     # 7) size_wise_cut_qty: SO + colour + size from Cut Confirmation Item
+    # Use float to preserve decimals and match the totals calculation
     # -------------------------
     q_size_cut_qty = """
         SELECT
-            cci.sales_order     AS ocn,
-            cd.color            AS colour,
-            cci.size            AS size,
+            cci.sales_order         AS ocn,
+            cd.color                AS colour,
+            cci.size                AS size,
             SUM(cci.confirmed_quantity) AS cut_qty
         FROM `tabCut Confirmation Item` cci
         INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
@@ -280,14 +282,14 @@ def get_data(filters):
     """
     size_cut_rows = frappe.db.sql(q_size_cut_qty, params_in, as_dict=1)
 
-    # Build map: (ocn, colour) → { size: cut_qty }
+    # Build map: (ocn, colour) → { size: cut_qty }  — keep as float
     size_cut_map = {}
     for r in size_cut_rows:
         key = (r["ocn"], r["colour"])
-        size_cut_map.setdefault(key, {})[r.get("size") or ""] = int(r.get("cut_qty") or 0)
+        size_cut_map.setdefault(key, {})[r.get("size") or ""] = float(r.get("cut_qty") or 0)
 
     # Combine into size_wise_balance_map: (ocn, colour) → [ {size, order_qty, cut_qty, balance} ]
-    # Union of all sizes from both order and cut
+    # Union of all sizes from both order and cut; balance = cut_qty - order_qty (same direction as Difference column)
     size_wise_balance_map = {}
     all_keys = set(size_order_map.keys()) | set(size_cut_map.keys())
     for key in all_keys:
@@ -296,13 +298,13 @@ def get_data(filters):
         all_sizes = sorted(set(list(order_by_size.keys()) + list(cut_by_size.keys())))
         rows = []
         for size in all_sizes:
-            oq = order_by_size.get(size, 0)
-            cq = cut_by_size.get(size, 0)
+            oq = order_by_size.get(size, 0.0)
+            cq = cut_by_size.get(size, 0.0)
             rows.append({
                 "size":      size,
-                "order_qty": oq,
-                "cut_qty":   cq,
-                "balance":   cq - oq,
+                "order_qty": round(oq, 2),
+                "cut_qty":   round(cq, 2),
+                "balance":   round(cq - oq, 2),   # same direction as Difference column (cut - order)
             })
         size_wise_balance_map[key] = rows
 
@@ -378,7 +380,7 @@ def _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map=None)
     - status
     - size_wise_balance (JSON for hover popup)
     """
-    order_qty     = float(row.get("order_qty") or 0)
+    order_qty      = float(row.get("order_qty") or 0)
     cut_qty_actual = float(row.get("cut_qty_actual") or 0)
 
     # can_cut_qty
@@ -389,7 +391,7 @@ def _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map=None)
     else:
         row["can_cut_qty"] = 0
 
-    # difference
+    # difference (cut - order, same direction as size-wise balance)
     row["difference"] = int(round(cut_qty_actual - order_qty))
 
     # balance_as_per_lay_record
@@ -420,7 +422,8 @@ def _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map=None)
     row["pl_fabric"]   = float(row.get("pl_fabric") or 0)
     row["pl_merchant"] = float(row.get("pl_merchant") or 0)
 
-    # Size-wise balance JSON for hover popup  (order_qty - cut_qty per size)
+    # Size-wise balance JSON for hover popup
+    # balance = cut_qty - order_qty per size (same direction as the Difference column)
     key = (ocn, colour)
     row["size_wise_balance"] = json.dumps(
         (size_wise_balance_map or {}).get(key, [])
