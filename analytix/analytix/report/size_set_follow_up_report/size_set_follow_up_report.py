@@ -1,4 +1,6 @@
-# cuttingx/report/size_set_follow_up_report/size_set_follow_up_report.py
+# Copyright (c) 2025, CognitionX Logic India Private Limited and contributors
+# For license information, please see license.txt
+
 
 import frappe
 from frappe import _
@@ -24,6 +26,18 @@ def get_columns():
             "width": 150
         },
         {
+            "label": _("Style"),
+            "fieldname": "style",
+            "fieldtype": "Data",
+            "width": 140
+        },
+        {
+            "label": _("Colour"),
+            "fieldname": "colour",
+            "fieldtype": "Data",
+            "width": 120
+        },
+        {
             "label": _("Merchant"),
             "fieldname": "custom_merchant",
             "fieldtype": "Link",
@@ -39,31 +53,31 @@ def get_columns():
         },
         {
             "label": _("PPM Date"),
-            "fieldname": "custom_ppm_date",
+            "fieldname": "ppm_date",
             "fieldtype": "Date",
             "width": 120
         },
         {
             "label": _("PCD Committed"),
-            "fieldname": "custom_pcd_committed",
+            "fieldname": "pcd_committed",
             "fieldtype": "Date",
             "width": 160
         },
         {
             "label": _("Size Set Planned Date"),
-            "fieldname": "custom_size_set_planned_date",
+            "fieldname": "size_set_planned_date",
             "fieldtype": "Date",
             "width": 200
         },
         {
             "label": _("Size Set Cut Date"),
-            "fieldname": "custom_size_set_cut_date",
+            "fieldname": "size_set_cut_date",
             "fieldtype": "Date",
             "width": 160
         },
         {
             "label": _("Size Set Status"),
-            "fieldname": "custom_size_set_status",
+            "fieldname": "size_set_status",
             "fieldtype": "Select",
             "options": "Pattern Issues\nSewing Pending\nUnder Checking\nCompleted",
             "width": 160,
@@ -71,7 +85,7 @@ def get_columns():
         },
         {
             "label": _("Completion On"),
-            "fieldname": "custom_completion_on",
+            "fieldname": "completion_on",
             "fieldtype": "Date",
             "width": 160
         }
@@ -86,21 +100,34 @@ def get_data(filters):
 
     query = """
         SELECT
-            so.name AS ocn,
-            so.customer_name AS buyer,
+            soi.parent                  AS ocn,
+            so.customer_name            AS buyer,
+            soi.custom_style            AS style,
+            soi.custom_color            AS colour,
             so.custom_merchant,
             so.custom_merchant_manager,
-            so.custom_ppm_date,
-            so.custom_pcd_committed,
-            so.custom_size_set_planned_date,
-            so.custom_size_set_cut_date,
-            so.custom_size_set_status,
-            so.custom_completion_on
-        FROM `tabSales Order` so
+            sst.ppm_date,
+            sst.pcd_committed,
+            sst.size_set_planned_date,
+            sst.size_set_cut_date,
+            sst.size_set_status,
+            sst.completion_on,
+            sst.name                    AS tracker_name
+        FROM `tabSales Order Item` soi
+        JOIN `tabSales Order` so
+            ON so.name = soi.parent
+        LEFT JOIN `tabSize Set Tracker` sst
+            ON  sst.ocn    = soi.parent
+            AND sst.style  = soi.custom_style
+            AND sst.colour = soi.custom_color
         WHERE so.docstatus <= 1
           {conditions}
+        GROUP BY
+            soi.parent,
+            soi.custom_style,
+            soi.custom_color
         ORDER BY
-            FIELD(so.custom_size_set_status,
+            FIELD(sst.size_set_status,
                 'Pattern Issues',
                 'Sewing Pending',
                 'Under Checking',
