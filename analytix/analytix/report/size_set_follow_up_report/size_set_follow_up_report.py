@@ -97,7 +97,7 @@ def get_data(filters):
             so.custom_size_set_status,
             so.custom_completion_on
         FROM `tabSales Order` so
-        WHERE so.docstatus = 1
+        WHERE so.docstatus <= 1
           {conditions}
         ORDER BY
             FIELD(so.custom_size_set_status,
