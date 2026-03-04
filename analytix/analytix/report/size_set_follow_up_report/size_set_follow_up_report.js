@@ -14,67 +14,36 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 		const $wrap = report.page.wrapper;
 		const STATUS_ORDER = ["Pattern Issues", "Sewing Pending", "Under Checking", "Completed"];
 
-		// ─── Flatpickr format ──────────────────────────────────────────────────
-		// Convert Frappe's date format string (e.g. "dd-mm-yyyy") to flatpickr's
-		// token format (e.g. "d-m-Y") so the picker matches all other date columns.
-		function getFlatpickrFormat() {
-			return frappe.datetime.get_user_date_fmt()
-				.toLowerCase()
-				.replace("dd", "d")
-				.replace("mm", "m")
-				.replace("yyyy", "Y");
-		}
+		// ─── Date field interactions ───────────────────────────────────────────
+		// Rendered as type="text" (showing user-formatted date) so no browser
+		// placeholder appears. On click, swap to type="date" so the native picker
+		// opens; on blur/change swap back to type="text" with formatted display.
 
-		// ─── Lazy flatpickr init ───────────────────────────────────────────────
-		// Initialise once per input on first click; re-open immediately.
 		$wrap.on("click", ".report-date-input", function () {
-			const el = this;
-			const $el = $(el);
+			const $el = $(this);
+			if ($el.attr("type") === "date") return; // already open
 
-			if ($el.data("fp-ready")) {
-				el._flatpickr && el._flatpickr.open();
-				return;
-			}
+			const iso = $el.data("iso") || "";        // YYYY-MM-DD stored in data attr
+			$el.data("old-iso", iso);                 // snapshot for revert
 
-			const fp = flatpickr(el, {
-				dateFormat: getFlatpickrFormat(),
-				// defaultDate expects the display-format string already set as .val()
-				defaultDate: $el.val() || null,
-				allowInput: true,
-				onChange(selectedDates) {
-					// Store YYYY-MM-DD internally for saving; display value is
-					// already updated by flatpickr in the input itself.
-					const storageVal = selectedDates[0]
-						? frappe.datetime.obj_to_str(selectedDates[0]).substring(0, 10)
-						: "";
-					$el.data("storage-value", storageVal);
-				},
-				onClose(selectedDates) {
-					const newStorage = $el.data("storage-value") ?? "";
-					const oldStorage = $el.data("old-value") ?? "";
+			$el.attr("type", "date").val(iso);
 
-					if (!$el.val()) $el.css("color", "transparent");
-
-					if (newStorage === oldStorage) return;
-
-					saveDate($el, newStorage, oldStorage);
-				}
-			});
-
-			$el.data("fp-ready", true);
-			fp.open();
+			// showPicker() is supported in Chrome 99+, Edge 99+, Firefox 101+
+			try { this.showPicker(); } catch (_) { this.focus(); }
 		});
 
-		$wrap.on("focus", ".report-date-input", function () {
-			$(this).css("color", "#333");
-		});
-		$wrap.on("blur", ".report-date-input", function () {
-			if (!$(this).val()) $(this).css("color", "transparent");
-		});
+		$wrap.on("change", ".report-date-input", function () {
+			const $el = $(this);
+			const newIso = $el.val();                 // YYYY-MM-DD from native picker
+			const oldIso = $el.data("old-iso") || "";
 
-		// ─── Date save ─────────────────────────────────────────────────────────
+			// Swap back to text display immediately
+			const displayVal = newIso ? frappe.datetime.str_to_user(newIso) : "";
+			$el.attr("type", "text").val(displayVal);
+			$el.data("iso", newIso);
 
-		function saveDate($el, newStorage, oldStorage) {
+			if (newIso === oldIso) return;
+
 			$el.css("opacity", 0.6);
 
 			frappe.call({
@@ -83,32 +52,30 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 					doctype: "Sales Order",
 					name: $el.data("docname"),
 					fieldname: $el.data("fieldname"),
-					value: newStorage || null
+					value: newIso || null
 				},
 				callback(r) {
 					if (!r.exc) {
 						frappe.show_alert({ message: __("Saved"), indicator: "green" });
-						$el.data("old-value", newStorage);
-						$el.data("storage-value", newStorage);
 					} else {
 						frappe.msgprint(__("Save failed"));
-						// Revert display to old user-formatted value
-						const revertDisplay = oldStorage
-							? frappe.datetime.str_to_user(oldStorage)
-							: "";
-						$el.val(revertDisplay);
-						if ($el[0]._flatpickr) {
-							$el[0]._flatpickr.setDate(revertDisplay || null, false);
-						}
-						$el.data("storage-value", oldStorage);
-						if (!revertDisplay) $el.css("color", "transparent");
+						const revertDisplay = oldIso ? frappe.datetime.str_to_user(oldIso) : "";
+						$el.val(revertDisplay).data("iso", oldIso);
 					}
 				},
-				always() {
-					$el.css("opacity", 1);
-				}
+				always() { $el.css("opacity", 1); }
 			});
-		}
+		});
+
+		// If user clicks away without picking, swap back to text
+		$wrap.on("blur", ".report-date-input", function () {
+			const $el = $(this);
+			if ($el.attr("type") !== "date") return;
+
+			const iso = $el.data("iso") || "";
+			const displayVal = iso ? frappe.datetime.str_to_user(iso) : "";
+			$el.attr("type", "text").val(displayVal);
+		});
 
 		// ─── Status helpers ────────────────────────────────────────────────────
 
@@ -206,11 +173,10 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 		];
 
 		if (EDITABLE_DATE_FIELDS.includes(column.fieldname)) {
-			// displayValue uses Frappe's system date format — same as all other date columns.
-			// storageValue (YYYY-MM-DD) is kept in data-old-value / data-storage-value for saving.
-			const displayValue = value ? frappe.datetime.str_to_user(value) : "";
-			const storageValue = value || "";
-			const colorStyle = displayValue ? "color:#333" : "color:transparent";
+			// Display in Frappe's user date format — same as all read-only date columns.
+			// The raw YYYY-MM-DD is kept in data-iso for the save handler.
+			const isoValue = value || "";
+			const displayValue = isoValue ? frappe.datetime.str_to_user(isoValue) : "";
 
 			return `
 				<input
@@ -218,13 +184,12 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 					class="report-date-input"
 					data-docname="${data.ocn}"
 					data-fieldname="${column.fieldname}"
-					data-old-value="${storageValue}"
-					data-storage-value="${storageValue}"
+					data-iso="${isoValue}"
 					value="${displayValue}"
-					readonly
+					placeholder=""
 					style="width:100%; padding:3px 6px; border:1px solid #d1d8dd;
 					       border-radius:4px; font-size:12px; cursor:pointer;
-					       background:#fff; ${colorStyle}">
+					       background:#fff; color:${displayValue ? "#333" : "#333"};">
 			`;
 		}
 
@@ -235,7 +200,6 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 
 		const currentValue = value || "Pattern Issues";
 
-		// Completed rows → read-only badge
 		if (currentValue === "Completed") {
 			return `
 				<span style="
