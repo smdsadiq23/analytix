@@ -346,7 +346,7 @@ frappe.query_reports["Cutting Completion Report"] = {
                 </tr>`
             ).join("");
 
-            const totalBalance = sizeData.reduce((a, s) => a + (s.balance || 0), 0);
+            const totalBalance = Math.round(sizeData.reduce((a, s) => a + (s.balance || 0), 0));
 
             $popup.html(`
                 <div class="popup-title">Size-wise Difference</div>
