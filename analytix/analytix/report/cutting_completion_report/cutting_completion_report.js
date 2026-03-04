@@ -349,10 +349,10 @@ frappe.query_reports["Cutting Completion Report"] = {
             const totalBalance = sizeData.reduce((a, s) => a + (s.balance || 0), 0);
 
             $popup.html(`
-                <div class="popup-title">Size-wise Balance</div>
+                <div class="popup-title">Size-wise Difference</div>
                 <table>
                     <thead>
-                        <tr><th>Size</th><th>Balance</th></tr>
+                        <tr><th>Size</th><th>Difference</th></tr>
                     </thead>
                     <tbody>${bodyRows}</tbody>
                     <tfoot>
