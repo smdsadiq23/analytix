@@ -65,9 +65,15 @@ def get_columns():
             "label": _("Size Set Status"),
             "fieldname": "custom_size_set_status",
             "fieldtype": "Select",
-            "options": "Under checking\nAwaiting pattern\nSewing Pending\nCompleted",
+            "options": "Pattern Issues\nSewing Pending\nUnder Checking\nCompleted",
             "width": 160,
-            "editable": 1  # ← This forces Frappe to allow inline editing
+            "editable": 1
+        },
+        {
+            "label": _("Completion On"),
+            "fieldname": "custom_completion_on",
+            "fieldtype": "Date",
+            "width": 160
         }
     ]
 
@@ -88,11 +94,19 @@ def get_data(filters):
             so.custom_pcd_committed,
             so.custom_size_set_planned_date,
             so.custom_size_set_cut_date,
-            so.custom_size_set_status
+            so.custom_size_set_status,
+            so.custom_completion_on
         FROM `tabSales Order` so
         WHERE so.docstatus = 1
           {conditions}
-        ORDER BY so.delivery_date DESC
+        ORDER BY
+            FIELD(so.custom_size_set_status,
+                'Pattern Issues',
+                'Sewing Pending',
+                'Under Checking',
+                'Completed'
+            ),
+            so.delivery_date DESC
     """.format(conditions=conditions)
 
     data = frappe.db.sql(query, filters, as_dict=1)
