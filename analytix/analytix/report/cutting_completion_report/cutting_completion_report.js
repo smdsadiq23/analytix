@@ -339,17 +339,14 @@ frappe.query_reports["Cutting Completion Report"] = {
             try { sizeData = JSON.parse($(this).attr("data-size-wise") || "[]"); } catch (_) {}
             if (!sizeData.length) return;
 
-            const bodyRows = sizeData.map(s => {
-                const bal = s.balance;
-                const balStyle = bal < 0 ? "color:#dc2626;" : "";   // red if negative (over-cut)
-                return `<tr>
+            const bodyRows = sizeData.map(s =>
+                `<tr>
                     <td>${frappe.utils.escape_html(s.size || "—")}</td>
-                    <td style="${balStyle}">${bal}</td>
-                </tr>`;
-            }).join("");
+                    <td>${s.balance}</td>
+                </tr>`
+            ).join("");
 
             const totalBalance = sizeData.reduce((a, s) => a + (s.balance || 0), 0);
-            const totalStyle   = totalBalance < 0 ? "color:#dc2626;" : "";
 
             $popup.html(`
                 <div class="popup-title">Size-wise Balance</div>
@@ -361,7 +358,7 @@ frappe.query_reports["Cutting Completion Report"] = {
                     <tfoot>
                         <tr>
                             <td>Total</td>
-                            <td style="${totalStyle}">${totalBalance}</td>
+                            <td>${totalBalance}</td>
                         </tr>
                     </tfoot>
                 </table>
