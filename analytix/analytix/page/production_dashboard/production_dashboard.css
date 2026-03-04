@@ -123,7 +123,7 @@ html, body {
 
 /* ── Column widths ───────────────────────────────────────────────── */
 .th-buyer      { width: 7%;   text-align: left !important; color: #00d4aa !important; }
-.th-season     { width: 7.5%;                              color: #00d4aa !important; }
+.th-season     { width: 6.5%;                              color: #00d4aa !important; }
 .th-style      { width: 7.5%; text-align: left !important; color: #00d4aa !important; padding-left: 8px; }
 .th-colour     { width: 5%;   text-align: left !important; color: #00d4aa !important; }
 .th-delivery   { width: 5%;                                color: #00d4aa !important; }
