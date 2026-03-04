@@ -2,6 +2,59 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Size Set Follow-up Report"] = {
+	after_datatable_render(datatable) {
+		const numColumnsToFreeze = 5; // serial col + OCN, Buyer, Style, Colour
+
+		const bodyScrollable = datatable.bodyScrollable;
+		if (!bodyScrollable) return;
+
+		bodyScrollable.addEventListener("scroll", (e) => {
+			if (datatable._settingHeaderPosition) return;
+			datatable._settingHeaderPosition = true;
+
+			requestAnimationFrame(() => {
+				const scrollLeft = e.target.scrollLeft;
+
+				// Freeze header columns
+				for (let i = 0; i < numColumnsToFreeze; i++) {
+					$(`.dt-cell--col-${i}`, datatable.header).each(function () {
+						this.style.transform = `translateX(${scrollLeft}px)`;
+						this.style.position = "relative";
+						this.style.zIndex = "10";
+						this.style.backgroundColor = "#f5f7fa";
+					});
+				}
+
+				// Freeze body columns
+				$(bodyScrollable).find(".dt-row").each(function () {
+					const $cells = $(this).find(".dt-cell");
+					for (let i = 0; i < numColumnsToFreeze && i < $cells.length; i++) {
+						const cell = $cells[i];
+						cell.style.transform = `translateX(${scrollLeft}px)`;
+						cell.style.position = "relative";
+						cell.style.zIndex = "10";
+						cell.style.backgroundColor = "#ffffff";
+					}
+				});
+
+				// Freeze footer/total row columns
+				const $footer = $(datatable.wrapper).find(".dt-footer");
+				if ($footer.length) {
+					for (let i = 0; i < numColumnsToFreeze; i++) {
+						$(`.dt-cell--col-${i}`, $footer).each(function () {
+							this.style.transform = `translateX(${scrollLeft}px)`;
+							this.style.position = "relative";
+							this.style.zIndex = "10";
+							this.style.backgroundColor = "#fafbfc";
+						});
+					}
+				}
+
+				datatable._settingHeaderPosition = false;
+			});
+		});
+	},
+
 	onload(report) {
 		CX.mountBreadcrumb({
 			wrapper: report.page.wrapper || report.page.$wrapper,
@@ -137,15 +190,11 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 			}
 
 			// ── Mandatory date check before allowing Completed ─────────────────
-			// Find sibling date inputs by matching ocn+style+colour attributes
-			// (more reliable than closest("tr") in Frappe's report DOM).
 			if (newValue === "Completed") {
 				const missing = REQUIRED_DATE_FIELDS.filter(f => {
 					const $input = $wrap.find(
 						`.report-date-input[data-ocn="${ocn}"][data-style="${style}"][data-colour="${colour}"][data-fieldname="${f}"]`
 					);
-					// data("iso") reads jQuery cache (updated on pick),
-					// attr("data-iso") reads the original rendered attribute.
 					return !($input.data("iso") || $input.attr("data-iso"));
 				});
 
@@ -154,8 +203,8 @@ frappe.query_reports["Size Set Follow-up Report"] = {
 					frappe.msgprint(
 						__("Please fill in the following before marking as Completed: ") + labels
 					);
-					$el.val(oldValue);                 // revert visible selection
-					updateDropdownOptions($el);        // rebuild options from oldValue
+					$el.val(oldValue);
+					updateDropdownOptions($el);
 					return;
 				}
 			}

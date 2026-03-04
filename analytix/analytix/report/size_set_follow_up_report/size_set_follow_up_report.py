@@ -17,77 +17,69 @@ def get_columns():
             "fieldname": "ocn",
             "fieldtype": "Link",
             "options": "Sales Order",
-            "width": 160
+            "frozen": 1            
         },
         {
             "label": _("Buyer"),
             "fieldname": "buyer",
             "fieldtype": "Data",
-            "width": 150
+            "frozen": 1            
         },
         {
             "label": _("Style"),
             "fieldname": "style",
             "fieldtype": "Data",
-            "width": 140
+            "frozen": 1            
         },
         {
             "label": _("Colour"),
             "fieldname": "colour",
             "fieldtype": "Data",
-            "width": 120
+            "frozen": 1            
         },
         {
             "label": _("Merchant"),
             "fieldname": "custom_merchant",
             "fieldtype": "Link",
             "options": "User",
-            "width": 140
         },
         {
             "label": _("Merchant Manager"),
             "fieldname": "custom_merchant_manager",
             "fieldtype": "Link",
             "options": "User",
-            "width": 160
         },
         {
             "label": _("PPM Date"),
             "fieldname": "ppm_date",
             "fieldtype": "Date",
-            "width": 120
         },
         {
             "label": _("PCD Committed"),
             "fieldname": "pcd_committed",
             "fieldtype": "Date",
-            "width": 160
         },
         {
             "label": _("Size Set Planned Date"),
             "fieldname": "size_set_planned_date",
             "fieldtype": "Date",
-            "width": 200
         },
         {
             "label": _("Size Set Cut Date"),
             "fieldname": "size_set_cut_date",
             "fieldtype": "Date",
-            "width": 160
         },
         {
             "label": _("Size Set Status"),
             "fieldname": "size_set_status",
             "fieldtype": "Select",
             "options": "Pattern Issues\nSewing Pending\nUnder Checking\nCompleted",
-            "width": 160,
             "editable": 1
         },
         {
             "label": _("Completion On"),
             "fieldname": "completion_on",
             "fieldtype": "Date",
-            "width": 160
         }
     ]
 
