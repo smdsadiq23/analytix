@@ -62,6 +62,16 @@ frappe.query_reports["Cutting Completion Report"] = {
             return wrapWithStatusBg(`<span>${fmt(pct, 2)}%</span>`);
         }
 
+        // ✅ Cut Qty Actual cell — embed size-wise cut qty for hover popup
+        if (fieldname === "cut_qty_actual") {
+            let sizeData = [];
+            try { sizeData = JSON.parse(data.size_wise_balance || "[]"); } catch (_) {}
+            const encoded = frappe.utils.escape_html(JSON.stringify(sizeData));
+            return wrapWithStatusBg(
+                `<span class="ccr-cut-cell" data-size-wise="${encoded}" style="cursor:default;">${html}</span>`
+            );
+        }    
+
         // ✅ Difference cell — embed size-wise balance JSON as a data attribute for hover popup
         if (isDifference) {
             let sizeData = [];
@@ -333,6 +343,52 @@ frappe.query_reports["Cutting Completion Report"] = {
         if (!$popup.length) {
             $popup = $('<div id="ccr-size-popup"></div>').appendTo(document.body).hide();
         }
+
+        $wrap.on("mouseenter", ".ccr-cut-cell", function (e) {
+            let sizeData = [];
+            try { sizeData = JSON.parse($(this).attr("data-size-wise") || "[]"); } catch (_) {}
+            if (!sizeData.length) return;
+
+            const bodyRows = sizeData.map(s =>
+                `<tr>
+                    <td>${frappe.utils.escape_html(s.size || "—")}</td>
+                    <td>${s.cut_qty}</td>
+                </tr>`
+            ).join("");
+
+            const totalCut = Math.round(sizeData.reduce((a, s) => a + (s.cut_qty || 0), 0));
+
+            $popup.html(`
+                <div class="popup-title">Size-wise Cut Qty</div>
+                <table>
+                    <thead>
+                        <tr><th>Size</th><th>Cut Qty</th></tr>
+                    </thead>
+                    <tbody>${bodyRows}</tbody>
+                    <tfoot>
+                        <tr>
+                            <td>Total</td>
+                            <td>${totalCut}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `);
+
+            const offset = 12;
+            let left = e.clientX + offset;
+            let top  = e.clientY + offset;
+            const popW = 200;
+            const popH = 60 + sizeData.length * 26;
+
+            if (left + popW > window.innerWidth)  left = e.clientX - popW - offset;
+            if (top  + popH > window.innerHeight) top  = e.clientY - popH - offset;
+
+            $popup.css({ left, top }).show();
+        });
+
+        $wrap.on("mouseleave", ".ccr-cut-cell", function () {
+            $popup.hide();
+        });        
 
         $wrap.on("mouseenter", ".ccr-diff-cell", function (e) {
             let sizeData = [];
