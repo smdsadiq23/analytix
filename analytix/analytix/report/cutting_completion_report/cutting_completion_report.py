@@ -119,7 +119,7 @@ def get_data(filters):
                 sod.parent                  AS ocn,
                 item.custom_style_master    AS style,
                 sod.custom_color            AS colour,
-                SUM(sod.custom_order_qty)   AS order_qty
+                SUM(sod.qty)   AS order_qty
             FROM `tabSales Order Item` sod
             INNER JOIN `tabItem` item ON item.name = sod.item_code
             GROUP BY sod.parent, item.custom_style_master, sod.custom_color
@@ -247,7 +247,7 @@ def get_data(filters):
             sod.parent              AS ocn,
             sod.custom_color        AS colour,
             sod.custom_size         AS size,
-            SUM(sod.custom_order_qty) AS order_qty
+            SUM(sod.qty) AS order_qty
         FROM `tabSales Order Item` sod
         WHERE sod.parent IN %(ocn_list)s
         GROUP BY sod.parent, sod.custom_color, sod.custom_size
