@@ -26,7 +26,7 @@ def get_columns():
         {"label": "Order Qty",          "fieldname": "order_qty",           "fieldtype": "Int",     "width": 100},
         {"label": "Planned Qty",        "fieldname": "planned_qty",         "fieldtype": "Int",     "width": 100},
         {"label": "Total Output",       "fieldname": "today_output",        "fieldtype": "Int",     "width": 110},
-        {"label": "Cumulative Output",  "fieldname": "cumulative_output",   "fieldtype": "Int",     "width": 140},
+        # {"label": "Cumulative Output",  "fieldname": "cumulative_output",   "fieldtype": "Int",     "width": 140},
         {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",        "fieldname": "completed_pct",       "fieldtype": "Data",    "width": 110},
         {"label": "Planned Wt",         "fieldname": "planned_weight",      "fieldtype": "Float",   "width": 130},
