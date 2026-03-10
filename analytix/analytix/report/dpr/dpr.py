@@ -4,10 +4,25 @@
 import frappe
 from frappe import _
 from collections import defaultdict
+from datetime import date, timedelta
+
+
+def _default_from_date():
+    """First day of the previous calendar month."""
+    first_this_month = date.today().replace(day=1)
+    last_prev_month  = first_this_month - timedelta(days=1)
+    return last_prev_month.replace(day=1)
 
 
 def execute(filters=None):
     filters = filters or {}
+
+    # Apply defaults so callers that omit the dates still get a bounded query
+    if not filters.get("from_date"):
+        filters["from_date"] = _default_from_date()
+    if not filters.get("to_date"):
+        filters["to_date"] = date.today()
+
     columns = get_columns()
     data = get_data(filters)
     return columns, data
@@ -55,7 +70,11 @@ def _pct(numerator, denominator):
 
 
 def get_data(filters):
+    from_date = filters.get("from_date")
+    to_date   = filters.get("to_date")
+
     # ── 1. Main query — Sales Orders + Can Cut merged in one hit ─────────────
+    #    Delivery date range filter applied here to minimise rows from the start.
     base_rows = frappe.db.sql("""
         SELECT
             so.name                         AS ocn,
@@ -73,9 +92,10 @@ def get_data(filters):
                ON  cc.sales_order = so.name
                AND cc.colour      = sod.custom_color
         WHERE so.docstatus = 1
+          AND so.delivery_date BETWEEN %(from_date)s AND %(to_date)s
         GROUP BY so.name, item.custom_style_master, sod.custom_color
         ORDER BY so.delivery_date, so.name, sod.custom_color
-    """, as_dict=1)
+    """, {"from_date": from_date, "to_date": to_date}, as_dict=1)
 
     if not base_rows:
         return []
@@ -139,8 +159,6 @@ def get_data(filters):
         }
 
     # ── 4. Sew + Scan in ONE query via UNION ALL, aggregated in Python ────────
-    #    Avoids two heavy identical-structure queries hitting the same tables.
-    #    The 'qty_type' discriminator tells us which bucket each row belongs to.
     sew_map  = defaultdict(float)
     scan_map = defaultdict(float)
 
@@ -190,8 +208,6 @@ def get_data(filters):
             scan_map[key] += float(r["qty"] or 0)
 
     # ── 5. Dead-stock — only for Verified OCNs; GRN + Lay in ONE UNION ALL ───
-    #    Saves a DB round-trip by collapsing two queries into one,
-    #    then splitting them in Python.
     verified_ocns = tuple({r["ocn"] for r in base_rows if (r.get("status") or "") == "Verified"})
 
     grn_map = defaultdict(float)
@@ -238,7 +254,7 @@ def get_data(filters):
 
         order_qty = float(row.get("order_qty") or 0)
         cut_qty   = float(cut_data["cut_quantity"])
-        sew_qty   = sew_map[key]          # defaultdict → 0.0 if missing
+        sew_qty   = sew_map[key]
         pack_qty  = float(fdata["pack_quantity"])
         ship_qty  = float(fdata["ship_quantity"])
 
@@ -264,8 +280,8 @@ def get_data(filters):
         row["bal_to_dispatch"]   = int(order_qty - ship_qty)
 
         # CCR / approval display
-        raw_status = row.get("status") or ""
-        approval   = row.get("custom_consumption_status") or ""
+        raw_status  = row.get("status") or ""
+        approval    = row.get("custom_consumption_status") or ""
         with_replen = int(row.get("with_replenishment") or 0)
 
         if raw_status == "Verified" and not approval:
