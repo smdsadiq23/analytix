@@ -101,11 +101,11 @@ def get_data(filters):
 
             cc.file_consumption,
             cc.actual_consumption,
-            cc.name AS can_cut_name,
+            cc.can_cut_names,
             cc.with_replenishment,
 
-            COALESCE(CASE WHEN cc.deviation_under = 'Fabric'   THEN cc.profit_loss_value END, 0) AS pl_fabric,
-            COALESCE(CASE WHEN cc.deviation_under = 'Merchant' THEN cc.profit_loss_value END, 0) AS pl_merchant,
+            cc.pl_fabric,
+            cc.pl_merchant,
 
             so.custom_consumption_status AS consumption_status,
             so.custom_approval           AS approval,
@@ -119,15 +119,28 @@ def get_data(filters):
                 sod.parent                  AS ocn,
                 item.custom_style_master    AS style,
                 sod.custom_color            AS colour,
-                SUM(sod.qty)   AS order_qty
+                SUM(sod.qty)                AS order_qty
             FROM `tabSales Order Item` sod
             INNER JOIN `tabItem` item ON item.name = sod.item_code
             GROUP BY sod.parent, item.custom_style_master, sod.custom_color
         ) soi_agg ON soi_agg.ocn = so.name
 
-        LEFT JOIN `tabCan Cut` cc
-            ON cc.sales_order = so.name
-            AND cc.colour = soi_agg.colour
+        LEFT JOIN (
+            SELECT
+                sales_order,
+                colour,
+                SUM(fabric_ordered)                                                            AS fabric_ordered,
+                SUM(fabric_issued)                                                             AS fabric_issued,
+                SUM(folding)                                                                   AS folding,
+                AVG(file_consumption)                                                          AS file_consumption,
+                AVG(actual_consumption)                                                        AS actual_consumption,
+                GROUP_CONCAT(name ORDER BY name SEPARATOR ', ')                                AS can_cut_names,
+                MAX(with_replenishment)                                                        AS with_replenishment,
+                SUM(CASE WHEN deviation_under = 'Fabric'   THEN profit_loss_value ELSE 0 END) AS pl_fabric,
+                SUM(CASE WHEN deviation_under = 'Merchant' THEN profit_loss_value ELSE 0 END) AS pl_merchant
+            FROM `tabCan Cut`
+            GROUP BY sales_order, colour
+        ) cc ON cc.sales_order = so.name AND cc.colour = soi_agg.colour
 
         LEFT JOIN (
             SELECT
