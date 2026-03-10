@@ -31,14 +31,18 @@ def get_dashboard_data():
     #   cell_in_map  — qty that completed the FIRST operation of each cell
     #   cell_out_map — qty that completed the LAST operation of each cell
     # For a single-operation cell, first = last so both maps return the same qty.
-    cell_in_map  = _get_cell_op_map(op_type="first")
-    cell_out_map = _get_cell_op_map(op_type="last")
+    cell_in_map   = _get_cell_op_map(op_type="first")
+    cell_out_map  = _get_cell_op_map(op_type="last")
+
+    # Earliest scan_time per (style, colour, size) — used for sorting
+    scan_time_map = _get_min_scan_time_map()
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
         "order_qty":     0,
         "planned_qty":   0,
         "delivery_date": None,
+        "min_scan_time": None,          # earliest isl.scan_time across sizes
         "cell_in":       defaultdict(int),
         "cell_out":      defaultdict(int),
     })
@@ -52,15 +56,26 @@ def get_dashboard_data():
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
             agg[key]["delivery_date"] = d
 
+        # Track the earliest scan_time seen for this (style, colour) group
+        st = scan_time_map.get((style, colour, size))
+        if st and (agg[key]["min_scan_time"] is None or st < agg[key]["min_scan_time"]):
+            agg[key]["min_scan_time"] = st
+
         for cell in CELL_ORDER:
             agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
             agg[key]["cell_out"][cell] += cell_out_map.get((style, colour, size, cell), 0)
 
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
+
+    # Sort by earliest scan_time ascending (styles with the least/oldest scan
+    # time appear first).  Styles that have no scans at all fall to the end.
     sorted_keys = sorted(
         agg.keys(),
-        key=lambda k: (agg[k]["delivery_date"] or "0000-00-00")
+        key=lambda k: (
+            agg[k]["min_scan_time"] is None,          # None → pushed to end
+            agg[k]["min_scan_time"] or "0000-00-00 00:00:00",
+        )
     )
 
     for buyer, season, style, colour in sorted_keys:
@@ -141,6 +156,34 @@ def _get_order_map():
                  so.custom_brand, so.delivery_date, stm.custom_season
     """, as_dict=True)
     return {(r.style, r.colour, r.size): r for r in rows}
+
+
+def _get_min_scan_time_map():
+    """
+    Returns the earliest isl.scan_time per (style, colour, size).
+    Used to sort styles so the one with the least (oldest) scan_time
+    appears at the top of the dashboard.
+    """
+    rows = frappe.db.sql("""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            MIN(isl.scan_time)       AS min_scan_time
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc                                   ON tbc.parent = tor.name
+                                               AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                ON itm.name = tor.item
+        WHERE isl.log_status = 'Completed'
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, as_dict=True)
+    return {(r.style, r.colour, r.size): r.min_scan_time for r in rows}
 
 
 def _get_cell_op_map(op_type="last"):
