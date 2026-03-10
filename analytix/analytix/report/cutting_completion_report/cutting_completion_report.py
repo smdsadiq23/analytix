@@ -1,6 +1,7 @@
 # Copyright (c) 2025, Cognitonx Logic India Private limited and contributors
 # For license information, please see license.txt
 
+
 import json
 import frappe
 from frappe import _
@@ -81,7 +82,8 @@ def get_data(filters):
 
     # -------------------------
     # 1) order_base: SO + style + colour summary
-    # Pre-aggregate SO Items BEFORE any other joins to prevent row multiplication
+    # Pre-aggregate both SO Items AND Can Cut BEFORE any other joins
+    # to prevent row multiplication (one row per ocn+colour)
     # -------------------------
     q_order_base = f"""
         SELECT
@@ -167,7 +169,9 @@ def get_data(filters):
 
     for r in order_rows:
         ocn_set.add(r["ocn"])
-        base_by_key[(r["ocn"], r["colour"])] = r
+        key = (r["ocn"], r["colour"])
+        # Guard: if somehow duplicate (ocn, colour) still arrives, last row wins
+        base_by_key[key] = r
 
     # -------------------------
     # Prepare "IN" filters for the other queries
@@ -180,13 +184,14 @@ def get_data(filters):
     params_in["ocn_list"] = tuple(ocn_list)
 
     # -------------------------
-    # 2) cut_by_docket: SO + colour + cut_docket
+    # 2) cut_by_colour: SO + colour (aggregated — no docket level)
+    #    FIX: removed cd.name from SELECT + GROUP BY to avoid one row per
+    #    cut docket which was causing duplicate rows in the final output.
     # -------------------------
-    q_cut_by_docket = """
+    q_cut_by_colour = """
         SELECT
-            cci.sales_order AS ocn,
-            cd.color AS colour,
-            cd.name AS cut_docket,
+            cci.sales_order             AS ocn,
+            cd.color                    AS colour,
             SUM(cci.confirmed_quantity) AS cut_qty_actual
         FROM `tabCut Confirmation Item` cci
         INNER JOIN `tabCut Confirmation` con ON con.name = cci.parent
@@ -194,9 +199,12 @@ def get_data(filters):
         WHERE cci.docstatus = 1
           AND con.docstatus = 1
           AND cci.sales_order IN %(ocn_list)s
-        GROUP BY cci.sales_order, cd.color, cd.name
+        GROUP BY cci.sales_order, cd.color
     """
-    cut_rows = frappe.db.sql(q_cut_by_docket, params_in, as_dict=1)
+    cut_rows = frappe.db.sql(q_cut_by_colour, params_in, as_dict=1)
+
+    # Build cut map: (ocn, colour) → cut_qty_actual
+    cut_map = {(r["ocn"], r["colour"]): int(r.get("cut_qty_actual") or 0) for r in cut_rows}
 
     # -------------------------
     # 3) grn_by_colour: SO + colour
@@ -253,7 +261,6 @@ def get_data(filters):
 
     # -------------------------
     # 6) size_wise_order_qty: SO + colour + size from Sales Order Item
-    # Use float to preserve decimals and match the totals calculation
     # -------------------------
     q_size_order_qty = """
         SELECT
@@ -268,7 +275,6 @@ def get_data(filters):
     """
     size_order_rows = frappe.db.sql(q_size_order_qty, params_in, as_dict=1)
 
-    # Build map: (ocn, colour) → { size: order_qty }  — keep as float
     size_order_map = {}
     for r in size_order_rows:
         key = (r["ocn"], r["colour"])
@@ -276,7 +282,6 @@ def get_data(filters):
 
     # -------------------------
     # 7) size_wise_cut_qty: SO + colour + size from Cut Confirmation Item
-    # Use float to preserve decimals and match the totals calculation
     # -------------------------
     q_size_cut_qty = """
         SELECT
@@ -295,14 +300,12 @@ def get_data(filters):
     """
     size_cut_rows = frappe.db.sql(q_size_cut_qty, params_in, as_dict=1)
 
-    # Build map: (ocn, colour) → { size: cut_qty }  — keep as float
     size_cut_map = {}
     for r in size_cut_rows:
         key = (r["ocn"], r["colour"])
         size_cut_map.setdefault(key, {})[r.get("size") or ""] = float(r.get("cut_qty") or 0)
 
     # Combine into size_wise_balance_map: (ocn, colour) → [ {size, order_qty, cut_qty, balance} ]
-    # Union of all sizes from both order and cut; balance = cut_qty - order_qty (same direction as Difference column)
     size_wise_balance_map = {}
     all_keys = set(size_order_map.keys()) | set(size_cut_map.keys())
     for key in all_keys:
@@ -317,36 +320,22 @@ def get_data(filters):
                 "size":      size,
                 "order_qty": round(oq, 2),
                 "cut_qty":   round(cq, 2),
-                "balance":   round(cq - oq, 2),   # same direction as Difference column (cut - order)
+                "balance":   round(cq - oq, 2),
             })
         size_wise_balance_map[key] = rows
 
     # -------------------------
-    # Build final rows (one per docket)
+    # Build final rows — one row per (ocn, colour)
+    # FIX: iterate base_by_key directly; attach cut/last_cut from maps
+    # instead of looping cut_rows (which was the source of docket-level duplication)
     # -------------------------
     final = []
 
-    if cut_rows:
-        for c in cut_rows:
-            key = (c["ocn"], c["colour"])
-            base = base_by_key.get(key)
-            if not base:
-                continue
-            row = dict(base)
-            row["cut_docket"]     = c.get("cut_docket")
-            row["cut_qty_actual"] = int(c.get("cut_qty_actual") or 0)
-            row["last_cut_date"]  = last_cut_map.get(key)
-            row = _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map)
-            final.append(row)
-
-    # Emit rows where there is no cut docket (LEFT JOIN behaviour)
-    docket_keys = {(r["ocn"], r["colour"]) for r in cut_rows} if cut_rows else set()
     for (ocn, colour), base in base_by_key.items():
-        if (ocn, colour) in docket_keys:
-            continue
+        key = (ocn, colour)
         row = dict(base)
-        row["cut_docket"]     = None
-        row["cut_qty_actual"] = 0
+        row["cut_qty_actual"] = cut_map.get(key, 0)
+        row["last_cut_date"]  = last_cut_map.get(key)
         row = _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map)
         final.append(row)
 
@@ -362,7 +351,6 @@ def get_data(filters):
         r.get("delivery_date") or "",
         r.get("ocn") or "",
         r.get("colour") or "",
-        r.get("cut_docket") or ""
     ))
 
     rn_counter = {}
@@ -436,7 +424,6 @@ def _apply_python_derivations(row, grn_map, lay_map, size_wise_balance_map=None)
     row["pl_merchant"] = float(row.get("pl_merchant") or 0)
 
     # Size-wise balance JSON for hover popup
-    # balance = cut_qty - order_qty per size (same direction as the Difference column)
     key = (ocn, colour)
     row["size_wise_balance"] = json.dumps(
         (size_wise_balance_map or {}).get(key, [])
