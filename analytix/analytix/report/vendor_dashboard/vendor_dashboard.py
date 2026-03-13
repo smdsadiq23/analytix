@@ -252,6 +252,9 @@ def get_data(filters):
                 for pid in sent_items & received_items:
                     total_received += item_bundle.get(pid, 0)
 
+        if filters and not total_sent:
+            continue
+
         received_pct = round(total_received / total_sent * 100, 2) if total_sent else 0
 
         result.append(
