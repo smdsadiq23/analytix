@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-03-13 12:53:13.062633",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-03-13 12:53:13.062633",
+ "modified": "2026-03-13 14:02:10.571557",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Goods Receipt Note Summary",
