@@ -48,13 +48,13 @@ def get_columns():
             "label": "Order Qty (Kgs)",
             "fieldname": "order_qty",
             "fieldtype": "Float",
-            "width": 120,
+            "width": 140,
         },
         {
             "label": "Received Qty (Kgs)",
             "fieldname": "total_received_quantity",
             "fieldtype": "Float",
-            "width": 130,
+            "width": 160,
         },
         {
             "label": "Bal Qty (Kgs)",
