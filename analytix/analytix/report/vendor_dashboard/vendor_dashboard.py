@@ -44,6 +44,13 @@ def get_columns():
             "fieldtype": "Percent",
             "width": 120,
         },
+        {
+            "label": "Avg Lead Time (Days)",
+            "fieldname": "avg_lead_time",
+            "fieldtype": "Float",
+            "precision": 1,
+            "width": 160,
+        },
     ]
 
 
@@ -205,27 +212,28 @@ def get_data(filters):
             td = filters["to_date"]
             to_date = td if isinstance(td, date_type) else datetime.datetime.strptime(str(td), "%Y-%m-%d").date()
 
-    # { (ckp_name, operation) → set(production_item_ids) }
-    scan_sent_index     = defaultdict(set)
-    scan_received_index = defaultdict(set)
+    # { (ckp_name, operation) → { pid: logged_time } }
+    scan_sent_index     = defaultdict(dict)   # date-filtered
+    scan_received_index = defaultdict(dict)   # no date filter
 
     for s in scan_rows:
         ckp = item_to_ckp.get(s.production_item)
         if not ckp:
             continue
 
-        key = (ckp, s.operation)
+        key      = (ckp, s.operation)
+        log_time = s.logged_time
 
         # Received index — no date restriction
-        scan_received_index[key].add(s.production_item)
+        scan_received_index[key][s.production_item] = log_time
 
         # Sent index — only if within date range
-        log_date = s.logged_time.date() if hasattr(s.logged_time, "date") else s.logged_time
+        log_date = log_time.date() if hasattr(log_time, "date") else log_time
         if from_date and log_date < from_date:
             continue
         if to_date and log_date > to_date:
             continue
-        scan_sent_index[key].add(s.production_item)
+        scan_sent_index[key][s.production_item] = log_time
 
     # ------------------------------------------------------------------ #
     # Python — aggregate per supplier                                      #
@@ -235,27 +243,36 @@ def get_data(filters):
     for supplier, info in sorted(supplier_data.items()):
         total_sent     = 0
         total_received = 0
+        lead_time_days = []
 
         for ckp_op in info["ckp_ops"]:
             ckp_name = ckp_op["ckp_name"]
             prev_op  = ckp_op["prev_op"]
             next_op  = ckp_op["next_op"]
 
-            sent_items = scan_sent_index.get((ckp_name, prev_op), set()) if prev_op else set()
+            # sent_items: { pid: sent_logged_time }
+            sent_items = scan_sent_index.get((ckp_name, prev_op), {}) if prev_op else {}
 
             for pid in sent_items:
                 total_sent += item_bundle.get(pid, 0)
 
             if next_op and sent_items:
                 # Only count received for items that were actually sent in the filtered window
-                received_items = scan_received_index.get((ckp_name, next_op), set())
-                for pid in sent_items & received_items:
+                received_items = scan_received_index.get((ckp_name, next_op), {})
+                common_pids = sent_items.keys() & received_items.keys()
+                for pid in common_pids:
                     total_received += item_bundle.get(pid, 0)
+                    # Lead time per item: received_time - sent_time (in days)
+                    sent_dt     = sent_items[pid]
+                    received_dt = received_items[pid]
+                    delta = (received_dt - sent_dt).total_seconds() / 86400
+                    lead_time_days.append(delta)
 
         if filters and not total_sent:
             continue
 
-        received_pct = round(total_received / total_sent * 100, 2) if total_sent else 0
+        received_pct   = round(total_received / total_sent * 100, 2) if total_sent else 0
+        avg_lead_time  = round(sum(lead_time_days) / len(lead_time_days), 1) if lead_time_days else 0
 
         result.append(
             {
@@ -264,6 +281,7 @@ def get_data(filters):
                 "total_sent":     int(total_sent),
                 "total_received": int(total_received),
                 "received_pct":   received_pct,
+                "avg_lead_time":  avg_lead_time,
             }
         )
 
