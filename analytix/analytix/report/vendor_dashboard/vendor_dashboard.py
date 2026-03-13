@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from collections import defaultdict
 
 
 def execute(filters=None):
@@ -47,9 +48,13 @@ def get_columns():
 
 
 def get_data(filters):
-    conditions = get_conditions(filters)
+    # ------------------------------------------------------------------ #
+    # QUERY 1 — All outsourced operations from submitted CKPs              #
+    # ------------------------------------------------------------------ #
+    supplier_filter_sql = (
+        "AND ops.supplier = %(supplier)s" if filters and filters.get("supplier") else ""
+    )
 
-    # Step 1: All outsourced operations across submitted CKPs
     outsourced = frappe.db.sql(
         """
         SELECT
@@ -65,11 +70,9 @@ def get_data(filters):
             ops.production_type = 'Outsourced'
             AND ops.supplier IS NOT NULL
             AND ops.supplier != ''
-            AND ckp.docstatus = 1
-            {conditions}
-        ORDER BY
-            ops.supplier
-        """.format(conditions=conditions),
+            AND ckp.docstatus  = 1
+            {supplier_filter}
+        """.format(supplier_filter=supplier_filter_sql),
         filters or {},
         as_dict=True,
     )
@@ -77,76 +80,160 @@ def get_data(filters):
     if not outsourced:
         return []
 
-    # Step 2: Fetch operation map for all relevant CKPs
     ckp_names = list({r.ckp_name for r in outsourced})
+
+    # ------------------------------------------------------------------ #
+    # QUERY 2 — Full operation map for all relevant CKPs in one shot       #
+    # ------------------------------------------------------------------ #
     op_map_rows = frappe.db.sql(
         """
-        SELECT
-            parent      AS ckp_name,
-            operation,
-            next_operation,
-            sequence_no
-        FROM
-            `tabOperation Map`
-        WHERE
-            parent IN ({placeholders})
-        ORDER BY
-            parent, sequence_no
-        """.format(placeholders=", ".join(["%s"] * len(ckp_names))),
+        SELECT parent AS ckp_name, operation, next_operation, sequence_no
+        FROM   `tabOperation Map`
+        WHERE  parent IN ({ph})
+        ORDER  BY parent, sequence_no
+        """.format(ph=", ".join(["%s"] * len(ckp_names))),
         ckp_names,
         as_dict=True,
     )
 
-    # Build per-CKP lookup: { ckp_name: { operation: { prev_operation, next_operation } } }
-    ckp_op_map = {}
+    # Build lookup: ckp_name → { operation → {prev_op, next_op} }
+    ckp_op_map = defaultdict(dict)
     for row in op_map_rows:
-        ckp_op_map.setdefault(row.ckp_name, {})[row.operation] = {
-            "next_operation": row.next_operation,
-            "sequence_no": row.sequence_no,
+        ckp_op_map[row.ckp_name][row.operation] = {
+            "next_op": row.next_operation,
+            "seq": row.sequence_no,
         }
 
     for ckp_name, ops in ckp_op_map.items():
-        seq_to_op = {v["sequence_no"]: k for k, v in ops.items()}
+        seq_to_op = {v["seq"]: k for k, v in ops.items()}
         for details in ops.values():
-            details["prev_operation"] = seq_to_op.get(details["sequence_no"] - 1, "")
+            details["prev_op"] = seq_to_op.get(details["seq"] - 1, "")
 
-    # Step 3: Group by supplier, collecting sales orders and (ckp, prev_op, next_op) tuples
-    supplier_data = {}
+    # ------------------------------------------------------------------ #
+    # Python — derive prev/next per outsourced row; build supplier map     #
+    # ------------------------------------------------------------------ #
+    # supplier_data: { supplier: { sales_orders: set, ckp_ops: list } }
+    supplier_data = defaultdict(lambda: {"sales_orders": set(), "ckp_ops": []})
+
+    # Also collect every (ckp_name, prev_op) and (ckp_name, next_op) we'll need
     for row in outsourced:
-        op_details = ckp_op_map.get(row.ckp_name, {}).get(row.operation, {})
-
-        entry = supplier_data.setdefault(
-            row.supplier,
-            {"supplier": row.supplier, "sales_orders": set(), "ckp_ops": []},
-        )
-        entry["sales_orders"].add(row.sales_order)
-        entry["ckp_ops"].append(
+        op_detail = ckp_op_map.get(row.ckp_name, {}).get(row.operation, {})
+        supplier_data[row.supplier]["sales_orders"].add(row.sales_order)
+        supplier_data[row.supplier]["ckp_ops"].append(
             {
                 "ckp_name": row.ckp_name,
-                "prev_op": op_details.get("prev_operation", ""),
-                "next_op": op_details.get("next_operation", ""),
+                "prev_op": op_detail.get("prev_op", ""),
+                "next_op": op_detail.get("next_op", ""),
             }
         )
 
-    # Step 4: For each supplier+CKP, sum bundle_qty via Item Scan Log
-    #   Total Sent     = bundle_qty where scan log operation = prev_op, filtered by sent date
-    #   Total Received = bundle_qty where scan log operation = next_op
-    result = []
+    # ------------------------------------------------------------------ #
+    # QUERY 3 — All bundle details for all CKPs in one shot                #
+    # ------------------------------------------------------------------ #
+    bundle_rows = frappe.db.sql(
+        """
+        SELECT parent AS ckp_name, production_item_id, bundle_qty
+        FROM   `tabCut Kit Plan Bundle Details`
+        WHERE  parent IN ({ph})
+        """.format(ph=", ".join(["%s"] * len(ckp_names))),
+        ckp_names,
+        as_dict=True,
+    )
 
-    # Build date filter clause for isl.logged_time (applied only to Sent / prev_op query)
+    # bundle_qty_map: { (ckp_name, production_item_id) → bundle_qty }
+    # production_item_id → ckp_name  (for scan log join)
+    item_to_ckp   = {}   # production_item_id → ckp_name
+    item_bundle   = {}   # production_item_id → bundle_qty
+
+    for b in bundle_rows:
+        item_to_ckp[b.production_item_id]  = b.ckp_name
+        item_bundle[b.production_item_id]  = b.bundle_qty
+
+    if not item_to_ckp:
+        return []
+
+    production_item_ids = list(item_to_ckp.keys())
+
+    # ------------------------------------------------------------------ #
+    # QUERY 4 — All matching Item Scan Log rows in one shot                #
+    # ------------------------------------------------------------------ #
     date_clauses = []
-    date_params_base = []
+    date_params  = []
     if filters:
         if filters.get("from_date"):
             date_clauses.append("AND DATE(isl.logged_time) >= %s")
-            date_params_base.append(filters["from_date"])
+            date_params.append(filters["from_date"])
         if filters.get("to_date"):
             date_clauses.append("AND DATE(isl.logged_time) <= %s")
-            date_params_base.append(filters["to_date"])
+            date_params.append(filters["to_date"])
     date_filter_sql = " ".join(date_clauses)
 
+    scan_rows = frappe.db.sql(
+        """
+        SELECT
+            production_item,
+            operation,
+            logged_time
+        FROM
+            `tabItem Scan Log`
+        WHERE
+            production_item IN ({ph})
+            AND status     = 'Counted'
+            AND log_status = 'Completed'
+        """.format(ph=", ".join(["%s"] * len(production_item_ids))),
+        production_item_ids,
+        as_dict=True,
+    )
+
+    # ------------------------------------------------------------------ #
+    # Python — index scan log rows                                         #
+    # scan_index: { (ckp_name, operation) → set of production_item_ids }  #
+    # ------------------------------------------------------------------ #
+    # We keep two indexes:
+    #   scan_sent     — rows that also pass the date filter (for Sent)
+    #   scan_received — all rows regardless of date (for Received)
+    from datetime import date as date_type
+    import datetime
+
+    from_date = None
+    to_date   = None
+    if filters:
+        if filters.get("from_date"):
+            fd = filters["from_date"]
+            from_date = fd if isinstance(fd, date_type) else datetime.datetime.strptime(str(fd), "%Y-%m-%d").date()
+        if filters.get("to_date"):
+            td = filters["to_date"]
+            to_date = td if isinstance(td, date_type) else datetime.datetime.strptime(str(td), "%Y-%m-%d").date()
+
+    # { (ckp_name, operation) → set(production_item_ids) }
+    scan_sent_index     = defaultdict(set)
+    scan_received_index = defaultdict(set)
+
+    for s in scan_rows:
+        ckp = item_to_ckp.get(s.production_item)
+        if not ckp:
+            continue
+
+        key = (ckp, s.operation)
+
+        # Received index — no date restriction
+        scan_received_index[key].add(s.production_item)
+
+        # Sent index — only if within date range
+        log_date = s.logged_time.date() if hasattr(s.logged_time, "date") else s.logged_time
+        if from_date and log_date < from_date:
+            continue
+        if to_date and log_date > to_date:
+            continue
+        scan_sent_index[key].add(s.production_item)
+
+    # ------------------------------------------------------------------ #
+    # Python — aggregate per supplier                                      #
+    # ------------------------------------------------------------------ #
+    result = []
+
     for supplier, info in sorted(supplier_data.items()):
-        total_sent = 0
+        total_sent     = 0
         total_received = 0
 
         for ckp_op in info["ckp_ops"]:
@@ -154,68 +241,24 @@ def get_data(filters):
             prev_op  = ckp_op["prev_op"]
             next_op  = ckp_op["next_op"]
 
-            # --- Total Sent (prev operation, date-filtered) ---
             if prev_op:
-                sent = frappe.db.sql(
-                    """
-                    SELECT COALESCE(SUM(bd.bundle_qty), 0) AS qty
-                    FROM
-                        `tabCut Kit Plan Bundle Details` bd
-                    INNER JOIN
-                        `tabItem Scan Log` isl ON isl.production_item = bd.production_item_id
-                    WHERE
-                        bd.parent          = %s
-                        AND isl.operation  = %s
-                        AND isl.status     = 'Counted'
-                        AND isl.log_status = 'Completed'
-                        {date_filter}
-                    """.format(date_filter=date_filter_sql),
-                    [ckp_name, prev_op] + date_params_base,
-                    as_dict=True,
-                )
-                total_sent += sent[0].qty if sent else 0
+                for pid in scan_sent_index.get((ckp_name, prev_op), []):
+                    total_sent += item_bundle.get(pid, 0)
 
-            # --- Total Received (next operation, no date filter) ---
             if next_op:
-                received = frappe.db.sql(
-                    """
-                    SELECT COALESCE(SUM(bd.bundle_qty), 0) AS qty
-                    FROM
-                        `tabCut Kit Plan Bundle Details` bd
-                    INNER JOIN
-                        `tabItem Scan Log` isl ON isl.production_item = bd.production_item_id
-                    WHERE
-                        bd.parent          = %s
-                        AND isl.operation  = %s
-                        AND isl.status     = 'Counted'
-                        AND isl.log_status = 'Completed'
-                    """,
-                    (ckp_name, next_op),
-                    as_dict=True,
-                )
-                total_received += received[0].qty if received else 0
+                for pid in scan_received_index.get((ckp_name, next_op), []):
+                    total_received += item_bundle.get(pid, 0)
 
-        received_pct = round((total_received / total_sent * 100), 2) if total_sent else 0
+        received_pct = round(total_received / total_sent * 100, 2) if total_sent else 0
 
         result.append(
             {
-                "supplier": supplier,
-                "no_of_ocns": len(info["sales_orders"]),
-                "total_sent": int(total_sent),
+                "supplier":       supplier,
+                "no_of_ocns":     len(info["sales_orders"]),
+                "total_sent":     int(total_sent),
                 "total_received": int(total_received),
-                "received_pct": received_pct,
+                "received_pct":   received_pct,
             }
         )
 
     return result
-
-
-def get_conditions(filters):
-    """Conditions applied on tabCut Kit Plan / tabCut Kit Operations."""
-    conditions = []
-
-    if filters:
-        if filters.get("supplier"):
-            conditions.append("AND ops.supplier = %(supplier)s")
-
-    return " ".join(conditions)

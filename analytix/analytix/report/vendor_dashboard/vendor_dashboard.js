@@ -22,4 +22,16 @@ frappe.query_reports["Vendor Dashboard"] = {
 			options: "Supplier",
 		},
 	],
+
+    onload(report) {
+        if (typeof CX !== "undefined" && CX.mountBreadcrumb) {
+            CX.mountBreadcrumb({
+                wrapper: report.page.wrapper || report.page.$wrapper,
+                trail: [
+                    { label: "KPI Hub", href: "/app/kpi-hub" },
+                    { label: "Vendor Dashboard" },
+                ],
+            });
+        }
+    },		
 };
