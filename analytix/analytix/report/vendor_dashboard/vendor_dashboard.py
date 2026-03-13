@@ -35,7 +35,13 @@ def get_columns():
             "label": "Total Received",
             "fieldname": "total_received",
             "fieldtype": "Int",
-            "width": 140,
+            "width": 130,
+        },
+        {
+            "label": "Received %",
+            "fieldname": "received_pct",
+            "fieldtype": "Percent",
+            "width": 120,
         },
     ]
 
@@ -123,9 +129,21 @@ def get_data(filters):
         )
 
     # Step 4: For each supplier+CKP, sum bundle_qty via Item Scan Log
-    #   Total Sent     = bundle_qty where scan log operation = prev_op of outsourced op
-    #   Total Received = bundle_qty where scan log operation = next_op of outsourced op
+    #   Total Sent     = bundle_qty where scan log operation = prev_op, filtered by sent date
+    #   Total Received = bundle_qty where scan log operation = next_op
     result = []
+
+    # Build date filter clause for isl.logged_time (applied only to Sent / prev_op query)
+    date_clauses = []
+    date_params_base = []
+    if filters:
+        if filters.get("from_date"):
+            date_clauses.append("AND DATE(isl.logged_time) >= %s")
+            date_params_base.append(filters["from_date"])
+        if filters.get("to_date"):
+            date_clauses.append("AND DATE(isl.logged_time) <= %s")
+            date_params_base.append(filters["to_date"])
+    date_filter_sql = " ".join(date_clauses)
 
     for supplier, info in sorted(supplier_data.items()):
         total_sent = 0
@@ -136,6 +154,7 @@ def get_data(filters):
             prev_op  = ckp_op["prev_op"]
             next_op  = ckp_op["next_op"]
 
+            # --- Total Sent (prev operation, date-filtered) ---
             if prev_op:
                 sent = frappe.db.sql(
                     """
@@ -145,16 +164,18 @@ def get_data(filters):
                     INNER JOIN
                         `tabItem Scan Log` isl ON isl.production_item = bd.production_item_id
                     WHERE
-                        bd.parent        = %s
+                        bd.parent          = %s
                         AND isl.operation  = %s
                         AND isl.status     = 'Counted'
                         AND isl.log_status = 'Completed'
-                    """,
-                    (ckp_name, prev_op),
+                        {date_filter}
+                    """.format(date_filter=date_filter_sql),
+                    [ckp_name, prev_op] + date_params_base,
                     as_dict=True,
                 )
                 total_sent += sent[0].qty if sent else 0
 
+            # --- Total Received (next operation, no date filter) ---
             if next_op:
                 received = frappe.db.sql(
                     """
@@ -164,7 +185,7 @@ def get_data(filters):
                     INNER JOIN
                         `tabItem Scan Log` isl ON isl.production_item = bd.production_item_id
                     WHERE
-                        bd.parent        = %s
+                        bd.parent          = %s
                         AND isl.operation  = %s
                         AND isl.status     = 'Counted'
                         AND isl.log_status = 'Completed'
@@ -174,12 +195,15 @@ def get_data(filters):
                 )
                 total_received += received[0].qty if received else 0
 
+        received_pct = round((total_received / total_sent * 100), 2) if total_sent else 0
+
         result.append(
             {
                 "supplier": supplier,
                 "no_of_ocns": len(info["sales_orders"]),
                 "total_sent": int(total_sent),
                 "total_received": int(total_received),
+                "received_pct": received_pct,
             }
         )
 
@@ -187,16 +211,11 @@ def get_data(filters):
 
 
 def get_conditions(filters):
+    """Conditions applied on tabCut Kit Plan / tabCut Kit Operations."""
     conditions = []
 
     if filters:
         if filters.get("supplier"):
             conditions.append("AND ops.supplier = %(supplier)s")
-
-        if filters.get("from_date"):
-            conditions.append("AND ckp.creation >= %(from_date)s")
-
-        if filters.get("to_date"):
-            conditions.append("AND ckp.creation <= %(to_date)s")
 
     return " ".join(conditions)

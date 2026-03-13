@@ -2,7 +2,24 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Vendor Dashboard"] = {
-	"filters": [
-
-	]
+	filters: [
+		{
+			fieldname: "from_date",
+			label: __("From Date (Sent)"),
+			fieldtype: "Date",
+			default: moment().subtract(1, "months").startOf("month").format("YYYY-MM-DD"),
+		},
+		{
+			fieldname: "to_date",
+			label: __("To Date (Sent)"),
+			fieldtype: "Date",
+			default: frappe.datetime.get_today(),
+		},
+		{
+			fieldname: "supplier",
+			label: __("Vendor"),
+			fieldtype: "Link",
+			options: "Supplier",
+		},
+	],
 };
