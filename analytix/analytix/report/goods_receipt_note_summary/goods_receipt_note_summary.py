@@ -45,19 +45,25 @@ def get_columns():
             "width": 150,
         },
         {
-            "label": "Order Qty (Kgs)",
+            "label": "UOM",
+            "fieldname": "uom",
+            "fieldtype": "Data",
+            "width": 80,
+        },
+        {
+            "label": "Order Qty",
             "fieldname": "order_qty",
             "fieldtype": "Float",
-            "width": 140,
+            "width": 120,
         },
         {
-            "label": "Received Qty (Kgs)",
+            "label": "Received Qty",
             "fieldname": "total_received_quantity",
             "fieldtype": "Float",
-            "width": 160,
+            "width": 120,
         },
         {
-            "label": "Bal Qty (Kgs)",
+            "label": "Bal Qty",
             "fieldname": "bal_qty",
             "fieldtype": "Float",
             "width": 120,
@@ -69,7 +75,8 @@ def get_data(filters=None):
     filters = filters or {}
 
     # ----------------------------------------------------------------
-    # Step 1: One GRN OCN FG Mapping row per GRN (first row by name)
+    # Step 1: Fetch all GRN rows grouped by (ocn, fg_item, fg_item_colour)
+    #         MAX posting_date and SUM total_received_quantity across GRNs
     # ----------------------------------------------------------------
     grn_conditions = ""
     grn_values = {}
@@ -85,24 +92,18 @@ def get_data(filters=None):
     grn_rows = frappe.db.sql(
         """
         SELECT
-            grnofm.parent   AS grn,
             grnofm.ocn,
             grnofm.fg_item,
             grnofm.fg_item_colour,
-            grn.posting_date,
-            grn.total_received_quantity
+            MAX(grn.posting_date)            AS posting_date,
+            SUM(grn.total_received_quantity) AS total_received_quantity
         FROM `tabGRN OCN FG Mapping` grnofm
         INNER JOIN `tabGoods Receipt Note` grn
             ON grn.name = grnofm.parent
-        WHERE grnofm.name = (
-            SELECT name
-            FROM `tabGRN OCN FG Mapping` sub
-            WHERE sub.parent = grnofm.parent
-            ORDER BY sub.name ASC
-            LIMIT 1
-        )
+        WHERE 1=1
         {conditions}
-        ORDER BY grnofm.parent
+        GROUP BY grnofm.ocn, grnofm.fg_item, grnofm.fg_item_colour
+        ORDER BY grnofm.ocn
         """.format(conditions=grn_conditions),
         grn_values,
         as_dict=True,
@@ -151,12 +152,12 @@ def get_data(filters=None):
     # ----------------------------------------------------------------
     bom_list = list({bom for bom in item_bom_map.values() if bom})
 
-    bom_fabric_map = {}  # { bom -> qty_consumed_per_unit }
+    bom_fabric_map = {}  # { bom -> total qty_consumed_per_unit }
 
     if bom_list:
         bom_rows = frappe.db.sql(
             """
-            SELECT parent, qty_consumed_per_unit
+            SELECT parent, qty_consumed_per_unit, stock_uom
             FROM `tabBOM Item`
             WHERE parent IN %(bom_list)s
               AND parentfield = 'custom_fabrics_items'
@@ -164,11 +165,12 @@ def get_data(filters=None):
             {"bom_list": bom_list},
             as_dict=True,
         )
-        # If multiple fabric rows exist per BOM, sum them up
+        # Sum up in case multiple fabric rows exist per BOM
         for r in bom_rows:
-            bom_fabric_map[r.parent] = (
-                bom_fabric_map.get(r.parent, 0) + (r.qty_consumed_per_unit or 0)
-            )
+            bom_fabric_map[r.parent] = {
+                "qty": bom_fabric_map.get(r.parent, {}).get("qty", 0) + (r.qty_consumed_per_unit or 0),
+                "uom": r.stock_uom,
+            }
 
     # ----------------------------------------------------------------
     # Step 6: Fetch SO Item qty — grouped by (parent, item_code, colour)
@@ -198,11 +200,12 @@ def get_data(filters=None):
     # ----------------------------------------------------------------
     data = []
     for row in grn_rows:
-        customer = so_customer_map.get(row.ocn)
-
+        customer     = so_customer_map.get(row.ocn)
         so_item_qty  = soi_qty_map.get((row.ocn, row.fg_item, row.fg_item_colour), 0) or 0
         default_bom  = item_bom_map.get(row.fg_item)
-        qty_per_unit = bom_fabric_map.get(default_bom, 0) if default_bom else 0
+        bom_data     = bom_fabric_map.get(default_bom, {}) if default_bom else {}
+        qty_per_unit = bom_data.get("qty", 0)
+        uom          = bom_data.get("uom", "")
 
         order_qty    = so_item_qty * qty_per_unit
         received_qty = row.total_received_quantity or 0
@@ -214,6 +217,7 @@ def get_data(filters=None):
             "custom_style_master":     item_style_map.get(row.fg_item),
             "ocn":                     row.ocn,
             "fg_item_colour":          row.fg_item_colour,
+            "uom":                     uom,
             "order_qty":               order_qty,
             "total_received_quantity": received_qty,
             "bal_qty":                 bal_qty,
