@@ -241,12 +241,15 @@ def get_data(filters):
             prev_op  = ckp_op["prev_op"]
             next_op  = ckp_op["next_op"]
 
-            if prev_op:
-                for pid in scan_sent_index.get((ckp_name, prev_op), []):
-                    total_sent += item_bundle.get(pid, 0)
+            sent_items = scan_sent_index.get((ckp_name, prev_op), set()) if prev_op else set()
 
-            if next_op:
-                for pid in scan_received_index.get((ckp_name, next_op), []):
+            for pid in sent_items:
+                total_sent += item_bundle.get(pid, 0)
+
+            if next_op and sent_items:
+                # Only count received for items that were actually sent in the filtered window
+                received_items = scan_received_index.get((ckp_name, next_op), set())
+                for pid in sent_items & received_items:
                     total_received += item_bundle.get(pid, 0)
 
         received_pct = round(total_received / total_sent * 100, 2) if total_sent else 0
