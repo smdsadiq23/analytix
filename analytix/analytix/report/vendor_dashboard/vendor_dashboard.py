@@ -51,6 +51,18 @@ def get_columns():
             "precision": 1,
             "width": 160,
         },
+        {
+            "label": "Total Rejection",
+            "fieldname": "total_rejection",
+            "fieldtype": "Int",
+            "width": 140,
+        },
+        {
+            "label": "Rejection %",
+            "fieldname": "rejection_pct",
+            "fieldtype": "Percent",
+            "width": 120,
+        },
     ]
 
 
@@ -193,6 +205,39 @@ def get_data(filters):
     )
 
     # ------------------------------------------------------------------ #
+    # QUERY 5 — Rejection rows (Finish QC* operations, rejection statuses) #
+    # ------------------------------------------------------------------ #
+    REJECTION_STATUSES = (
+        "QC Rejected", "SP Rejected"
+    )
+
+    rejection_rows = frappe.db.sql(
+        """
+        SELECT
+            production_item,
+            operation
+        FROM
+            `tabItem Scan Log`
+        WHERE
+            production_item IN ({ph})
+            AND operation LIKE 'Finish QC%%'
+            AND status IN ({st})
+        """.format(
+            ph=", ".join(["%s"] * len(production_item_ids)),
+            st=", ".join(["%s"] * len(REJECTION_STATUSES)),
+        ),
+        production_item_ids + list(REJECTION_STATUSES),
+        as_dict=True,
+    )
+
+    # rejection_index: { ckp_name → set(production_item_ids) }
+    rejection_index = defaultdict(set)
+    for r in rejection_rows:
+        ckp = item_to_ckp.get(r.production_item)
+        if ckp:
+            rejection_index[ckp].add(r.production_item)
+
+    # ------------------------------------------------------------------ #
     # Python — index scan log rows                                         #
     # scan_index: { (ckp_name, operation) → set of production_item_ids }  #
     # ------------------------------------------------------------------ #
@@ -241,9 +286,10 @@ def get_data(filters):
     result = []
 
     for supplier, info in sorted(supplier_data.items()):
-        total_sent     = 0
-        total_received = 0
-        lead_time_days = []
+        total_sent      = 0
+        total_received  = 0
+        total_rejection = 0
+        lead_time_days  = []
 
         for ckp_op in info["ckp_ops"]:
             ckp_name = ckp_op["ckp_name"]
@@ -268,20 +314,28 @@ def get_data(filters):
                     delta = (received_dt - sent_dt).total_seconds() / 86400
                     lead_time_days.append(delta)
 
+            # --- Total Rejection (Finish QC* with rejection status) ---
+            rejected_pids = rejection_index.get(ckp_name, set()) & sent_items.keys()
+            for pid in rejected_pids:
+                total_rejection += item_bundle.get(pid, 0)
+
         if filters and not total_sent:
             continue
 
         received_pct   = round(total_received / total_sent * 100, 2) if total_sent else 0
         avg_lead_time  = round(sum(lead_time_days) / len(lead_time_days), 1) if lead_time_days else 0
+        rejection_pct  = round(total_rejection / total_sent * 100, 2) if total_sent else 0
 
         result.append(
             {
-                "supplier":       supplier,
-                "no_of_ocns":     len(info["sales_orders"]),
-                "total_sent":     int(total_sent),
-                "total_received": int(total_received),
-                "received_pct":   received_pct,
-                "avg_lead_time":  avg_lead_time,
+                "supplier":        supplier,
+                "no_of_ocns":      len(info["sales_orders"]),
+                "total_sent":      int(total_sent),
+                "total_received":  int(total_received),
+                "received_pct":    received_pct,
+                "avg_lead_time":   avg_lead_time,
+                "total_rejection": int(total_rejection),
+                "rejection_pct":   rejection_pct,
             }
         )
 
