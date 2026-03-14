@@ -317,7 +317,7 @@ def get_data(filters):
             # --- Total Rejection (Finish QC* with rejection status) ---
             rejected_pids = rejection_index.get(ckp_name, set()) & sent_items.keys()
             for pid in rejected_pids:
-                total_rejection += item_bundle.get(pid, 0)
+                total_rejection += len(rejected_pids)
 
         if filters and not total_sent:
             continue
