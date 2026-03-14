@@ -1,6 +1,7 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
+
 import frappe
 from collections import defaultdict
 
@@ -14,71 +15,118 @@ def execute(filters=None):
 def get_columns():
     return [
         {
-            "label": "Vendor Name",
+            "label": "OCN",
+            "fieldname": "sales_order",
+            "fieldtype": "Link",
+            "options": "Sales Order",
+            "width": 140,
+        },
+        {
+            "label": "Vendor",
             "fieldname": "supplier",
             "fieldtype": "Link",
             "options": "Supplier",
-            "width": 220,
+            "width": 160,
         },
         {
-            "label": "No. of OCNs",
-            "fieldname": "no_of_ocns",
-            "fieldtype": "Int",
+            "label": "Style",
+            "fieldname": "style",
+            "fieldtype": "Data",
+            "width": 160,
+        },
+        {
+            "label": "Colour",
+            "fieldname": "colour",
+            "fieldtype": "Data",
             "width": 120,
         },
         {
-            "label": "Total Sent",
-            "fieldname": "total_sent",
-            "fieldtype": "Int",
-            "width": 130,
+            "label": "Size",
+            "fieldname": "size",
+            "fieldtype": "Data",
+            "width": 80,
         },
         {
-            "label": "Total Received",
+            "label": "Order Qty",
+            "fieldname": "order_qty",
+            "fieldtype": "Int",
+            "width": 100,
+        },
+        {
+            "label": "Sent",
+            "fieldname": "total_sent",
+            "fieldtype": "Int",
+            "width": 90,
+        },
+        {
+            "label": "Received",
             "fieldname": "total_received",
             "fieldtype": "Int",
-            "width": 130,
+            "width": 100,
+        },
+        {
+            "label": "Balance",
+            "fieldname": "balance",
+            "fieldtype": "Int",
+            "width": 90,
         },
         {
             "label": "Received %",
             "fieldname": "received_pct",
             "fieldtype": "Percent",
-            "width": 120,
+            "width": 110,
         },
         {
-            "label": "Avg Lead Time (Days)",
-            "fieldname": "avg_lead_time",
-            "fieldtype": "Float",
-            "precision": 1,
-            "width": 160,
-        },
-        {
-            "label": "Total Rejection",
+            "label": "Rejection",
             "fieldname": "total_rejection",
             "fieldtype": "Int",
-            "width": 140,
+            "width": 100,
         },
         {
             "label": "Rejection %",
             "fieldname": "rejection_pct",
             "fieldtype": "Percent",
-            "width": 120,
+            "width": 110,
+        },
+        {
+            "label": "Sent Date",
+            "fieldname": "sent_date",
+            "fieldtype": "Date",
+            "width": 110,
+        },
+        {
+            "label": "Last Received Date",
+            "fieldname": "last_received_date",
+            "fieldtype": "Date",
+            "width": 150,
+        },
+        {
+            "label": "No. of Days",
+            "fieldname": "no_of_days",
+            "fieldtype": "Int",
+            "width": 110,
         },
     ]
 
 
 def get_data(filters):
-    # ------------------------------------------------------------------ #
-    # QUERY 1 — All outsourced operations from submitted CKPs              #
-    # ------------------------------------------------------------------ #
+    from datetime import date as date_type
+    import datetime
+
     supplier_filter_sql = (
         "AND ops.supplier = %(supplier)s" if filters and filters.get("supplier") else ""
     )
 
+    # ------------------------------------------------------------------ #
+    # QUERY 1 — Outsourced operations from submitted CKPs                  #
+    # ------------------------------------------------------------------ #
     outsourced = frappe.db.sql(
         """
         SELECT
             ckp.name        AS ckp_name,
             ckp.sales_order,
+            ckp.style,
+            ckp.colour,
             ops.supplier,
             ops.operation
         FROM
@@ -87,10 +135,12 @@ def get_data(filters):
             `tabCut Kit Operations` ops ON ops.parent = ckp.name
         WHERE
             ops.production_type = 'Outsourced'
-            AND ops.supplier IS NOT NULL
-            AND ops.supplier != ''
-            AND ckp.docstatus  = 1
+            AND ops.supplier    IS NOT NULL
+            AND ops.supplier    != ''
+            AND ckp.docstatus   = 1
             {supplier_filter}
+        ORDER BY
+            ckp.sales_order, ops.supplier
         """.format(supplier_filter=supplier_filter_sql),
         filters or {},
         as_dict=True,
@@ -102,7 +152,7 @@ def get_data(filters):
     ckp_names = list({r.ckp_name for r in outsourced})
 
     # ------------------------------------------------------------------ #
-    # QUERY 2 — Full operation map for all relevant CKPs in one shot       #
+    # QUERY 2 — Operation map for all CKPs                                 #
     # ------------------------------------------------------------------ #
     op_map_rows = frappe.db.sql(
         """
@@ -115,43 +165,39 @@ def get_data(filters):
         as_dict=True,
     )
 
-    # Build lookup: ckp_name → { operation → {prev_op, next_op} }
     ckp_op_map = defaultdict(dict)
     for row in op_map_rows:
         ckp_op_map[row.ckp_name][row.operation] = {
             "next_op": row.next_operation,
             "seq": row.sequence_no,
         }
-
     for ckp_name, ops in ckp_op_map.items():
         seq_to_op = {v["seq"]: k for k, v in ops.items()}
         for details in ops.values():
             details["prev_op"] = seq_to_op.get(details["seq"] - 1, "")
 
     # ------------------------------------------------------------------ #
-    # Python — derive prev/next per outsourced row; build supplier map     #
+    # QUERY 3 — Bundle summary (order qty per size per CKP)                #
     # ------------------------------------------------------------------ #
-    # supplier_data: { supplier: { sales_orders: set, ckp_ops: list } }
-    supplier_data = defaultdict(lambda: {"sales_orders": set(), "ckp_ops": []})
-
-    # Also collect every (ckp_name, prev_op) and (ckp_name, next_op) we'll need
-    for row in outsourced:
-        op_detail = ckp_op_map.get(row.ckp_name, {}).get(row.operation, {})
-        supplier_data[row.supplier]["sales_orders"].add(row.sales_order)
-        supplier_data[row.supplier]["ckp_ops"].append(
-            {
-                "ckp_name": row.ckp_name,
-                "prev_op": op_detail.get("prev_op", ""),
-                "next_op": op_detail.get("next_op", ""),
-            }
-        )
+    summary_rows = frappe.db.sql(
+        """
+        SELECT parent AS ckp_name, size, SUM(quantity) AS order_qty
+        FROM   `tabCut Kit Plan Item`
+        WHERE  parent IN ({ph})
+        GROUP  BY parent, size
+        """.format(ph=", ".join(["%s"] * len(ckp_names))),
+        ckp_names,
+        as_dict=True,
+    )
+    # order_qty_map: { (ckp_name, size) → order_qty }
+    order_qty_map = {(r.ckp_name, r.size): r.order_qty for r in summary_rows}
 
     # ------------------------------------------------------------------ #
-    # QUERY 3 — All bundle details for all CKPs in one shot                #
+    # QUERY 4 — Bundle details (production_item_id → ckp, size, qty)       #
     # ------------------------------------------------------------------ #
     bundle_rows = frappe.db.sql(
         """
-        SELECT parent AS ckp_name, production_item_id, bundle_qty
+        SELECT parent AS ckp_name, production_item_id, size, bundle_qty
         FROM   `tabCut Kit Plan Bundle Details`
         WHERE  parent IN ({ph})
         """.format(ph=", ".join(["%s"] * len(ckp_names))),
@@ -159,13 +205,13 @@ def get_data(filters):
         as_dict=True,
     )
 
-    # bundle_qty_map: { (ckp_name, production_item_id) → bundle_qty }
-    # production_item_id → ckp_name  (for scan log join)
-    item_to_ckp   = {}   # production_item_id → ckp_name
-    item_bundle   = {}   # production_item_id → bundle_qty
+    item_to_ckp  = {}   # pid → ckp_name
+    item_to_size = {}   # pid → size
+    item_bundle  = {}   # pid → bundle_qty
 
     for b in bundle_rows:
         item_to_ckp[b.production_item_id]  = b.ckp_name
+        item_to_size[b.production_item_id] = b.size
         item_bundle[b.production_item_id]  = b.bundle_qty
 
     if not item_to_ckp:
@@ -174,54 +220,32 @@ def get_data(filters):
     production_item_ids = list(item_to_ckp.keys())
 
     # ------------------------------------------------------------------ #
-    # QUERY 4 — All matching Item Scan Log rows in one shot                #
+    # QUERY 5 — Item Scan Log (sent + received)                            #
     # ------------------------------------------------------------------ #
-    date_clauses = []
-    date_params  = []
-    if filters:
-        if filters.get("from_date"):
-            date_clauses.append("AND DATE(isl.logged_time) >= %s")
-            date_params.append(filters["from_date"])
-        if filters.get("to_date"):
-            date_clauses.append("AND DATE(isl.logged_time) <= %s")
-            date_params.append(filters["to_date"])
-    date_filter_sql = " ".join(date_clauses)
-
     scan_rows = frappe.db.sql(
         """
-        SELECT
-            production_item,
-            operation,
-            logged_time
-        FROM
-            `tabItem Scan Log`
-        WHERE
-            production_item IN ({ph})
-            AND status     = 'Counted'
-            AND log_status = 'Completed'
+        SELECT production_item, operation, logged_time
+        FROM   `tabItem Scan Log`
+        WHERE  production_item IN ({ph})
+          AND  status     = 'Counted'
+          AND  log_status = 'Completed'
         """.format(ph=", ".join(["%s"] * len(production_item_ids))),
         production_item_ids,
         as_dict=True,
     )
 
     # ------------------------------------------------------------------ #
-    # QUERY 5 — Rejection rows (Finish QC* operations, rejection statuses) #
+    # QUERY 6 — Rejection rows                                             #
     # ------------------------------------------------------------------ #
-    REJECTION_STATUSES = (
-        "QC Rejected", "SP Rejected"
-    )
+    REJECTION_STATUSES = ("QC Rejected", "SP Rejected")
 
     rejection_rows = frappe.db.sql(
         """
-        SELECT
-            production_item,
-            operation
-        FROM
-            `tabItem Scan Log`
-        WHERE
-            production_item IN ({ph})
-            AND operation LIKE 'Finish QC%%'
-            AND status IN ({st})
+        SELECT production_item
+        FROM   `tabItem Scan Log`
+        WHERE  production_item IN ({ph})
+          AND  operation LIKE 'Finish QC%%'
+          AND  status IN ({st})
         """.format(
             ph=", ".join(["%s"] * len(production_item_ids)),
             st=", ".join(["%s"] * len(REJECTION_STATUSES)),
@@ -230,25 +254,13 @@ def get_data(filters):
         as_dict=True,
     )
 
-    # rejection_index: { ckp_name → set(production_item_ids) }
-    rejection_index = defaultdict(set)
-    for r in rejection_rows:
-        ckp = item_to_ckp.get(r.production_item)
-        if ckp:
-            rejection_index[ckp].add(r.production_item)
+    # rejection_set: set of production_item_ids that were rejected
+    rejection_set = {r.production_item for r in rejection_rows}
 
     # ------------------------------------------------------------------ #
-    # Python — index scan log rows                                         #
-    # scan_index: { (ckp_name, operation) → set of production_item_ids }  #
+    # Python — parse date filter                                           #
     # ------------------------------------------------------------------ #
-    # We keep two indexes:
-    #   scan_sent     — rows that also pass the date filter (for Sent)
-    #   scan_received — all rows regardless of date (for Received)
-    from datetime import date as date_type
-    import datetime
-
-    from_date = None
-    to_date   = None
+    from_date = to_date = None
     if filters:
         if filters.get("from_date"):
             fd = filters["from_date"]
@@ -257,7 +269,10 @@ def get_data(filters):
             td = filters["to_date"]
             to_date = td if isinstance(td, date_type) else datetime.datetime.strptime(str(td), "%Y-%m-%d").date()
 
-    # { (ckp_name, operation) → { pid: logged_time } }
+    # ------------------------------------------------------------------ #
+    # Python — build scan indexes                                          #
+    # { (ckp_name, operation) → { pid: logged_time } }                    #
+    # ------------------------------------------------------------------ #
     scan_sent_index     = defaultdict(dict)   # date-filtered
     scan_received_index = defaultdict(dict)   # no date filter
 
@@ -265,14 +280,11 @@ def get_data(filters):
         ckp = item_to_ckp.get(s.production_item)
         if not ckp:
             continue
-
         key      = (ckp, s.operation)
         log_time = s.logged_time
 
-        # Received index — no date restriction
         scan_received_index[key][s.production_item] = log_time
 
-        # Sent index — only if within date range
         log_date = log_time.date() if hasattr(log_time, "date") else log_time
         if from_date and log_date < from_date:
             continue
@@ -281,61 +293,105 @@ def get_data(filters):
         scan_sent_index[key][s.production_item] = log_time
 
     # ------------------------------------------------------------------ #
-    # Python — aggregate per supplier                                      #
+    # Python — build row key map from outsourced list                      #
+    # row_key: (sales_order, supplier, style, colour, size)                #
+    # ------------------------------------------------------------------ #
+    # row_data: { row_key → { ckp_ops, fields } }
+    row_data = {}
+
+    for row in outsourced:
+        op_detail = ckp_op_map.get(row.ckp_name, {}).get(row.operation, {})
+        prev_op   = op_detail.get("prev_op", "")
+        next_op   = op_detail.get("next_op", "")
+
+        # Determine sizes from bundle summary for this CKP
+        sizes = [
+            size for (ckp, size) in order_qty_map.keys() if ckp == row.ckp_name
+        ]
+
+        for size in sizes:
+            key = (row.sales_order, row.supplier, row.style, row.colour, size)
+            if key not in row_data:
+                row_data[key] = {
+                    "sales_order": row.sales_order,
+                    "supplier":    row.supplier,
+                    "style":       row.style,
+                    "colour":      row.colour,
+                    "size":        size,
+                    "order_qty":   order_qty_map.get((row.ckp_name, size), 0),
+                    "ckp_ops":     [],
+                }
+            row_data[key]["ckp_ops"].append(
+                {"ckp_name": row.ckp_name, "prev_op": prev_op, "next_op": next_op}
+            )
+
+    # ------------------------------------------------------------------ #
+    # Python — aggregate per row                                           #
     # ------------------------------------------------------------------ #
     result = []
 
-    for supplier, info in sorted(supplier_data.items()):
+    for key, info in sorted(row_data.items()):
         total_sent      = 0
         total_received  = 0
         total_rejection = 0
-        lead_time_days  = []
+        sent_dates      = []
+        received_dates  = []
+        size            = info["size"]
 
         for ckp_op in info["ckp_ops"]:
             ckp_name = ckp_op["ckp_name"]
             prev_op  = ckp_op["prev_op"]
             next_op  = ckp_op["next_op"]
 
-            # sent_items: { pid: sent_logged_time }
-            sent_items = scan_sent_index.get((ckp_name, prev_op), {}) if prev_op else {}
+            # Filter sent items to this size only
+            all_sent = scan_sent_index.get((ckp_name, prev_op), {}) if prev_op else {}
+            sent_items = {
+                pid: t for pid, t in all_sent.items()
+                if item_to_size.get(pid) == size
+            }
 
-            for pid in sent_items:
+            for pid, t in sent_items.items():
                 total_sent += item_bundle.get(pid, 0)
+                sent_dates.append(t)
 
             if next_op and sent_items:
-                # Only count received for items that were actually sent in the filtered window
-                received_items = scan_received_index.get((ckp_name, next_op), {})
-                common_pids = sent_items.keys() & received_items.keys()
-                for pid in common_pids:
+                all_received = scan_received_index.get((ckp_name, next_op), {})
+                for pid in sent_items.keys() & all_received.keys():
                     total_received += item_bundle.get(pid, 0)
-                    # Lead time per item: received_time - sent_time (in days)
-                    sent_dt     = sent_items[pid]
-                    received_dt = received_items[pid]
-                    delta = (received_dt - sent_dt).total_seconds() / 86400
-                    lead_time_days.append(delta)
+                    received_dates.append(all_received[pid])
 
-            # --- Total Rejection (Finish QC* with rejection status) ---
-            rejected_pids = rejection_index.get(ckp_name, set()) & sent_items.keys()
-            for pid in rejected_pids:
-                total_rejection += len(rejected_pids)
+            # Rejections — intersection of sent items and rejection set
+            for pid in sent_items.keys() & rejection_set:
+                total_rejection += 1
 
         if filters and not total_sent:
             continue
 
-        received_pct   = round(total_received / total_sent * 100, 2) if total_sent else 0
-        avg_lead_time  = round(sum(lead_time_days) / len(lead_time_days), 1) if lead_time_days else 0
-        rejection_pct  = round(total_rejection / total_sent * 100, 2) if total_sent else 0
+        received_pct  = round(total_received / total_sent * 100, 2) if total_sent else 0
+        rejection_pct = round(total_rejection / total_sent * 100, 2) if total_sent else 0
+        balance       = total_received - total_sent
+
+        sent_date          = min(t.date() if hasattr(t, "date") else t for t in sent_dates) if sent_dates else None
+        last_received_date = max(t.date() if hasattr(t, "date") else t for t in received_dates) if received_dates else None
+        no_of_days         = (last_received_date - sent_date).days if sent_date and last_received_date else 0
 
         result.append(
             {
-                "supplier":        supplier,
-                "no_of_ocns":      len(info["sales_orders"]),
-                "total_sent":      int(total_sent),
-                "total_received":  int(total_received),
-                "received_pct":    received_pct,
-                "avg_lead_time":   avg_lead_time,
-                "total_rejection": int(total_rejection),
-                "rejection_pct":   rejection_pct,
+                "sales_order":       info["sales_order"],
+                "supplier":          info["supplier"],
+                "style":             info["style"],
+                "colour":            info["colour"],
+                "size":              size,
+                "order_qty":         int(info["order_qty"]),
+                "total_sent":        int(total_sent),
+                "total_received":    int(total_received),
+                "balance":           int(balance),
+                "received_pct":      received_pct,
+                "total_rejection":   int(total_rejection),
+                "rejection_pct":     rejection_pct,
+                "sent_date":         sent_date,
+                "last_received_date": last_received_date,
+                "no_of_days":        no_of_days,
             }
         )
 

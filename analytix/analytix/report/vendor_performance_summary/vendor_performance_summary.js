@@ -1,13 +1,13 @@
 // Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Vendor Dashboard"] = {
+frappe.query_reports["Vendor Performance Summary"] = {
 	filters: [
 		{
 			fieldname: "from_date",
 			label: __("From Date (Sent)"),
 			fieldtype: "Date",
-			default: frappe.datetime.month_start(),
+			default: moment().subtract(1, "months").startOf("month").format("YYYY-MM-DD"),
 		},
 		{
 			fieldname: "to_date",
@@ -21,12 +21,6 @@ frappe.query_reports["Vendor Dashboard"] = {
 			fieldtype: "Link",
 			options: "Supplier",
 		},
-		{
-			fieldname: "sales_order",
-			label: __("OCN"),
-			fieldtype: "Link",
-			options: "Sales Order",
-		},
 	],
 
     onload(report) {
@@ -35,9 +29,9 @@ frappe.query_reports["Vendor Dashboard"] = {
                 wrapper: report.page.wrapper || report.page.$wrapper,
                 trail: [
                     { label: "KPI Hub", href: "/app/kpi-hub" },
-                    { label: "Vendor Dashboard" },
+                    { label: "Vendor Performance Summary" },
                 ],
             });
         }
-    },			
+    },	
 };
