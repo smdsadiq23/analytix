@@ -50,6 +50,12 @@ def get_columns():
             "width": 150,
         },
         {
+            "label": "Can Cut %",
+            "fieldname": "can_cut_percent",
+            "fieldtype": "Percent",
+            "width": 110,
+        },
+        {
             "label": "Responsible",
             "fieldname": "responsible",
             "fieldtype": "Data",
@@ -138,27 +144,10 @@ def get_data(filters=None):
     #         Carries fg_item forward for the BOM lookup.
     #         Date filters scope which GRNs count as "received".
     # ----------------------------------------------------------------
-    grn_rows = frappe.db.sql(
-        """
-        SELECT
-            grnofm.ocn,
-            grnofm.fg_item,
-            grnofm.fg_item_colour,
-            MAX(grn.posting_date)            AS last_inhouse_date,
-            SUM(grn.total_received_quantity) AS fabric_received
-        FROM `tabGRN OCN FG Mapping` grnofm
-        INNER JOIN `tabGoods Receipt Note` grn
-            ON grn.name = grnofm.parent
-        WHERE grnofm.ocn IN %(ocn_list)s
-          AND grn.docstatus = 1
-        GROUP BY grnofm.ocn, grnofm.fg_item, grnofm.fg_item_colour
-        """,
-        {"ocn_list": ocn_list},
-        as_dict=True,
-    )
-
-    # { (ocn, colour) -> grn row }
-    grn_map = {(r.ocn, r.fg_item_colour): r for r in grn_rows}
+    # Build GRN map using the same 3-strategy fallback used elsewhere
+    grn_map = _get_grn_data(ocn_list)
+    # Flatten to a list so item_set collection below still works
+    grn_rows = list(grn_map.values())
 
     # ----------------------------------------------------------------
     # Step 3: SO Item qty per (ocn, item_code, colour)
@@ -183,9 +172,9 @@ def get_data(filters=None):
     soi_map = {(r.ocn, r.colour): r for r in soi_rows}
 
     # ----------------------------------------------------------------
-    # Step 4: Collect all item codes (from GRN + SO Items) for lookup
+    # Step 3: Collect all item codes (from GRN + SO Items) for lookup
     # ----------------------------------------------------------------
-    item_set = {r.fg_item for r in grn_rows}
+    item_set = {r.fg_item for r in grn_rows if r.get("fg_item")}
     item_set.update(r.item_code for r in soi_rows)
     item_list = list(item_set)
 
@@ -301,6 +290,7 @@ def get_data(filters=None):
             "fabric_ordered":     fabric_ordered,
             "fabric_received":    fabric_received,
             "balance_to_receive": balance,
+            "can_cut_percent":    row.can_cut_percent,
             "responsible":        row.responsible,
             "last_inhouse_date":  last_inhouse,
             "remarks":            remarks,
@@ -316,6 +306,126 @@ def get_data(filters=None):
             normal_rows.append(entry)
 
     return normal_rows + remarked_rows
+
+
+def _get_grn_data(ocn_list):
+    """
+    Return a dict  { (ocn, colour) -> row }  with fabric_received and
+    last_inhouse_date for every OCN in ocn_list.
+
+    Mirrors the 3-strategy fallback used in get_grn_items_for_fg_or_colour:
+
+      Strategy 1 – GRNs linked via tabGRN OCN FG Mapping  (new system)
+      Strategy 2 – GRNs with fg_item on the GRN header     (legacy)
+      Strategy 3 – Old GRNs matched by colour on items,
+                   no fg_item, no mapping entries
+    """
+    grn_map = {}          # { (ocn, colour) -> frappe._dict }
+    covered_ocns = set()
+
+    # ------------------------------------------------------------------
+    # Strategy 1: tabGRN OCN FG Mapping  (current system)
+    # ------------------------------------------------------------------
+    s1_rows = frappe.db.sql(
+        """
+        SELECT
+            grnofm.ocn,
+            grnofm.fg_item,
+            grnofm.fg_item_colour           AS colour,
+            MAX(grn.posting_date)           AS last_inhouse_date,
+            SUM(grn.total_received_quantity) AS fabric_received
+        FROM `tabGRN OCN FG Mapping` grnofm
+        INNER JOIN `tabGoods Receipt Note` grn
+            ON grn.name = grnofm.parent
+        WHERE grnofm.ocn IN %(ocn_list)s
+          AND grn.docstatus = 1
+        GROUP BY grnofm.ocn, grnofm.fg_item, grnofm.fg_item_colour
+        """,
+        {"ocn_list": ocn_list},
+        as_dict=True,
+    )
+
+    for r in s1_rows:
+        grn_map[(r.ocn, r.colour)] = r
+        covered_ocns.add(r.ocn)
+
+    uncovered = [o for o in ocn_list if o not in covered_ocns]
+    if not uncovered:
+        return grn_map
+
+    # ------------------------------------------------------------------
+    # Strategy 2: fg_item field on GRN header  (legacy)
+    # ------------------------------------------------------------------
+    s2_rows = frappe.db.sql(
+        """
+        SELECT
+            grn.ocn,
+            grn.fg_item,
+            gri.color                       AS colour,
+            MAX(grn.posting_date)           AS last_inhouse_date,
+            SUM(gri.received_quantity)      AS fabric_received
+        FROM `tabGoods Receipt Note` grn
+        INNER JOIN `tabGoods Receipt Item` gri
+            ON gri.parent = grn.name
+        WHERE grn.ocn IN %(ocn_list)s
+          AND grn.docstatus = 1
+          AND grn.fg_item IS NOT NULL
+          AND grn.fg_item != ''
+        GROUP BY grn.ocn, grn.fg_item, gri.color
+        """,
+        {"ocn_list": uncovered},
+        as_dict=True,
+    )
+
+    covered_s2 = set()
+    for r in s2_rows:
+        key = (r.ocn, r.colour)
+        if key not in grn_map:
+            grn_map[key] = r
+        covered_s2.add(r.ocn)
+
+    uncovered = [o for o in uncovered if o not in covered_s2]
+    if not uncovered:
+        return grn_map
+
+    # ------------------------------------------------------------------
+    # Strategy 3: Old GRNs — no fg_item, no mapping entries
+    #             Colour resolved from tabGoods Receipt Item.color
+    # ------------------------------------------------------------------
+    s3_rows = frappe.db.sql(
+        """
+        SELECT
+            grn.ocn,
+            NULL                            AS fg_item,
+            gri.color                       AS colour,
+            MAX(grn.posting_date)           AS last_inhouse_date,
+            SUM(gri.received_quantity)      AS fabric_received
+        FROM `tabGoods Receipt Note` grn
+        INNER JOIN `tabGoods Receipt Item` gri
+            ON gri.parent = grn.name
+        WHERE grn.ocn IN %(ocn_list)s
+          AND grn.docstatus = 1
+          AND (grn.fg_item IS NULL OR grn.fg_item = '')
+          AND grn.name NOT IN (
+              SELECT DISTINCT parent
+              FROM `tabGRN OCN FG Mapping`
+              WHERE parent IN (
+                  SELECT name FROM `tabGoods Receipt Note`
+                  WHERE ocn IN %(ocn_list)s
+              )
+          )
+        GROUP BY grn.ocn, gri.color
+        """,
+        {"ocn_list": uncovered},
+        as_dict=True,
+    )
+
+    for r in s3_rows:
+        key = (r.ocn, r.colour)
+        if key not in grn_map:
+            grn_map[key] = r
+
+    return grn_map
 
 
 # ----------------------------------------------------------------
