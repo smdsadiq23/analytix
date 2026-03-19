@@ -128,7 +128,7 @@ function _applyCell(cellName) {
 	var isSingleOp = SINGLE_OP_CELLS.indexOf(cellName) !== -1;
 	var subLabel   = isSingleOp ? "OUT per size" : "IN / OUT per size";
 	$("#lkd-sizes-header").html(
-		"SIZES &amp; " + _e(cellName) + "<br><span class='th-inout'>" + subLabel + "</span>"
+		_e(cellName) + "<br><span class='th-inout'>" + subLabel + "</span>"
 	);
 }
 
