@@ -60,14 +60,14 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Group",
-   "options": "\nReports\nBuying\nProductivity\nOrder Management\nQuality\nEfficiency\nData Integrity\nExtracts",
+   "options": "\nReports\nDashboards\nBuying\nProductivity\nOrder Management\nQuality\nEfficiency\nData Integrity\nExtracts",
    "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-10 15:55:54.356681",
+ "modified": "2026-03-19 20:05:08.627854",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Analytix Dashboard",
