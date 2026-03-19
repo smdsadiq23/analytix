@@ -113,6 +113,10 @@ def get_dashboard_data():
         # ── VALIDATION: Exclude rows where PACKING completion >= 105% ─────
         if completion_pct >= 105:
             continue  # Skip this row — order is over-completed
+
+        # ── VALIDATION: Exclude rows where KNITTING IN is 0 ──────────────
+        if cells["KNITTING"]["in"] == 0:
+            continue  # Skip this row — knitting has not started        
         # ─────────────────────────────────────────────────────────────────
 
         result.append({

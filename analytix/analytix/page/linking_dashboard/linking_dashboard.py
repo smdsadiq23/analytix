@@ -106,6 +106,10 @@ def get_dashboard_data():
         if completion_pct >= 105:
             continue
 
+        # Skip rows where LINKING IN is 0 for every size
+        if all(s["in"] == 0 for s in b["sizes"].values()):
+            continue
+
         delivery_date = ""
         if b["delivery_date"]:
             delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
