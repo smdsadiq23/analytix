@@ -103,7 +103,7 @@ var _timer = null;
 
 const CELLS = ["KNITTING","MENDING","WASHING","CUTTING","LINKING","SEWING","EMBROIDERY","PRODUCTION","PRESSING","FINISHING","PACKING"];
 
-const SCROLL_CONFIG = { step: 64, interval: 5000, pauseOnHover: true, edgePause: 2000 };
+const SCROLL_CONFIG = { step: 66, interval: 5000, pauseOnHover: true, edgePause: 2000 };
 var _scrollTimer = null;
 var _scrollDirection = 1;
 var _edgePauseTimer = null;
