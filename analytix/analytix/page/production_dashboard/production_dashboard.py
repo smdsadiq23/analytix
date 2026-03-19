@@ -195,18 +195,19 @@ def _get_cell_op_map(op_type="last"):
     Returns qty per (style, colour, size, cell_name) for either
     the first or last operation of each physical cell.
 
-    op_type = "first"  →  isl.operation = pcflo.first_operation  →  cell IN
-    op_type = "last"   →  isl.operation = pcflo.last_operation   →  cell OUT
+    op_type = "first"  →  cell IN
+    op_type = "last"   →  cell OUT
 
-    For a single-operation cell, first_operation = last_operation,
-    so both calls return identical quantities for that cell.
+    For most cells, the operation name is read dynamically from
+    pcflo.first_operation / pcflo.last_operation.
 
-    pcflo join uses AND pcflo.physical_cell = pc.name to pin each
-    scan to exactly its own cell row — prevents double-counting
-    across the child table rows.
+    Exception — MENDING uses hardcoded operation names:
+        first  →  'MENDING IN'
+        last   →  'MENDING OUT'
     """
-    op_field  = "first_operation" if op_type == "first" else "last_operation"
-    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+    op_field         = "first_operation" if op_type == "first" else "last_operation"
+    mending_op       = "MENDING IN"      if op_type == "first" else "MENDING OUT"
+    cell_list        = ", ".join([f"'{c}'" for c in CELL_ORDER])
 
     rows = frappe.db.sql(f"""
         SELECT
@@ -232,7 +233,10 @@ def _get_cell_op_map(op_type="last"):
                                                    ON pcflo.parent = tbc.work_order
                                                    AND pcflo.physical_cell = pc.name
         INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = pcflo.{op_field}
+        WHERE isl.operation = CASE
+                WHEN pc.cell_name = 'MENDING' THEN '{mending_op}'
+                ELSE pcflo.{op_field}
+              END
           AND isl.log_status = 'Completed'
           AND pc.cell_name IN ({cell_list})
           AND (
