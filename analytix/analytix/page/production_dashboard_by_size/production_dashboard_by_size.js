@@ -49,7 +49,7 @@ frappe.pages['production-dashboard-by-size'].on_page_load = function(wrapper) {
 							<th class="th-delivery">DELIVERY</th>
 							<th class="th-qty">ORDER<br>QTY</th>
 							<th class="th-qty">PLANNED<br>QTY</th>
-							<th class="th-sizes" id="lkd-sizes-header">SIZES &amp; CELL<br><span class="th-inout">IN / OUT per size</span></th>
+							<th class="th-sizes" id="lkd-sizes-header">CELL<br><span class="th-inout">IN / OUT per size</span></th>
 							<th class="th-total">TOTAL<br>COMPLETION</th>
 							<th class="th-completion">COMPLETION<br>%</th>
 						</tr>
