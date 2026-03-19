@@ -139,6 +139,10 @@ def get_data(filters=None):
 
     ocn_list = list({r.ocn for r in can_cut_rows})
 
+    # Normalise colour to uppercase on Can Cut rows so keys match GRN map
+    for r in can_cut_rows:
+        r.colour = (r.colour or "").upper()
+
     # ----------------------------------------------------------------
     # Step 2: GRN receipts per (ocn, fg_item, fg_item_colour)
     #         Carries fg_item forward for the BOM lookup.
@@ -168,8 +172,8 @@ def get_data(filters=None):
         as_dict=True,
     )
 
-    # { (ocn, colour) -> { item_code, so_qty } }
-    soi_map = {(r.ocn, r.colour): r for r in soi_rows}
+    # { (ocn, colour) -> { item_code, so_qty } }  — colour uppercased for consistent keying
+    soi_map = {(r.ocn, (r.colour or "").upper()): r for r in soi_rows}
 
     # ----------------------------------------------------------------
     # Step 3: Collect all item codes (from GRN + SO Items) for lookup
@@ -346,6 +350,7 @@ def _get_grn_data(ocn_list):
     )
 
     for r in s1_rows:
+        r.colour = (r.colour or "").upper()
         grn_map[(r.ocn, r.colour)] = r
         covered_ocns.add(r.ocn)
 
@@ -379,6 +384,7 @@ def _get_grn_data(ocn_list):
 
     covered_s2 = set()
     for r in s2_rows:
+        r.colour = (r.colour or "").upper()
         key = (r.ocn, r.colour)
         if key not in grn_map:
             grn_map[key] = r
@@ -421,6 +427,7 @@ def _get_grn_data(ocn_list):
     )
 
     for r in s3_rows:
+        r.colour = (r.colour or "").upper()
         key = (r.ocn, r.colour)
         if key not in grn_map:
             grn_map[key] = r

@@ -106,7 +106,7 @@ const CELLS = ["KNITTING","MENDING","WASHING","CUTTING","LINKING","SEWING","EMBR
 // Cells that have only one operation — IN is meaningless, show "NA" instead
 const SINGLE_OP_CELLS = ["KNITTING", "FINAL CHECK"];
 
-const SCROLL_CONFIG = { step: 68, interval: 5000, pauseOnHover: true, edgePause: 2000 };
+const SCROLL_CONFIG = { step: 68, interval: 8000, pauseOnHover: true, edgePause: 2000 };
 var _scrollTimer = null;
 var _scrollDirection = 1;
 var _edgePauseTimer = null;
