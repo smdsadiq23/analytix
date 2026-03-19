@@ -15,9 +15,6 @@ frappe.pages['production-dashboard-by-size'].on_page_load = function(wrapper) {
 	$(wrapper).css({ "padding": "0", "margin": "0" });
 	$(wrapper).find(".page-content").css({ "padding": "0", "margin": "0" });
 
-	// ── Read cell name from URL query string (?cell=LINKING) ──────────────
-	var _cellName = _getCellFromUrl() || "KNITTING";
-
 	$(wrapper).find(".page-content").append(`
 		<div class="lkd-root">
 			<div class="lkd-topbar">
@@ -72,13 +69,7 @@ frappe.pages['production-dashboard-by-size'].on_page_load = function(wrapper) {
 		</div>
 	`);
 
-	// Apply cell name to subtitle + sizes column header
-	_applyCell(_cellName);
-
 	_startClock();
-	_load(_cellName);
-	_resetAutoScroll();
-	_timer = setInterval(function() { _load(_cellName); _resetAutoScroll(); }, 60000);
 };
 
 frappe.pages["production-dashboard-by-size"].on_page_show = function (wrapper) {
@@ -86,6 +77,26 @@ frappe.pages["production-dashboard-by-size"].on_page_show = function (wrapper) {
 	$(".page-body").css({ "padding": "0", "margin": "0" });
 	$(".layout-main-section-wrapper").css({ "padding": "0", "margin": "0" });
 	$(".layout-main-section").css({ "padding": "0", "margin": "0", "max-width": "100%" });
+
+	// ── Detect cell on every show ─────────────────────────────────────────
+	// frappe.route_options is populated by Frappe's router on internal link
+	// clicks (e.g. KPI Hub). Falls back to URL query string for direct/new-tab
+	// loads, then defaults to KNITTING.
+	var cellName = "KNITTING";
+	if (frappe.route_options && frappe.route_options.cell) {
+		cellName = frappe.route_options.cell.toString().toUpperCase();
+		frappe.route_options = {};   // consume so it doesn't bleed into next nav
+	} else {
+		cellName = _getCellFromUrl() || "KNITTING";
+	}
+
+	_activeCell = cellName;
+	_applyCell(cellName);
+
+	if (_timer) { clearInterval(_timer); _timer = null; }
+	_load(cellName);
+	_resetAutoScroll();
+	_timer = setInterval(function() { _load(_activeCell); _resetAutoScroll(); }, 60000);
 };
 
 frappe.pages["production-dashboard-by-size"].on_page_hide = function () {
@@ -97,7 +108,8 @@ frappe.pages["production-dashboard-by-size"].on_page_hide = function () {
 	_stopAutoScroll();
 };
 
-var _timer = null;
+var _timer      = null;
+var _activeCell = "KNITTING";   // tracks current cell across timer ticks
 
 // Cells with only one operation — IN has no meaning, display "NA" instead
 const SINGLE_OP_CELLS = ["KNITTING", "FINAL CHECK"];
