@@ -161,7 +161,7 @@ function _render(rows) {
 			html += "</td>";
 		});
 		var cp = parseFloat(r.completion_pct) || 0;
-		var cpStr = cp.toFixed(cp % 1 === 0 ? 0 : 1) + "%";
+		var cpStr = Math.round(cp) + "%";
 		var circ = 113.1, offset = (circ - (cp / 100) * circ).toFixed(1);
 		var cc = cp >= 100 ? "cc-done" : cp >= 95 ? "cc-mid" : "cc-low";
 		html += '<td class="td-completion"><div class="comp-wrap">';
