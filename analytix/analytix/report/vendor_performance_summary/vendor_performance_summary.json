@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2026-03-14 15:38:26.858749",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2026-03-14 15:38:26.858749",
+ "modified": "2026-03-14 18:50:54.633303",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Vendor Performance Summary",
