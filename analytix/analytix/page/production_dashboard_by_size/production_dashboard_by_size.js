@@ -16,7 +16,7 @@ frappe.pages['production-dashboard-by-size'].on_page_load = function(wrapper) {
 	$(wrapper).find(".page-content").css({ "padding": "0", "margin": "0" });
 
 	// ── Read cell name from URL query string (?cell=LINKING) ──────────────
-	var _cellName = _getCellFromUrl() || "LINKING";
+	var _cellName = _getCellFromUrl() || "KNITTING";
 
 	$(wrapper).find(".page-content").append(`
 		<div class="lkd-root">
