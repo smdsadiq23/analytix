@@ -16,7 +16,7 @@ CELL_ORDER = [
     "EMBROIDERY",
     "PRODUCTION",
     "PRESSING",
-    "FINISHING",
+    "FINAL CHECK",
     "PACKING",
 ]
 
@@ -116,7 +116,7 @@ def get_dashboard_data():
 
         # ── VALIDATION: Exclude rows where KNITTING IN is 0 ──────────────
         if cells["KNITTING"]["in"] == 0:
-            continue  # Skip this row — knitting has not started        
+            continue  # Skip this row — knitting has not started
         # ─────────────────────────────────────────────────────────────────
 
         result.append({

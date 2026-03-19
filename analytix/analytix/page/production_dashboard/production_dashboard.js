@@ -45,7 +45,7 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 							<th class="th-delivery">DELIVERY</th>
 							<th class="th-qty">ORDER<br>QTY</th>
 							<th class="th-qty">PLANNED<br>QTY</th>
-							<th class="th-cell">KNITTING<br><span class="th-inout">IN / OUT</span></th>
+							<th class="th-cell">KNITTING<br><span class="th-inout">OUT</span></th>
 							<th class="th-cell">MENDING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">WASHING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">CUTTING<br><span class="th-inout">IN / OUT</span></th>
@@ -54,7 +54,7 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 							<th class="th-cell">EMBROIDERY<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">PRODUCTION<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">PRESSING<br><span class="th-inout">IN / OUT</span></th>
-							<th class="th-cell">FINISHING<br><span class="th-inout">IN / OUT</span></th>
+							<th class="th-cell">FINAL CHECK<br><span class="th-inout">OUT</span></th>
 							<th class="th-cell">PACKING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-completion">COMPLETION</th>
 						</tr>
@@ -101,7 +101,10 @@ frappe.pages["production-dashboard"].on_page_hide = function () {
 
 var _timer = null;
 
-const CELLS = ["KNITTING","MENDING","WASHING","CUTTING","LINKING","SEWING","EMBROIDERY","PRODUCTION","PRESSING","FINISHING","PACKING"];
+const CELLS = ["KNITTING","MENDING","WASHING","CUTTING","LINKING","SEWING","EMBROIDERY","PRODUCTION","PRESSING","FINAL CHECK","PACKING"];
+
+// Cells that have only one operation — IN is meaningless, show "NA" instead
+const SINGLE_OP_CELLS = ["KNITTING", "FINAL CHECK"];
 
 const SCROLL_CONFIG = { step: 68, interval: 5000, pauseOnHover: true, edgePause: 2000 };
 var _scrollTimer = null;
@@ -149,8 +152,9 @@ function _render(rows) {
 		CELLS.forEach(function (cell) {
 			var c = cellData[cell] || {}, pct = c["pct"] || 0;
 			var pClass = pct >= 100 ? "pct-green" : pct >= 95 ? "pct-yellow" : "pct-red";
+			var isSingleOp = SINGLE_OP_CELLS.indexOf(cell) !== -1;
 			html += '<td class="td-cell">';
-			html += '<div class="cell-in">' + _n(c["in"]) + "</div>";
+			html += '<div class="cell-in cell-in-na">' + (isSingleOp ? "NA" : _n(c["in"])) + "</div>";
 			html += '<div class="cell-line"></div>';
 			html += '<div class="cell-out">' + _n(c["out"]) + "</div>";
 			html += '<div class="cell-pct ' + pClass + '">' + pct + "%</div>";
