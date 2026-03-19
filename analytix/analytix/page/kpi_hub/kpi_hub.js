@@ -8,7 +8,7 @@ frappe.pages["kpi-hub"].on_page_load = async function (wrapper) {
 
 	const $toolbar = $(`
     <div class="d-flex align-items-center" style="margin-top:12px; gap:8px;">
-      <input type="text" class="form-control" placeholder="Search dashboards..." style="max-width:280px;">
+      <input type="text" class="form-control" placeholder="Search..." style="max-width:280px;">
       <div class="grp-chips d-flex align-items-center" style="gap:8px;"></div>
     </div>
   `).appendTo($root);
