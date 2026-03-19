@@ -93,7 +93,7 @@ frappe.pages["linking-dashboard"].on_page_hide = function () {
 
 var _timer = null;
 
-const SCROLL_CONFIG = { step: 72, interval: 5000, pauseOnHover: true, edgePause: 2000 };
+const SCROLL_CONFIG = { step: 75, interval: 5000, pauseOnHover: true, edgePause: 2000 };
 var _scrollTimer   = null;
 var _scrollDirection = 1;
 var _edgePauseTimer  = null;
