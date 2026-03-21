@@ -13,8 +13,8 @@ def execute(filters=None):
 def get_columns():
     return [
         {
-            "label": "Factory Business Unit",
-            "fieldname": "factory_business_unit",
+            "label": "Unit",
+            "fieldname": "unit",
             "fieldtype": "Data",
             "width": 170,
         },
@@ -125,8 +125,8 @@ def get_data(filters=None):
     can_cut_rows = frappe.db.sql(
         """
         SELECT
-            cc.merchant,
-            cc.factory_business_unit,
+            usr.full_name       AS merchant,
+            fbu.factory_name    AS unit,
             cc.sales_order      AS ocn,
             cc.style,
             cc.colour,
@@ -145,6 +145,8 @@ def get_data(filters=None):
             ON  latest.sales_order  = cc.sales_order
             AND latest.colour       = cc.colour
             AND latest.max_creation = cc.creation
+        LEFT JOIN `tabUser` usr ON cc.merchant = usr.name
+        LEFT JOIN `tabFactory Business Unit` fbu ON cc.factory_business_unit = fbu.name        
         WHERE cc.docstatus = 1
           AND cc.can_cut_percent <= 98
           {conditions}
@@ -309,7 +311,7 @@ def get_data(filters=None):
         style = row.style or (item_style_map.get(item_code) if item_code else "")
 
         entry = {
-            "factory_business_unit": row.factory_business_unit,
+            "unit":               row.unit,
             "merchant":           row.merchant,
             "ocn":                row.ocn,
             "style":              style,
