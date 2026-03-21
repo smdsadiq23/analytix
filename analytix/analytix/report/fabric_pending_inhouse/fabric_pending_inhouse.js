@@ -43,11 +43,17 @@ frappe.query_reports["Fabric Pending Inhouse"] = {
                 ],
             });
         }
-    },		
+
+        report.page.wrapper.on("report-rendered", () => {
+            _attach_listeners();
+        });
+    },
 
     // ------------------------------------------------------------------
-    // Column formatters — render Remarks & Manager Remarks as <select>
-    // The selected value is persisted via the save_remark API call.
+    // Column formatters
+    //   - remarks / manager_remarks → <select> dropdowns
+    //   - fabric_remarks            → <input type="date">
+    //   - balance_to_receive        → orange highlight when negative
     // ------------------------------------------------------------------
     formatter(value, row, column, data, default_formatter) {
 
@@ -65,6 +71,10 @@ frappe.query_reports["Fabric Pending Inhouse"] = {
             ]);
         }
 
+        if (column.fieldname === "fabric_remarks") {
+            return _make_date_input(data, "fabric_remarks", value);
+        }
+
         // Highlight negative balance in orange
         if (column.fieldname === "balance_to_receive" && value < 0) {
             return `<span style="color:#d97706;font-weight:600;">${flt(value, 2)}</span>`;
@@ -74,17 +84,10 @@ frappe.query_reports["Fabric Pending Inhouse"] = {
     },
 
     // ------------------------------------------------------------------
-    // After report render — attach change listeners to every <select>
+    // After report render — attach change listeners to every interactive cell
     // ------------------------------------------------------------------
     after_datatable_render(datatable) {
         _attach_listeners(datatable);
-    },
-
-    // Re-attach after pagination / sort / refresh
-    onload(report) {
-        report.page.wrapper.on("report-rendered", () => {
-            _attach_listeners();
-        });
     },
 };
 
@@ -119,50 +122,85 @@ function _make_select(data, field, current_value, options) {
 }
 
 /**
- * Attach onChange listeners to all remark selects in the rendered table.
- * Calls the whitelisted Python method to persist the value.
+ * Build an HTML <input type="date"> element for a report cell.
+ */
+function _make_date_input(data, field, current_value) {
+    if (!data) return current_value || "";
+
+    const ocn    = data.ocn    || "";
+    const colour = data.colour || "";
+    // Frappe stores dates as YYYY-MM-DD which is exactly what <input type="date"> expects
+    const val    = current_value || "";
+
+    return `<input
+        type="date"
+        class="fpih-date-input"
+        data-ocn="${frappe.utils.escape_html(ocn)}"
+        data-colour="${frappe.utils.escape_html(colour)}"
+        data-field="${field}"
+        value="${frappe.utils.escape_html(val)}"
+        style="width:100%;border:none;background:transparent;font-size:var(--text-sm);color:inherit;"
+    />`;
+}
+
+/**
+ * Attach onChange listeners to all remark selects and date inputs
+ * in the rendered table.  Calls the whitelisted Python method to
+ * persist the value.
  */
 function _attach_listeners(datatable) {
     const $root = datatable
         ? $(datatable.wrapper)
         : $(".dt-scrollable");   // fallback selector
 
+    // ── Select dropdowns ────────────────────────────────────────────
     $root.find(".fpih-remark-select").off("change.fpih").on("change.fpih", function () {
-        const $sel           = $(this);
-        const ocn            = $sel.data("ocn");
-        const colour         = $sel.data("colour");
-        const field          = $sel.data("field");
-        const value          = $sel.val();
-        const $originalColor = $sel.css("color");
+        _save_field($(this), $(this).val());
+    });
 
-        // Optimistic UI feedback
-        $sel.css("color", "#6366f1");
+    // ── Date inputs ─────────────────────────────────────────────────
+    $root.find(".fpih-date-input").off("change.fpih").on("change.fpih", function () {
+        _save_field($(this), $(this).val());
+    });
+}
 
-        frappe.call({
-            method: "analytix.analytix.report.fabric_pending_inhouse.fabric_pending_inhouse.save_remark",
-            // ↑ Replace the dotted path with the actual app/module path
-            args: { ocn, colour, field, value },
-            callback(r) {
-                if (!r.exc) {
-                    $sel.css("color", "#16a34a");   // green = saved
-                    setTimeout(() => $sel.css("color", $originalColor), 1500);
+/**
+ * Persist a single field value and give visual feedback.
+ * Triggers a full report refresh when every interactive cell in the
+ * row has a non-empty value (selects + date inputs).
+ */
+function _save_field($el, value) {
+    const ocn            = $el.data("ocn");
+    const colour         = $el.data("colour");
+    const field          = $el.data("field");
+    const $originalColor = $el.css("color");
 
-                    // If both selects in this row now have values,
-                    // a full report refresh will move the row to the bottom.
-                    const $row      = $sel.closest("tr");
-                    const $siblings = $row.find(".fpih-remark-select");
+    // Optimistic UI feedback
+    $el.css("color", "#6366f1");
 
-                    if ($siblings.length === 2) {
-                        const allFilled = [...$siblings].every(s => $(s).val() !== "");
-                        if (allFilled) {
-                            frappe.query_report.refresh();
-                        }
-                    }
-                } else {
-                    $sel.css("color", "#dc2626");   // red = error
-                    frappe.show_alert({ message: __("Failed to save remark"), indicator: "red" });
+    frappe.call({
+        method: "analytix.analytix.report.fabric_pending_inhouse.fabric_pending_inhouse.save_remark",
+        args: { ocn, colour, field, value },
+        callback(r) {
+            if (!r.exc) {
+                $el.css("color", "#16a34a");   // green = saved
+                setTimeout(() => $el.css("color", $originalColor), 1500);
+
+                // If every interactive cell in this row is filled,
+                // refresh so the row moves to the bottom (Rule 4).
+                const $row         = $el.closest("tr");
+                const $selects     = $row.find(".fpih-remark-select");
+                const $dates       = $row.find(".fpih-date-input");
+                const selectsFull  = [...$selects].every(s => $(s).val() !== "");
+                const datesFull    = [...$dates].every(d => $(d).val() !== "");
+
+                if (selectsFull && datesFull && ($selects.length + $dates.length) > 0) {
+                    frappe.query_report.refresh();
                 }
-            },
-        });
+            } else {
+                $el.css("color", "#dc2626");   // red = error
+                frappe.show_alert({ message: __("Failed to save remark"), indicator: "red" });
+            }
+        },
     });
 }

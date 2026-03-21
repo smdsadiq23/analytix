@@ -13,6 +13,18 @@ def execute(filters=None):
 def get_columns():
     return [
         {
+            "label": "Factory Business Unit",
+            "fieldname": "factory_business_unit",
+            "fieldtype": "Data",
+            "width": 170,
+        },
+        {
+            "label": "Merchant",
+            "fieldname": "merchant",
+            "fieldtype": "Data",
+            "width": 140,
+        },
+        {
             "label": "OCN",
             "fieldname": "ocn",
             "fieldtype": "Link",
@@ -68,10 +80,16 @@ def get_columns():
             "width": 140,
         },
         {
-            "label": "Remarks",
+            "label": "Merchant Remarks",
             "fieldname": "remarks",
             "fieldtype": "Data",
-            "width": 150,
+            "width": 160,
+        },
+        {
+            "label": "Fabric Remarks",
+            "fieldname": "fabric_remarks",
+            "fieldtype": "Date",
+            "width": 140,
         },
         {
             "label": "Manager Remarks",
@@ -107,6 +125,8 @@ def get_data(filters=None):
     can_cut_rows = frappe.db.sql(
         """
         SELECT
+            cc.merchant,
+            cc.factory_business_unit,
             cc.sales_order      AS ocn,
             cc.style,
             cc.colour,
@@ -236,14 +256,14 @@ def get_data(filters=None):
     try:
         remark_rows = frappe.db.sql(
             """
-            SELECT ocn, colour, remarks, manager_remarks
+            SELECT ocn, colour, remarks, manager_remarks, fabric_remarks
             FROM `tabFabric Inhouse Remark`
             WHERE ocn IN %(ocn_list)s
             """,
             {"ocn_list": ocn_list},
             as_dict=True,
         )
-        remark_map = {(r.ocn, r.colour): r for r in remark_rows}
+        remark_map = {(r.ocn, (r.colour or "").upper()): r for r in remark_rows}
     except Exception:
         remark_map = {}
 
@@ -283,11 +303,14 @@ def get_data(filters=None):
         saved           = remark_map.get(key, {})
         remarks         = saved.get("remarks") or ""
         manager_remarks = saved.get("manager_remarks") or ""
+        fabric_remarks      = saved.get("fabric_remarks")
 
         # Style: Can Cut field is preferred; fall back to Item master
         style = row.style or (item_style_map.get(item_code) if item_code else "")
 
         entry = {
+            "factory_business_unit": row.factory_business_unit,
+            "merchant":           row.merchant,
             "ocn":                row.ocn,
             "style":              style,
             "colour":             row.colour,
@@ -299,6 +322,7 @@ def get_data(filters=None):
             "last_inhouse_date":  last_inhouse,
             "remarks":            remarks,
             "manager_remarks":    manager_remarks,
+            "fabric_remarks":     fabric_remarks,
             # Hidden — used by JS for uom tooltip / display
             "_uom":               uom,
         }
@@ -430,7 +454,7 @@ def _get_grn_data(ocn_list):
 @frappe.whitelist()
 def save_remark(ocn, colour, field, value):
     """Upsert a Remarks / Manager Remarks value for a report row."""
-    if field not in ("remarks", "manager_remarks"):
+    if field not in ("remarks", "manager_remarks", "fabric_remarks"):
         frappe.throw("Invalid field: " + field)
 
     existing = frappe.db.get_value(

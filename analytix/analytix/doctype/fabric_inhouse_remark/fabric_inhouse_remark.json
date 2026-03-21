@@ -8,6 +8,7 @@
   "ocn",
   "colour",
   "remarks",
+  "fabric_remarks",
   "manager_remarks"
  ],
  "fields": [
@@ -25,7 +26,7 @@
   {
    "fieldname": "remarks",
    "fieldtype": "Select",
-   "label": "Remarks",
+   "label": "Merchant Remarks",
    "options": "\nShort Close"
   },
   {
@@ -33,12 +34,17 @@
    "fieldtype": "Select",
    "label": "Manager Remarks",
    "options": "\nApproved"
+  },
+  {
+   "fieldname": "fabric_remarks",
+   "fieldtype": "Date",
+   "label": "Fabric Remarks"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-19 17:56:52.287479",
+ "modified": "2026-03-21 15:26:06.040082",
  "modified_by": "Administrator",
  "module": "AnalytiX",
  "name": "Fabric Inhouse Remark",
