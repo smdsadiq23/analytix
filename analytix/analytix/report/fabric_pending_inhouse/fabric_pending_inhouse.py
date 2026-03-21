@@ -16,13 +16,13 @@ def get_columns():
             "label": "Unit",
             "fieldname": "unit",
             "fieldtype": "Data",
-            "width": 170,
+            "width": 120,
         },
         {
             "label": "Merchant",
             "fieldname": "merchant",
             "fieldtype": "Data",
-            "width": 140,
+            "width": 120,
         },
         {
             "label": "OCN",
