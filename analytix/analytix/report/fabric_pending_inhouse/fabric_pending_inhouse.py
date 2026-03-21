@@ -16,7 +16,7 @@ def get_columns():
             "label": "Unit",
             "fieldname": "unit",
             "fieldtype": "Data",
-            "width": 120,
+            "width": 130,
         },
         {
             "label": "Merchant",
