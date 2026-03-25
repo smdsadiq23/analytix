@@ -95,8 +95,8 @@ frappe.pages["production-dashboard-by-size"].on_page_show = function (wrapper) {
 
 	if (_timer) { clearInterval(_timer); _timer = null; }
 	_load(cellName);
-	_resetAutoScroll();
-	_timer = setInterval(function() { _load(_activeCell); _resetAutoScroll(); }, 60000);
+	// _resetAutoScroll();
+	_timer = setInterval(function() { _load(_activeCell); /* _resetAutoScroll(); */ }, 60000);
 };
 
 frappe.pages["production-dashboard-by-size"].on_page_hide = function () {
@@ -105,7 +105,7 @@ frappe.pages["production-dashboard-by-size"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
 	if (_timer) { clearInterval(_timer); _timer = null; }
-	_stopAutoScroll();
+	// _stopAutoScroll();
 };
 
 var _timer      = null;
@@ -229,7 +229,7 @@ function _render(rows, cellName) {
 		html += "</div></td></tr>";
 	});
 	$("#lkd-tbody").html(html);
-	_resetAutoScroll();
+	// _resetAutoScroll();
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

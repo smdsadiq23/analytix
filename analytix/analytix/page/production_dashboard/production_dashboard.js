@@ -79,8 +79,8 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 
 	_startClock();
 	_load();
-	_resetAutoScroll();
-	_timer = setInterval(function() { _load(); _resetAutoScroll(); }, 60000);
+	// _resetAutoScroll();
+	_timer = setInterval(function() { _load(); /* _resetAutoScroll(); */}, 60000);
 };
 
 frappe.pages["production-dashboard"].on_page_show = function (wrapper) {
@@ -96,7 +96,7 @@ frappe.pages["production-dashboard"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
 	if (_timer) { clearInterval(_timer); _timer = null; }
-	_stopAutoScroll();
+	// _stopAutoScroll();
 };
 
 var _timer = null;
@@ -173,7 +173,7 @@ function _render(rows) {
 		html += "</div></td></tr>";
 	});
 	$("#tvd-tbody").html(html);
-	_resetAutoScroll();
+	// _resetAutoScroll();
 }
 
 function _setState(msg) { $("#tvd-tbody").html('<tr><td colspan="19" class="tvd-state">' + msg + "</td></tr>"); }
