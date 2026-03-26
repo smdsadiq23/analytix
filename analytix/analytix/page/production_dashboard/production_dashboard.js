@@ -56,11 +56,12 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 							<th class="th-cell">PRESSING<br><span class="th-inout">IN / OUT</span></th>
 							<th class="th-cell">FINAL CHECK<br><span class="th-inout">OUT</span></th>
 							<th class="th-cell">PACKING<br><span class="th-inout">IN / OUT</span></th>
-							<th class="th-completion">COMPLETION</th>
+							<th class="th-completion">COMP<br>%</th>
+							<th class="th-lead">LEAD<br>DAYS</th>
 						</tr>
 					</thead>
 					<tbody id="tvd-tbody">
-						<tr><td colspan="19" class="tvd-state"><span class="tvd-spinner"></span> Loading data&hellip;</td></tr>
+						<tr><td colspan="20" class="tvd-state"><span class="tvd-spinner"></span> Loading data&hellip;</td></tr>
 					</tbody>
 				</table>
 			</div>
@@ -158,6 +159,8 @@ function _render(rows) {
 			html += '<div class="cell-line"></div>';
 			html += '<div class="cell-out">' + _n(c["out"]) + "</div>";
 			html += '<div class="cell-pct ' + pClass + '">' + pct + "%</div>";
+			var daysVal = (c["days"] !== undefined && c["days"] !== null) ? "Days: " + c["days"] : "";
+			html += '<div class="cell-days">' + daysVal + "</div>";
 			html += "</td>";
 		});
 		var cp = parseFloat(r.completion_pct) || 0;
@@ -170,13 +173,15 @@ function _render(rows) {
 		html += '<circle class="comp-ring ' + cc + '" cx="22" cy="22" r="18" stroke-dasharray="' + circ + '" stroke-dashoffset="' + offset + '"/>';
 		html += "</svg>";
 		html += '<span class="comp-label ' + cc + '">' + cpStr + "</span>";
-		html += "</div></td></tr>";
+		html += "</div></td>";
+		var ldVal = (r.lead_days !== undefined && r.lead_days !== null) ? r.lead_days + "d" : "-";
+		html += '<td class="td-lead">' + ldVal + "</td></tr>";
 	});
 	$("#tvd-tbody").html(html);
 	// _resetAutoScroll();
 }
 
-function _setState(msg) { $("#tvd-tbody").html('<tr><td colspan="19" class="tvd-state">' + msg + "</td></tr>"); }
+function _setState(msg) { $("#tvd-tbody").html('<tr><td colspan="20" class="tvd-state">' + msg + "</td></tr>"); }
 function _e(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function _n(v) { if (v === null || v === undefined || v === "") return "0"; return Number(v).toLocaleString("en-IN"); }
 function _seasonClass(s) {

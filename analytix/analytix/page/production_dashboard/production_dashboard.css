@@ -129,7 +129,29 @@ html, body {
 .th-delivery   { width: 5%;                                color: #00d4aa !important; }
 .th-qty        { width: 4%;                                color: #00d4aa !important; }
 .th-cell       { width: 4.8%;                              color: #f0c040 !important; }
-.th-completion { width: auto !important; min-width: 5.2%;  color: #00d4aa !important; }
+.th-completion { width: 3.8% !important; min-width: 3.8%;  color: #00d4aa !important; }
+.th-lead       { width: 3.5%;                              color: #00d4aa !important; }
+
+/* ── Lead Days cell ──────────────────────────────────────────────── */
+.td-lead {
+	text-align: center;
+	font-size: 0.78rem;
+	font-weight: 700;
+	color: #00d4aa;
+	border-left: 2px solid #00d4aa33;
+	padding: 6px 4px;
+}
+
+/* ── Per-cell days label ─────────────────────────────────────────── */
+.cell-days {
+	font-size: 0.58rem;
+	font-weight: 500;
+	color: #6e9fcf;
+	margin-top: 3px;
+	line-height: 1;
+	letter-spacing: 0.02em;
+}
+
 
 .th-inout {
 	display: block;
