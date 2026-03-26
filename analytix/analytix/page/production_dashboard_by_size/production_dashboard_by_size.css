@@ -163,7 +163,7 @@ html, body {
 .td-style    { font-weight: 700; font-size: 0.78rem; color: #e6edf3; text-align: left; padding-left: 8px; }
 .td-colour   { text-align: left; }
 .td-delivery { text-align: center; color: #8b949e; font-size: 0.72rem; }
-.td-qty      { text-align: right;  font-weight: 600; color: #e6edf3; padding-right: 6px; }
+.td-qty      { text-align: center;  font-weight: 600; color: #e6edf3; padding-right: 6px; }
 
 /* ── Colour badge ────────────────────────────────────────────────── */
 .colour-badge {

@@ -174,7 +174,7 @@ function _render(rows) {
 		html += "</svg>";
 		html += '<span class="comp-label ' + cc + '">' + cpStr + "</span>";
 		html += "</div></td>";
-		var ldVal = (r.lead_days !== undefined && r.lead_days !== null) ? r.lead_days + "d" : "-";
+		var ldVal = (r.lead_days !== undefined && r.lead_days !== null) ? r.lead_days : "-";
 		html += '<td class="td-lead">' + ldVal + "</td></tr>";
 	});
 	$("#tvd-tbody").html(html);
