@@ -35,29 +35,29 @@ def get_dashboard_data():
     cell_in_map   = _get_cell_op_map(op_type="first")
     cell_out_map  = _get_cell_op_map(op_type="last")
 
-    # First scan date maps — earliest scan_time per (style, colour, size, cell)
+    # First logged date maps — earliest logged_time per (style, colour, size, cell)
     # for the first operation (IN) and last operation (OUT) respectively.
     # Used to compute per-cell "Days" label on the dashboard.
-    cell_in_date_map  = _get_cell_first_scan_date_map(op_type="first")
-    cell_out_date_map = _get_cell_first_scan_date_map(op_type="last")
+    cell_in_logged_date_map  = _get_cell_first_logged_date_map(op_type="first")
+    cell_out_logged_date_map = _get_cell_first_logged_date_map(op_type="last")
 
     # Knitting first logged_time per (style, colour, size)
     # Used exclusively for the Lead Days calculation.
     knitting_logged_time_map = _get_knitting_first_logged_time_map()
 
-    # Earliest scan_time per (style, colour, size) — used for sorting
-    scan_time_map = _get_min_scan_time_map()
+    # Earliest logged_time per (style, colour, size) — used for sorting
+    logged_time_map = _get_min_logged_time_map()
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
         "order_qty":              0,
         "planned_qty":            0,
         "delivery_date":          None,
-        "min_scan_time":          None,   # earliest isl.scan_time across sizes
+        "min_logged_time":        None,   # earliest isl.logged_time across sizes
         "cell_in":                defaultdict(int),
         "cell_out":               defaultdict(int),
-        "cell_in_date":           {},     # earliest IN scan date per cell
-        "cell_out_date":          {},     # earliest OUT scan date per cell
+        "cell_in_logged_date":    {},     # earliest IN logged date per cell
+        "cell_out_logged_date":   {},     # earliest OUT logged date per cell
         "knitting_first_logged":  None,   # earliest KNITTING logged_time
     })
 
@@ -70,10 +70,10 @@ def get_dashboard_data():
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
             agg[key]["delivery_date"] = d
 
-        # Track the earliest scan_time seen for this (style, colour) group
-        st = scan_time_map.get((style, colour, size))
-        if st and (agg[key]["min_scan_time"] is None or st < agg[key]["min_scan_time"]):
-            agg[key]["min_scan_time"] = st
+        # Track the earliest logged_time seen for this (style, colour) group
+        lt = logged_time_map.get((style, colour, size))
+        if lt and (agg[key]["min_logged_time"] is None or lt < agg[key]["min_logged_time"]):
+            agg[key]["min_logged_time"] = lt
 
         # Track the earliest KNITTING logged_time for Lead Days
         klt = knitting_logged_time_map.get((style, colour, size))
@@ -84,30 +84,30 @@ def get_dashboard_data():
             agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
             agg[key]["cell_out"][cell] += cell_out_map.get((style, colour, size, cell), 0)
 
-            # Track earliest IN scan date across sizes for this cell
-            in_d = cell_in_date_map.get((style, colour, size, cell))
+            # Track earliest IN logged date across sizes for this cell
+            in_d = cell_in_logged_date_map.get((style, colour, size, cell))
             if in_d:
-                ex = agg[key]["cell_in_date"].get(cell)
+                ex = agg[key]["cell_in_logged_date"].get(cell)
                 if ex is None or in_d < ex:
-                    agg[key]["cell_in_date"][cell] = in_d
+                    agg[key]["cell_in_logged_date"][cell] = in_d
 
-            # Track earliest OUT scan date across sizes for this cell
-            out_d = cell_out_date_map.get((style, colour, size, cell))
+            # Track earliest OUT logged date across sizes for this cell
+            out_d = cell_out_logged_date_map.get((style, colour, size, cell))
             if out_d:
-                ex = agg[key]["cell_out_date"].get(cell)
+                ex = agg[key]["cell_out_logged_date"].get(cell)
                 if ex is None or out_d < ex:
-                    agg[key]["cell_out_date"][cell] = out_d
+                    agg[key]["cell_out_logged_date"][cell] = out_d
 
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
 
-    # Sort by earliest scan_time ascending (styles with the least/oldest scan
-    # time appear first).  Styles that have no scans at all fall to the end.
+    # Sort by earliest logged_time ascending (styles with the least/oldest logged
+    # time appear first).  Styles that have no logs at all fall to the end.
     sorted_keys = sorted(
         agg.keys(),
         key=lambda k: (
-            agg[k]["min_scan_time"] is None,          # None → pushed to end
-            agg[k]["min_scan_time"] or "0000-00-00 00:00:00",
+            agg[k]["min_logged_time"] is None,          # None → pushed to end
+            agg[k]["min_logged_time"] or "0000-00-00 00:00:00",
         )
     )
 
@@ -126,7 +126,7 @@ def get_dashboard_data():
         except Exception:
             return None
 
-    # Cells that have no IN operation — use OUT scan date for days calc
+    # Cells that have no IN operation — use OUT logged date for days calc
     NO_IN_CELLS = {"KNITTING", "FINAL CHECK"}
 
     for buyer, season, style, colour in sorted_keys:
@@ -139,8 +139,8 @@ def get_dashboard_data():
         #   IN   = qty that completed the first operation of the cell
         #   OUT  = qty that completed the last operation of the cell
         #   %    = OUT / ORDER QTY × 100  (not OUT/IN)
-        #   days = Current date − first IN scan date
-        #          (for KNITTING / FINAL CHECK: Current date − first OUT scan date)
+        #   days = Current date − first IN logged date
+        #          (for KNITTING / FINAL CHECK: Current date − first OUT logged date)
         #
         # If a cell has only one operation, first = last → IN = OUT.
         cells = {}
@@ -149,11 +149,11 @@ def get_dashboard_data():
             cell_out = b["cell_out"].get(cell, 0)
             pct      = round((cell_out / order_qty) * 100) if order_qty else 0
 
-            # Days: Current date − first scan date for this cell/style
+            # Days: Current date − first logged date for this cell/style
             if cell in NO_IN_CELLS:
-                ref_date = _to_date(b["cell_out_date"].get(cell))
+                ref_date = _to_date(b["cell_out_logged_date"].get(cell))
             else:
-                ref_date = _to_date(b["cell_in_date"].get(cell))
+                ref_date = _to_date(b["cell_in_logged_date"].get(cell))
 
             days = (today - ref_date).days if ref_date else None
 
@@ -229,10 +229,10 @@ def _get_order_map():
     return {(r.style, r.colour, r.size): r for r in rows}
 
 
-def _get_min_scan_time_map():
+def _get_min_logged_time_map():
     """
-    Returns the earliest isl.scan_time per (style, colour, size).
-    Used to sort styles so the one with the least (oldest) scan_time
+    Returns the earliest isl.logged_time per (style, colour, size).
+    Used to sort styles so the one with the least (oldest) logged_time
     appears at the top of the dashboard.
     """
     rows = frappe.db.sql("""
@@ -240,7 +240,7 @@ def _get_min_scan_time_map():
             itm.custom_style_master  AS style,
             itm.custom_colour_name   AS colour,
             tbc.size                 AS size,
-            MIN(isl.scan_time)       AS min_scan_time
+            MIN(isl.logged_time)     AS min_logged_time
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
@@ -254,7 +254,7 @@ def _get_min_scan_time_map():
         WHERE isl.log_status = 'Completed'
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
     """, as_dict=True)
-    return {(r.style, r.colour, r.size): r.min_scan_time for r in rows}
+    return {(r.style, r.colour, r.size): r.min_logged_time for r in rows}
 
 
 def _get_knitting_first_logged_time_map():
@@ -351,13 +351,13 @@ def _get_cell_op_map(op_type="last"):
     return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
 
 
-def _get_cell_first_scan_date_map(op_type="first"):
+def _get_cell_first_logged_date_map(op_type="first"):
     """
-    Returns the earliest scan_time per (style, colour, size, cell_name)
+    Returns the earliest logged_time per (style, colour, size, cell_name)
     for either the first (IN) or last (OUT) operation of each cell.
 
-    op_type = "first"  →  cell IN first scan date
-    op_type = "last"   →  cell OUT first scan date
+    op_type = "first"  →  cell IN first logged date
+    op_type = "last"   →  cell OUT first logged date
 
     Used to compute the per-cell "Days" label shown on the dashboard.
     Uses the same operation-matching logic as _get_cell_op_map.
@@ -372,7 +372,7 @@ def _get_cell_first_scan_date_map(op_type="first"):
             itm.custom_colour_name                      AS colour,
             tbc.size                                    AS size,
             pc.cell_name                                AS cell_name,
-            MIN(isl.scan_time)                          AS first_scan_date
+            MIN(isl.logged_time)                        AS first_logged_date
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
@@ -403,4 +403,4 @@ def _get_cell_first_scan_date_map(op_type="first"):
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
     """, as_dict=True)
 
-    return {(r.style, r.colour, r.size, r.cell_name): r.first_scan_date for r in rows}
+    return {(r.style, r.colour, r.size, r.cell_name): r.first_logged_date for r in rows}
