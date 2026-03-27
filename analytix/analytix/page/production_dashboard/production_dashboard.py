@@ -38,8 +38,12 @@ def get_dashboard_data():
     # First logged date maps — earliest logged_time per (style, colour, size, cell)
     # for the first operation (IN) and last operation (OUT) respectively.
     # Used to compute per-cell "Days" label on the dashboard.
-    cell_in_logged_date_map  = _get_cell_first_logged_date_map(op_type="first")
-    cell_out_logged_date_map = _get_cell_first_logged_date_map(op_type="last")
+    cell_in_logged_date_map       = _get_cell_first_logged_date_map(op_type="first")
+    cell_out_logged_date_map      = _get_cell_first_logged_date_map(op_type="last")
+
+    # Last logged date maps — latest logged_time per (style, colour, size, cell)
+    # for the last operation (OUT).  Used when cell is complete (out >= planned).
+    cell_out_last_logged_date_map = _get_cell_last_logged_date_map()
 
     # Knitting first logged_time per (style, colour, size)
     # Used exclusively for the Lead Days calculation.
@@ -50,15 +54,16 @@ def get_dashboard_data():
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
-        "order_qty":              0,
-        "planned_qty":            0,
-        "delivery_date":          None,
-        "min_logged_time":        None,   # earliest isl.logged_time across sizes
-        "cell_in":                defaultdict(int),
-        "cell_out":               defaultdict(int),
-        "cell_in_logged_date":    {},     # earliest IN logged date per cell
-        "cell_out_logged_date":   {},     # earliest OUT logged date per cell
-        "knitting_first_logged":  None,   # earliest KNITTING logged_time
+        "order_qty":                   0,
+        "planned_qty":                 0,
+        "delivery_date":               None,
+        "min_logged_time":             None,   # earliest isl.logged_time across sizes
+        "cell_in":                     defaultdict(int),
+        "cell_out":                    defaultdict(int),
+        "cell_in_logged_date":         {},     # earliest IN logged date per cell
+        "cell_out_logged_date":        {},     # earliest OUT logged date per cell
+        "cell_out_last_logged_date":   {},     # latest OUT logged date per cell
+        "knitting_first_logged":       None,   # earliest KNITTING logged_time
     })
 
     for (style, colour, size), info in order_map.items():
@@ -98,6 +103,13 @@ def get_dashboard_data():
                 if ex is None or out_d < ex:
                     agg[key]["cell_out_logged_date"][cell] = out_d
 
+            # Track latest OUT logged date across sizes for this cell
+            last_out_d = cell_out_last_logged_date_map.get((style, colour, size, cell))
+            if last_out_d:
+                ex = agg[key]["cell_out_last_logged_date"].get(cell)
+                if ex is None or last_out_d > ex:
+                    agg[key]["cell_out_last_logged_date"][cell] = last_out_d
+
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
 
@@ -126,7 +138,7 @@ def get_dashboard_data():
         except Exception:
             return None
 
-    # Cells that have no IN operation — use OUT logged date for days calc
+    # Cells that have no IN operation — use OUT logged date as the "first" reference
     NO_IN_CELLS = {"KNITTING", "FINAL CHECK"}
 
     for buyer, season, style, colour in sorted_keys:
@@ -139,23 +151,33 @@ def get_dashboard_data():
         #   IN   = qty that completed the first operation of the cell
         #   OUT  = qty that completed the last operation of the cell
         #   %    = OUT / ORDER QTY × 100  (not OUT/IN)
-        #   days = Current date − first IN logged date
-        #          (for KNITTING / FINAL CHECK: Current date − first OUT logged date)
         #
-        # If a cell has only one operation, first = last → IN = OUT.
+        #   days logic:
+        #     • If cell_out >= planned_qty  → last OUT logged date − first IN logged date
+        #     • Otherwise                   → today − first IN logged date
+        #
+        #   For NO_IN_CELLS (KNITTING, FINAL CHECK) the "first IN" reference is
+        #   substituted with the first OUT logged date (these cells have no IN op).
         cells = {}
         for cell in CELL_ORDER:
             cell_in  = b["cell_in"].get(cell, 0)
             cell_out = b["cell_out"].get(cell, 0)
             pct      = round((cell_out / order_qty) * 100) if order_qty else 0
 
-            # Days: Current date − first logged date for this cell/style
+            # Determine the "start" reference date for this cell
             if cell in NO_IN_CELLS:
-                ref_date = _to_date(b["cell_out_logged_date"].get(cell))
+                first_ref = _to_date(b["cell_out_logged_date"].get(cell))
             else:
-                ref_date = _to_date(b["cell_in_logged_date"].get(cell))
+                first_ref = _to_date(b["cell_in_logged_date"].get(cell))
 
-            days = (today - ref_date).days if ref_date else None
+            # Days calculation
+            if cell_out >= planned_qty:
+                # Cell is complete: elapsed = last OUT − first IN (or first OUT for NO_IN cells)
+                last_out_ref = _to_date(b["cell_out_last_logged_date"].get(cell))
+                days = (last_out_ref - first_ref).days if (first_ref and last_out_ref) else None
+            else:
+                # Cell still in progress: elapsed = today − first IN (or first OUT for NO_IN cells)
+                days = (today - first_ref).days if first_ref else None
 
             cells[cell] = {
                 "in":   cell_in,
@@ -164,12 +186,24 @@ def get_dashboard_data():
                 "days": days,
             }
 
-        # Lead Days = Current date − Knitting first logged_time
-        knitting_logged_ref = _to_date(b["knitting_first_logged"])
-        lead_days = (today - knitting_logged_ref).days if knitting_logged_ref else None
+        # ── Lead Days ──────────────────────────────────────────────────────
+        # Start reference: first KNITTING IN (first logged_time in KNITTING)
+        # • If PACKING OUT >= planned_qty → last PACKING OUT − first KNITTING IN
+        # • Otherwise                     → today − first KNITTING IN
+        knitting_first_ref = _to_date(b["knitting_first_logged"])
+        packing_out        = cells["PACKING"]["out"]
+
+        if packing_out >= planned_qty:
+            packing_last_out_ref = _to_date(b["cell_out_last_logged_date"].get("PACKING"))
+            lead_days = (
+                (packing_last_out_ref - knitting_first_ref).days
+                if (knitting_first_ref and packing_last_out_ref)
+                else None
+            )
+        else:
+            lead_days = (today - knitting_first_ref).days if knitting_first_ref else None
 
         # OVERALL COMPLETION = PACKING OUT / ORDER QTY × 100
-        packing_out    = cells["PACKING"]["out"]
         completion_pct = round((packing_out / order_qty) * 100, 1) if order_qty else 0.0
 
         delivery_date = ""
@@ -353,13 +387,13 @@ def _get_cell_op_map(op_type="last"):
 
 def _get_cell_first_logged_date_map(op_type="first"):
     """
-    Returns the earliest logged_time per (style, colour, size, cell_name)
+    Returns the earliest (MIN) logged_time per (style, colour, size, cell_name)
     for either the first (IN) or last (OUT) operation of each cell.
 
     op_type = "first"  →  cell IN first logged date
     op_type = "last"   →  cell OUT first logged date
 
-    Used to compute the per-cell "Days" label shown on the dashboard.
+    Used to determine when a cell started for a given style.
     Uses the same operation-matching logic as _get_cell_op_map.
     """
     op_field   = "first_operation" if op_type == "first" else "last_operation"
@@ -404,3 +438,58 @@ def _get_cell_first_logged_date_map(op_type="first"):
     """, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): r.first_logged_date for r in rows}
+
+
+def _get_cell_last_logged_date_map():
+    """
+    Returns the latest (MAX) logged_time per (style, colour, size, cell_name)
+    for the last operation (OUT) of each cell.
+
+    Used when a cell is complete (cell_out >= planned_qty) to compute:
+        days = last OUT logged date − first IN logged date
+
+    Also used for Lead Days when PACKING is complete:
+        lead_days = last PACKING OUT logged date − first KNITTING IN logged date
+
+    Uses the same operation-matching logic as _get_cell_op_map(op_type="last").
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            pc.cell_name                                AS cell_name,
+            MAX(isl.logged_time)                        AS last_logged_date
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
+                                                   AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                   ON pcflo.parent = tbc.work_order
+                                                   AND pcflo.physical_cell = pc.name
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.operation = CASE
+                WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                ELSE pcflo.last_operation
+              END
+          AND isl.log_status = 'Completed'
+          AND pc.cell_name IN ({cell_list})
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+    """, as_dict=True)
+
+    return {(r.style, r.colour, r.size, r.cell_name): r.last_logged_date for r in rows}
