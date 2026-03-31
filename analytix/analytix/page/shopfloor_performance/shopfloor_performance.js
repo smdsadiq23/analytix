@@ -197,6 +197,19 @@ function _aggregateTotals(rows) {
 		});
 	});
 
+	// Also aggregate knitting shifts
+	totals["KNITTING"].shift1 = 0;
+	totals["KNITTING"].shift2 = 0;
+	totals["KNITTING"].wastage = 0;
+
+	rows.forEach(function(r) {
+		totals["KNITTING"].shift1  += (r.knitting_shift1 || 0);
+		totals["KNITTING"].shift2  += (r.knitting_shift2 || 0);
+		totals["KNITTING"].wastage += (r.knitting_wastage || 0);
+		// // wastage = knitting output (common for all)
+		// totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
+	});
+
 	// ✅ Correct WIP calculation 
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
@@ -220,19 +233,7 @@ function _aggregateTotals(rows) {
 
 		var wip = prev_out - curr_out;
 		totals[key].wip = wip < 0 ? 0 : wip;
-	});
-
-	// Also aggregate knitting shifts
-	totals["KNITTING"].shift1 = 0;
-	totals["KNITTING"].shift2 = 0;
-	totals["KNITTING"].wastage = 0;
-	rows.forEach(function(r) {
-		totals["KNITTING"].shift1  += (r.knitting_shift1 || 0);
-		totals["KNITTING"].shift2  += (r.knitting_shift2 || 0);
-		totals["KNITTING"].wastage += (r.knitting_wastage || 0);
-		// // wastage = knitting output (common for all)
-		// totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
-	});
+	});	
 
 	return totals;
 }
