@@ -86,6 +86,12 @@ html, body {
 	gap: 3px;
 }
 
+.pd-header-right {
+	display: flex;
+	align-items: flex-end; /* 👈 aligns button with input field */
+	gap: 12px;
+}
+
 .pd-date-label {
 	font-size: 0.68rem;
 	color: #64748b;
