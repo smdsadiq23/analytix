@@ -162,28 +162,15 @@ function _render(data) {
 	var totals = _aggregateTotals(data);
 	var html = "";
 
-	SECTIONS.forEach(function (section, i) {
+	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
+		var t = totals[key] || {};
 
-		if (i === 0) {
-			totals[key].wip = 0;
-			return;
-		}
-
-		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-
-		var prev_out;
-
-		if (prev_key === "KNITTING") {
-			prev_out = (totals["KNITTING"].shift1 || 0) + (totals["KNITTING"].shift2 || 0);
+		if (section === "KNITTING") {
+			html += _buildKnittingCard(section, t, data);
 		} else {
-			prev_out = totals[prev_key].output || 0;
+			html += _buildSectionCard(section, key, t);
 		}
-
-		var curr_out = totals[key].output || 0;
-
-		var wip = prev_out - curr_out;
-		totals[key].wip = wip < 0 ? 0 : wip;
 	});
 
 	$grid.html(html);
@@ -213,14 +200,27 @@ function _aggregateTotals(rows) {
 	// ✅ Correct WIP calculation 
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
+
 		if (i === 0) {
 			totals[key].wip = 0;
 			return;
 		}
+
 		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-		var wip = (totals[prev_key].output || 0) - (totals[key].output || 0);
+
+		var prev_out;
+
+		if (prev_key === "KNITTING") {
+			prev_out = (totals["KNITTING"].shift1 || 0) + (totals["KNITTING"].shift2 || 0);
+		} else {
+			prev_out = totals[prev_key].output || 0;
+		}
+
+		var curr_out = totals[key].output || 0;
+
+		var wip = prev_out - curr_out;
 		totals[key].wip = wip < 0 ? 0 : wip;
-	});	
+	});
 
 	// Also aggregate knitting shifts
 	totals["KNITTING"].shift1 = 0;
