@@ -115,7 +115,8 @@ def get_dashboard_data(cell_name=None):
         completion_pct = round((total_cell_out / order_qty) * 100, 1) if order_qty else 0.0
 
         # Skip orders that are over-completed
-        if completion_pct >= 105:
+        # if completion_pct >= 105: (Previous Logic)
+        if total_cell_out >= planned_qty:
             continue
 
         # Skip rows where cell IN is 0 for every size.
