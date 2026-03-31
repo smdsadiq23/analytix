@@ -27,7 +27,7 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 						</svg>
 					</div>
 					<div class="pd-header-text">
-						<div class="pd-title">Shopfloor Perfromance Dashboard</div>
+						<div class="pd-title">Shopfloor Performance Dashboard</div>
 						<div class="pd-subtitle">Real-time production tracking across all sections</div>
 					</div>
 				</div>
