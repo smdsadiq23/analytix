@@ -140,72 +140,69 @@ def get_data(filters):
 
     production_logs = get_production_data(filters)
 
-    result = []
-
+    # ── Index production logs by (style, colour, size) → [list of dept rows] ──
+    # A single size can have output across multiple departments.
+    prod_index = {}
     for log in production_logs:
         key = (log.style, log.colour, log.size)
+        prod_index.setdefault(key, []).append(log)
 
-        if key not in order_map:
-            continue
+    result = []
 
-        order_info    = order_map[key]
-        order_qty     = int(order_info.order_qty)
-        planned_qty   = int(order_info.planned_qty or 0)
-        completed_qty = int(log.completed_qty)
-
-        # Balance Qty = Planned Qty − Completed Qty
-        balance_qty = planned_qty - completed_qty
-
-        # Completed % = (Completed Qty / Order Qty) × 100
-        completed_percent     = round((completed_qty / order_qty) * 100, 1) if order_qty > 0 else 0.0
-        completed_percent_str = f"{completed_percent:.1f}%"
+    # ── Drive iteration from order_map so every ordered size always appears ──
+    for key, order_info in order_map.items():
+        order_qty   = int(order_info.order_qty)
+        planned_qty = int(order_info.planned_qty or 0)
 
         delivery_date = ""
         if order_info.delivery_date:
             delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")
 
-        result.append({
-            "delivery_date":      delivery_date,
-            "_delivery_date_raw": order_info.delivery_date,  # for sorting only
-            "department":         log.department,
-            "buyer":              order_info.buyer,
-            "season":             order_info.season,
-            "style":              log.style,
-            "colour":             log.colour,
-            "size":               log.size,
-            "order_qty":          order_qty,
-            "planned_qty":        planned_qty,
-            "completed_qty":      completed_qty,
-            "balance_qty":        balance_qty,
-            "completed_percent":  completed_percent_str,
-        })
+        dept_logs = prod_index.get(key)
+
+        if not dept_logs:
+            # ── No scans yet: emit a zero row ─────────────────────────────
+            result.append({
+                "delivery_date":      delivery_date,
+                "_delivery_date_raw": order_info.delivery_date,
+                "department":         "",
+                "buyer":              order_info.buyer,
+                "season":             order_info.season,
+                "style":              key[0],
+                "colour":             key[1],
+                "size":               key[2],
+                "order_qty":          order_qty,
+                "planned_qty":        planned_qty,
+                "completed_qty":      0,
+                "balance_qty":        planned_qty,
+                "completed_percent":  "0.0%",
+            })
+        else:
+            # ── One row per department that has scanned this size ──────────
+            for log in dept_logs:
+                completed_qty = int(log.completed_qty)
+                balance_qty   = planned_qty - completed_qty
+                completed_pct = round((completed_qty / order_qty) * 100, 1) if order_qty > 0 else 0.0
+
+                result.append({
+                    "delivery_date":      delivery_date,
+                    "_delivery_date_raw": order_info.delivery_date,
+                    "department":         log.department,
+                    "buyer":              order_info.buyer,
+                    "season":             order_info.season,
+                    "style":              key[0],
+                    "colour":             key[1],
+                    "size":               key[2],
+                    "order_qty":          order_qty,
+                    "planned_qty":        planned_qty,
+                    "completed_qty":      completed_qty,
+                    "balance_qty":        balance_qty,
+                    "completed_percent":  f"{completed_pct:.1f}%",
+                })
 
     # ── Sort by delivery date descending, None/empty last ─────────────────
     result.sort(key=lambda r: (r["_delivery_date_raw"] or "0000-00-00"), reverse=True)
     for r in result:
         r.pop("_delivery_date_raw", None)
-
-    # # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
-    # if result:
-    #     total_order      = sum(r["order_qty"]      for r in result)
-    #     total_planned    = sum(r["planned_qty"]     for r in result)
-    #     total_completed  = sum(r["completed_qty"]   for r in result)
-    #     total_balance    = sum(r["balance_qty"]     for r in result)
-    #     avg_pct          = round((total_completed / total_order) * 100, 1) if total_order else 0.0
-
-    #     result.append({
-    #         "delivery_date":     "",
-    #         "department":        "TOTAL / AVERAGE",
-    #         "buyer":             "",
-    #         "season":            "",
-    #         "style":             "",
-    #         "colour":            "",
-    #         "size":              "",
-    #         "order_qty":         total_order,
-    #         "planned_qty":       total_planned,
-    #         "completed_qty":     total_completed,
-    #         "balance_qty":       total_balance,
-    #         "completed_percent": f"{avg_pct:.1f}%",
-    #     })
 
     return result

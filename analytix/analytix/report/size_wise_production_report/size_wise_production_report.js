@@ -61,7 +61,7 @@ frappe.query_reports["Size wise Production Report"] = {
                 wrapper: report.page.wrapper || report.page.$wrapper,
                 trail: [
                     { label: "KPI Hub", href: "/app/kpi-hub" },
-                    { label: "Size sise Production Report" }
+                    { label: "Size wise Production Report" }
                 ]
             });
         }
