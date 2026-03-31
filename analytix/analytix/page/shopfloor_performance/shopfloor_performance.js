@@ -192,10 +192,22 @@ function _aggregateTotals(rows) {
 			var c = cells[key] || {};
 			totals[key].input    += (c["in"]  || 0);
 			totals[key].output   += (c["out"] || 0);
-			totals[key].wip      += (c["wip"] != null ? c["wip"] : 0);
+			// totals[key].wip      += (c["wip"] != null ? c["wip"] : 0);
 			// MTD / YTD — not returned by current API, kept as 0 placeholders
 		});
 	});
+
+	// ✅ Correct WIP calculation 
+	SECTIONS.forEach(function (section, i) {
+		var key = SECTION_KEY_MAP[section];
+		if (i === 0) {
+			totals[key].wip = 0;
+			return;
+		}
+		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
+		var wip = (totals[prev_key].output || 0) - (totals[key].output || 0);
+		totals[key].wip = wip < 0 ? 0 : wip;
+	});	
 
 	// Also aggregate knitting shifts
 	totals["KNITTING"].shift1 = 0;
@@ -204,8 +216,9 @@ function _aggregateTotals(rows) {
 	rows.forEach(function(r) {
 		totals["KNITTING"].shift1  += (r.knitting_shift1 || 0);
 		totals["KNITTING"].shift2  += (r.knitting_shift2 || 0);
-		// wastage = knitting output (common for all)
-		totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
+		totals["KNITTING"].wastage += (r.knitting_wastage || 0);
+		// // wastage = knitting output (common for all)
+		// totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
 	});
 
 	return totals;
