@@ -155,12 +155,15 @@ def get_dashboard_data():
 
             # WIP formula: previous cell OUT + current cell IN - current cell OUT
             if i == 0:
-                # KNITTING: no WIP (no previous cell, and WIP is removed per requirements)
+                # KNITTING: no WIP
                 wip = None
             else:
                 prev_cell = CELL_ORDER[i - 1]
                 prev_out  = b["cell_out"].get(prev_cell, 0)
-                wip = (prev_out + cell_in) - cell_out
+
+                # New WIP formula: previous OUT - current OUT
+                wip = prev_out - cell_out
+
                 if wip < 0:
                     wip = 0
 
@@ -224,7 +227,7 @@ def get_dashboard_data():
             "lead_days":          lead_days,
             "knitting_shift1":    b["knitting_shift1"],
             "knitting_shift2":    b["knitting_shift2"],
-            "knitting_wastage":   cells["KNITTING"]["out"],  # wastage is common for knitting
+            "knitting_wastage":   0  # wastage is common for knitting
         })
 
     return result
