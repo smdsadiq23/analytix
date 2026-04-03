@@ -2,8 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe import _
-from datetime import date, datetime
+from datetime import datetime
 
 
 @frappe.whitelist()
@@ -11,76 +10,53 @@ def get_dashboard_data(date=None, today=None):
     """
     Returns:
         {
-            "daily": [ ...rows with cells for the selected date... ],
-            "mtd_output":  { "KNITTING": N, "MENDING": N, ... },
-            "ytd_output":  { "KNITTING": N, "MENDING": N, ... },
+            "daily":      [ ...pivoted rows for the selected date... ],
+            "mtd_output": { "KNITTING": N, "MENDING": N, ... },
+            "ytd_output": { "KNITTING": N, "MENDING": N, ... },
         }
-
-    'date'  – the date selected in the UI (daily input/output).
-    'today' – the actual calendar date used to bound MTD/YTD windows.
-              Falls back to server's today if not supplied.
     """
     selected_date = date or frappe.utils.today()
     anchor_today  = today or frappe.utils.today()
 
-    # ── date boundaries ──────────────────────────────────────────────────────
     anchor_dt   = datetime.strptime(anchor_today, "%Y-%m-%d").date()
     month_start = anchor_dt.replace(day=1).strftime("%Y-%m-%d")
     year_start  = anchor_dt.replace(month=1, day=1).strftime("%Y-%m-%d")
 
-    daily_rows  = _fetch_rows(selected_date, selected_date)
-    mtd_rows    = _fetch_rows(month_start,   anchor_today)
-    ytd_rows    = _fetch_rows(year_start,    anchor_today)
-
-    mtd_output  = _aggregate_output(mtd_rows)
-    ytd_output  = _aggregate_output(ytd_rows)
+    daily_raw = _fetch_raw(selected_date, selected_date)
+    mtd_raw   = _fetch_raw(month_start,   anchor_today)
+    ytd_raw   = _fetch_raw(year_start,    anchor_today)
 
     return {
-        "daily":      daily_rows,
-        "mtd_output": mtd_output,
-        "ytd_output": ytd_output,
+        "daily":      _build_pivoted_rows(daily_raw),
+        "mtd_output": _sum_by_section(mtd_raw),
+        "ytd_output": _sum_by_section(ytd_raw),
     }
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
-def _fetch_rows(from_date, to_date):
+def _fetch_raw(from_date, to_date):
     """
-    Returns one dict per (sales_order, work_order, tracking_order, size) combo
-    with a `cells` map:  { SECTION_KEY: { "in": N, "out": N } }
-    and knitting-specific fields.
+    Uses the exact same joins as the Scan Log Detail report.
+    Returns one row per Item Scan Log entry within the date range.
     """
-    raw = frappe.db.sql(
+    return frappe.db.sql(
         """
         SELECT
+            isl.name                          AS scan_log,
+            isl.physical_cell,
+            op.custom_operation_type          AS operation_type,
+            pi.quantity                       AS bundle_quantity,
+
             tbc.sales_order,
             tbc.work_order,
-            tor.name           AS tracking_order,
-            tor.item           AS fg_item,
+            tor.name                          AS tracking_order,
+            tor.item                          AS fg_item,
             pi.size,
             itm.brand,
-
-            /* ── physical cell / operation type for bucketing ─────────── */
-            UPPER(TRIM(COALESCE(isl.physical_cell, '')))   AS physical_cell,
-            UPPER(TRIM(COALESCE(op.custom_operation_type, ''))) AS operation_type,
-
-            /* ── in / out flags ─────────────────────────────────────────
-               We treat every completed scan as OUTPUT for its section.
-               INPUT for a section = OUTPUT of the immediately prior section,
-               which is computed client-side (same logic as before).        */
-            COUNT(isl.name)    AS scan_count,
-
-            /* Knitting-specific columns */
-            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
-                          AND isl.shift = 'Shift 1'
-                     THEN COALESCE(pi.quantity, 1) ELSE 0 END) AS knitting_shift1,
-            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
-                          AND isl.shift = 'Shift 2'
-                     THEN COALESCE(pi.quantity, 1) ELSE 0 END) AS knitting_shift2,
-            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
-                     THEN COALESCE(pi.wastage_qty, 0) ELSE 0 END) AS knitting_wastage,
-
-            SUM(COALESCE(pi.quantity, 1)) AS output_qty
+            wo.qty                            AS work_order_qty
 
         FROM `tabItem Scan Log` isl
 
@@ -103,116 +79,90 @@ def _fetch_rows(from_date, to_date):
         LEFT JOIN `tabItem` itm
             ON tor.item = itm.name
 
+        LEFT JOIN `tabWork Order` wo
+            ON tbc.work_order = wo.name
+
         WHERE
             isl.log_status = 'Completed'
             AND DATE(isl.logged_time) BETWEEN %(from_date)s AND %(to_date)s
-
-        GROUP BY
-            tbc.sales_order,
-            tbc.work_order,
-            tor.name,
-            pi.size,
-            UPPER(TRIM(COALESCE(isl.physical_cell, ''))),
-            UPPER(TRIM(COALESCE(op.custom_operation_type, '')))
         """,
         {"from_date": from_date, "to_date": to_date},
         as_dict=1,
     )
 
-    return _pivot_to_rows(raw)
 
-
-# Section key → canonical bucket name (mirrors SECTION_KEY_MAP in JS)
-SECTION_BUCKET = {
-    "KNITTING":     "KNITTING",
-    "MENDING":      "MENDING",
-    "WASHING":      "WASHING",
-    "CUTTING":      "CUTTING",
-    "LINKING":      "LINKING",
-    "SEWING":       "SEWING",
-    "EMBROIDERY":   "EMBROIDERY",
-    "PRODUCTION":   "PRODUCTION",   # "PRODUCTION OUT" in UI
-    "PRESSING":     "PRESSING",
-    "FINAL CHECK":  "FINAL CHECK",  # "FINAL CHECKING" in UI
-    "PACKING":      "PACKING",
+# Canonical section keys — must match SECTION_KEY_MAP values in the JS
+KNOWN_SECTIONS = {
+    "KNITTING", "MENDING", "WASHING", "CUTTING", "LINKING",
+    "SEWING", "EMBROIDERY", "PRODUCTION", "PRESSING", "FINAL CHECK", "PACKING",
 }
 
 
-def _resolve_bucket(row):
-    """Pick the canonical bucket for a raw row."""
-    for key in (row.get("physical_cell", ""), row.get("operation_type", "")):
-        if key in SECTION_BUCKET:
-            return SECTION_BUCKET[key]
+def _resolve_section(row):
+    """Try physical_cell first, then operation_type."""
+    for field in ("physical_cell", "operation_type"):
+        val = (row.get(field) or "").strip().upper()
+        if val in KNOWN_SECTIONS:
+            return val
     return None
 
 
-def _pivot_to_rows(raw):
+def _build_pivoted_rows(raw):
     """
-    Group raw SQL rows into one record per (sales_order, work_order,
-    tracking_order, size) with a nested `cells` dict.
+    Groups raw rows by (sales_order, work_order, tracking_order, size)
+    and builds a `cells` dict: { SECTION_KEY: { "in": 0, "out": N } }
+    which is exactly what the JS _aggregateTotals() iterates over.
+    Knitting output is also written to knitting_shift1 so the existing
+    WIP calculation (prev_out = shift1 + shift2) keeps working.
     """
     groups = {}
 
     for r in raw:
-        bucket = _resolve_bucket(r)
-        if not bucket:
+        section = _resolve_section(r)
+        if not section:
             continue
 
         gkey = (
-            r.get("sales_order") or "",
-            r.get("work_order")   or "",
+            r.get("sales_order")    or "",
+            r.get("work_order")     or "",
             r.get("tracking_order") or "",
-            r.get("size") or "",
+            r.get("size")           or "",
         )
 
         if gkey not in groups:
             groups[gkey] = {
-                "sales_order":    r.get("sales_order"),
-                "work_order":     r.get("work_order"),
-                "tracking_order": r.get("tracking_order"),
-                "fg_item":        r.get("fg_item"),
-                "size":           r.get("size"),
-                "brand":          r.get("brand"),
-                "planned_qty":    0,
+                "sales_order":      r.get("sales_order"),
+                "work_order":       r.get("work_order"),
+                "tracking_order":   r.get("tracking_order"),
+                "fg_item":          r.get("fg_item"),
+                "size":             r.get("size"),
+                "brand":            r.get("brand"),
+                "planned_qty":      r.get("work_order_qty") or 0,
                 "knitting_shift1":  0,
                 "knitting_shift2":  0,
                 "knitting_wastage": 0,
                 "cells": {},
             }
 
-        g = groups[gkey]
-        out = r.get("output_qty") or 0
+        g   = groups[gkey]
+        qty = r.get("bundle_quantity") or 1
 
-        if bucket not in g["cells"]:
-            g["cells"][bucket] = {"in": 0, "out": 0}
+        if section not in g["cells"]:
+            g["cells"][section] = {"in": 0, "out": 0}
+        g["cells"][section]["out"] += qty
 
-        g["cells"][bucket]["out"] += out
-
-        # Knitting shift / wastage accumulation
-        if bucket == "KNITTING":
-            g["knitting_shift1"]  += r.get("knitting_shift1")  or 0
-            g["knitting_shift2"]  += r.get("knitting_shift2")  or 0
-            g["knitting_wastage"] += r.get("knitting_wastage") or 0
+        # Mirror knitting output into shift1 so the JS WIP formula works
+        if section == "KNITTING":
+            g["knitting_shift1"] += qty
 
     return list(groups.values())
 
 
-def _aggregate_output(rows):
-    """
-    Returns { SECTION_KEY: total_output } summed across all rows.
-    Used for MTD / YTD.
-    """
-    totals = {k: 0 for k in SECTION_BUCKET.values()}
-
-    for row in rows:
-        cells = row.get("cells") or {}
-        for bucket, vals in cells.items():
-            if bucket in totals:
-                totals[bucket] += vals.get("out", 0)
-
-        # Knitting output = shift1 + shift2
-        knit_out = (row.get("knitting_shift1") or 0) + (row.get("knitting_shift2") or 0)
-        totals["KNITTING"] = totals.get("KNITTING", 0)
-        # Already counted via cells["KNITTING"]["out"] above; avoid double-count.
-
+def _sum_by_section(raw):
+    """{ SECTION_KEY: total_output } — used for MTD / YTD."""
+    totals = {s: 0 for s in KNOWN_SECTIONS}
+    for r in raw:
+        section = _resolve_section(r)
+        if section:
+            totals[section] += (r.get("bundle_quantity") or 1)
     return totals
