@@ -73,6 +73,11 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 	var today = frappe.datetime.get_today();
 	$("#pd-date-input").val(today);
 
+	// Reload when date changes
+	$("#pd-date-input").on("change", function() {
+		_load();
+	});
+
 	// Refresh button
 	$("#pd-refresh-btn").on("click", function() {
 		_load();
@@ -130,9 +135,17 @@ const SECTION_KEY_MAP = {
 };
 
 function _load() {
+	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
+	var today = frappe.datetime.get_today();
+
 	$("#pd-refresh-btn").addClass("loading");
+
 	frappe.call({
 		method: "analytix.analytix.page.shopfloor_performance.shopfloor_performance.get_dashboard_data",
+		args: {
+			date:  selectedDate,  // ← for daily input/output (selected date only)
+			today: today,         // ← anchor for MTD / YTD windows
+		},
 		freeze: false,
 		callback: function (r) {
 			$("#pd-refresh-btn").removeClass("loading");
@@ -140,7 +153,14 @@ function _load() {
 				_setError("Failed to load data. Check server logs.");
 				return;
 			}
-			_render(r.message || {});
+
+			var msg = r.message || {};
+			_render(
+				msg.daily      || [],
+				msg.mtd_output || {},
+				msg.ytd_output || {}
+			);
+
 			var n = new Date(), h = n.getHours(), m = String(n.getMinutes()).padStart(2, "0");
 			var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
 			$("#pd-updated").text("Last updated: " + h + ":" + m + " " + ap);
@@ -148,28 +168,30 @@ function _load() {
 	});
 }
 
-function _render(data) {
-	// data expected to have aggregated totals per section
-	// We build summary cards for each section from the row data
+function _render(dailyRows, mtdOutput, ytdOutput) {
 	var $grid = $("#pd-grid");
 
-	if (!data || (Array.isArray(data) && !data.length)) {
+	if (!dailyRows || !dailyRows.length) {
 		$grid.html('<div class="pd-empty">No production data available for selected date.</div>');
 		return;
 	}
 
-	// Aggregate across all style rows
-	var totals = _aggregateTotals(data);
+	// Aggregate daily rows into per-section totals (input/output/wip for selected date only)
+	var totals = _aggregateTotals(dailyRows);
 	var html = "";
 
 	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
-		var t = totals[key] || {};
+		var t   = totals[key] || {};
+
+		// MTD / YTD output for this section key
+		var mtd = mtdOutput[key] || 0;
+		var ytd = ytdOutput[key] || 0;
 
 		if (section === "KNITTING") {
-			html += _buildKnittingCard(section, t, data);
+			html += _buildKnittingCard(section, t, mtd, ytd);
 		} else {
-			html += _buildSectionCard(section, key, t);
+			html += _buildSectionCard(section, key, t, mtd, ytd);
 		}
 	});
 
@@ -180,38 +202,30 @@ function _aggregateTotals(rows) {
 	var totals = {};
 	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
-		totals[key] = { input: 0, output: 0, wip: 0, rejection: 0, mtd: 0, ytd: 0 };
+		totals[key] = { input: 0, output: 0, wip: 0, rejection: 0 };
 	});
 
-	rows.forEach(function(r) {
-		var cells = r.cells || {};
-		var planned = r.planned_qty || 0;
-
-		SECTIONS.forEach(function(section) {
-			var key = SECTION_KEY_MAP[section];
-			var c = cells[key] || {};
-			totals[key].input    += (c["in"]  || 0);
-			totals[key].output   += (c["out"] || 0);
-			// totals[key].wip      += (c["wip"] != null ? c["wip"] : 0);
-			// MTD / YTD — not returned by current API, kept as 0 placeholders
-		});
-	});
-
-	// Also aggregate knitting shifts
-	totals["KNITTING"].shift1 = 0;
-	totals["KNITTING"].shift2 = 0;
+	// Aggregate knitting-specific fields first
+	totals["KNITTING"].shift1  = 0;
+	totals["KNITTING"].shift2  = 0;
 	totals["KNITTING"].wastage = 0;
 
 	rows.forEach(function(r) {
-		totals["KNITTING"].shift1  += (r.knitting_shift1 || 0);
-		totals["KNITTING"].shift2  += (r.knitting_shift2 || 0);
+		var cells = r.cells || {};
+
+		SECTIONS.forEach(function(section) {
+			var key = SECTION_KEY_MAP[section];
+			var c   = cells[key] || {};
+			totals[key].output += (c["out"] || 0);
+		});
+
+		totals["KNITTING"].shift1  += (r.knitting_shift1  || 0);
+		totals["KNITTING"].shift2  += (r.knitting_shift2  || 0);
 		totals["KNITTING"].wastage += (r.knitting_wastage || 0);
-		// // wastage = knitting output (common for all)
-		// totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
 	});
 
-	// ✅ Correct WIP calculation 
-	SECTIONS.forEach(function (section, i) {
+	// ── WIP: prev section output − current section output (selected-date only) ──
+	SECTIONS.forEach(function(section, i) {
 		var key = SECTION_KEY_MAP[section];
 
 		if (i === 0) {
@@ -220,7 +234,6 @@ function _aggregateTotals(rows) {
 		}
 
 		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-
 		var prev_out;
 
 		if (prev_key === "KNITTING") {
@@ -230,25 +243,18 @@ function _aggregateTotals(rows) {
 		}
 
 		var curr_out = totals[key].output || 0;
-
 		var wip = prev_out - curr_out;
 		totals[key].wip = wip < 0 ? 0 : wip;
-	});	
+	});
 
 	return totals;
 }
 
-function _buildKnittingCard(section, t, rows) {
-	// Knitting: show Shift 1 Output, Shift 2 Output, Rejection Qty, Wastage (last)
-	// No WIP, No Input
-	var shift1 = t.shift1 || 0;
-	var shift2 = t.shift2 || 0;
-	var wastage = t.wastage || 0;
+function _buildKnittingCard(section, t, mtd, ytd) {
+	var shift1    = t.shift1    || 0;
+	var shift2    = t.shift2    || 0;
+	var wastage   = t.wastage   || 0;
 	var rejection = t.rejection || 0;
-
-	// MTD / YTD — placeholders
-	var mtd = t.mtd || 0;
-	var ytd = t.ytd || 0;
 
 	return `
 		<div class="pd-card">
@@ -306,13 +312,11 @@ function _buildKnittingCard(section, t, rows) {
 	`;
 }
 
-function _buildSectionCard(section, key, t) {
-	var input     = t.input  || 0;
-	var output    = t.output || 0;
-	var wip       = t.wip   || 0;
+function _buildSectionCard(section, key, t, mtd, ytd) {
+	var input     = t.input     || 0;
+	var output    = t.output    || 0;
+	var wip       = t.wip       || 0;
 	var rejection = t.rejection || 0;
-	var mtd       = t.mtd   || 0;
-	var ytd       = t.ytd   || 0;
 
 	return `
 		<div class="pd-card">

@@ -3,133 +3,216 @@
 
 import frappe
 from frappe import _
+from datetime import date, datetime
 
-def execute(filters=None):
-    if not filters:
-        filters = {}
 
-    columns = get_columns()
-    data = get_data(filters)
-    return columns, data
-
-def get_columns():
-    return [
-        {"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
-        {"label": _("Logged Time"), "fieldname": "logged_time", "fieldtype": "Datetime", "width": 180},
-        {"label": _("Scan Time"), "fieldname": "scan_time", "fieldtype": "Datetime", "width": 180},
-        {"label": _("Ex Factory Date"), "fieldname": "ex_fty_date", "fieldtype": "Date", "width": 120},
-        {"label": _("User"), "fieldname": "user", "fieldtype": "Data", "width": 150},
-        {"label": _("Brand"), "fieldname": "brand", "fieldtype": "Link", "options": "Brand", "width": 120},
-        {"label": _("Sales Order"), "fieldname": "sales_order", "fieldtype": "Link", "options": "Sales Order", "width": 150},
-        {"label": _("Work Order"), "fieldname": "work_order", "fieldtype": "Link", "options": "Work Order", "width": 150},
-        {"label": _("Line Item No"), "fieldname": "line_item_no", "fieldtype": "Data", "width": 120},
-        {"label": _("Tracking Order"), "fieldname": "tracking_order", "fieldtype": "Link", "options": "Tracking Order", "width": 150},
-        {"label": _("FG Item"), "fieldname": "fg_item", "fieldtype": "Link", "options": "Item", "width": 130},
-        {"label": _("Physical Cell"), "fieldname": "physical_cell", "fieldtype": "Data", "width": 120},
-        {"label": _("Operation Type"), "fieldname": "operation_type", "fieldtype": "Data", "width": 130},
-        {"label": _("Operation Group"), "fieldname": "operation_group", "fieldtype": "Data", "width": 140},
-        {"label": _("Operation"), "fieldname": "operation", "fieldtype": "Link", "options": "Operation", "width": 130},
-        {"label": _("Workstation"), "fieldname": "workstation", "fieldtype": "Link", "options": "Workstation", "width": 130},
-        {"label": _("Component"), "fieldname": "component", "fieldtype": "Data", "width": 120},
-        {"label": _("Size"), "fieldname": "size", "fieldtype": "Data", "width": 80},
-        {"label": _("Style"), "fieldname": "style", "fieldtype": "Link", "options": "Item", "width": 130},
-        {"label": _("Colour"), "fieldname": "colour", "fieldtype": "Data", "width": 100},
-        {"label": _("Material Composition"), "fieldname": "material_composition", "fieldtype": "Data", "width": 160},
-        {"label": _("Production Item Number"), "fieldname": "production_item_number", "fieldtype": "Data", "width": 160},
-        {"label": _("Tag Number"), "fieldname": "tag_number", "fieldtype": "Data", "width": 120},
-        {"label": _("Sales Order Qty"), "fieldname": "sales_order_qty", "fieldtype": "Float", "width": 120},
-        {"label": _("Sales Order Size Qty"), "fieldname": "sales_order_size_qty", "fieldtype": "Float", "width": 150},
-        {"label": _("Work Order Qty"), "fieldname": "work_order_qty", "fieldtype": "Float", "width": 120},
-        {"label": _("Work Order Size Qty"), "fieldname": "work_order_size_qty", "fieldtype": "Float", "width": 150},
-        {"label": _("Bundle Quantity"), "fieldname": "bundle_quantity", "fieldtype": "Float", "width": 130},
-        {"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 100},
-        {"label": _("Defect Code"), "fieldname": "defect_code", "fieldtype": "Data", "width": 120},
-        {"label": _("Defect"), "fieldname": "defect", "fieldtype": "Data", "width": 120},
-        {"label": _("Defect Description"), "fieldname": "defect_description", "fieldtype": "Text", "width": 200},
-        {"label": _("Defect Severity"), "fieldname": "defect_severity", "fieldtype": "Data", "width": 120},
-    ]
-
-def get_data(filters):
-    conditions = [
-        "isl.log_status = 'Completed'",
-        "tbc.parentfield = 'component_bundle_configurations'",
-        # "tbc.activation_status = 'Completed'",
-    ]
-
-    # Date Range Filter
-    if filters.get("from_date"):
-        conditions.append("DATE(isl.logged_time) >= %(from_date)s")
-    if filters.get("to_date"):
-        conditions.append("DATE(isl.logged_time) <= %(to_date)s")
-
-    # Sales Order Filter
-    if filters.get("sales_order"):
-        conditions.append("tbc.sales_order = %(sales_order)s")
-
-    # Work Order Filter
-    if filters.get("work_order"):
-        conditions.append("tbc.work_order = %(work_order)s")
-
-    where_clause = " AND ".join(conditions) if conditions else "1=1"
-
-    query = f"""
-        SELECT
-            DATE(isl.logged_time) AS `date`,
-            isl.logged_time AS `logged_time`,
-            isl.scan_time AS `scan_time`,
-            DATE(soi.custom_ex_fty_date) AS `ex_fty_date`,
-            isl.owner AS `user`,
-            itm.brand AS `brand`,   
-            tbc.sales_order AS `sales_order`,
-            tbc.work_order AS `work_order`,
-            woli.line_item_no AS `line_item_no`,
-            tor.name AS `tracking_order`,
-            tor.item AS `fg_item`,
-            isl.physical_cell AS `physical_cell`,
-            op.custom_operation_type AS `operation_type`,
-            op.custom_operation_group AS `operation_group`,
-            isl.operation AS `operation`,
-            isl.workstation AS `workstation`,
-            tc.component_name AS `component`,
-            pi.size AS `size`, 
-            itm.name AS `style`,
-            itm.custom_colour_name AS `colour`,
-            itm.custom_material_composition AS `material_composition`,
-            pi.production_item_number AS `production_item_number`,
-            tt.tag_number AS `tag_number`,
-            so.total_qty AS `sales_order_qty`,
-            soi.qty AS `sales_order_size_qty`,
-            wo.qty AS `work_order_qty`,
-            woli.work_order_allocated_qty AS `work_order_size_qty`,
-            pi.quantity AS `bundle_quantity`,
-            isl.status AS `status`,
-            isld.defect_code AS `defect_code`,
-            isld.defect AS `defect`,
-            isld.defect_description AS `defect_description`,
-            isld.severity AS `defect_severity`
-        FROM `tabItem Scan Log` isl 
-        LEFT JOIN `tabProduction Item` pi ON isl.production_item = pi.name
-        LEFT JOIN `tabItem Scan Log Defect` isld ON isl.name = isld.parent
-        LEFT JOIN `tabOperation` op ON isl.operation = op.name
-        LEFT JOIN `tabTracking Component` tc ON pi.component = tc.name
-        LEFT JOIN `tabTracking Order` tor ON tc.parent = tor.name
-        LEFT JOIN `tabTracking Tag` tt ON pi.tracking_tag = tt.name 
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
-            ON pi.bundle_configuration = tbc.name
-        LEFT JOIN `tabItem` itm ON tor.item = itm.name
-        LEFT JOIN `tabSales Order` so ON tbc.sales_order = so.name
-        LEFT JOIN `tabSales Order Item` soi 
-            ON so.name = soi.parent 
-            AND tor.item = soi.item_code 
-            AND pi.size = soi.custom_size
-        LEFT JOIN `tabWork Order` wo ON tbc.work_order = wo.name
-        LEFT JOIN `tabWork Order Line Item` woli 
-            ON wo.name = woli.parent 
-            AND so.name = woli.sales_order 
-            AND pi.size = woli.size
-        WHERE {where_clause}
-        ORDER BY isl.logged_time DESC
+@frappe.whitelist()
+def get_dashboard_data(date=None, today=None):
     """
+    Returns:
+        {
+            "daily": [ ...rows with cells for the selected date... ],
+            "mtd_output":  { "KNITTING": N, "MENDING": N, ... },
+            "ytd_output":  { "KNITTING": N, "MENDING": N, ... },
+        }
 
-    data = frappe.db.sql(query, filters, as_dict=1)
-    return data
+    'date'  – the date selected in the UI (daily input/output).
+    'today' – the actual calendar date used to bound MTD/YTD windows.
+              Falls back to server's today if not supplied.
+    """
+    selected_date = date or frappe.utils.today()
+    anchor_today  = today or frappe.utils.today()
+
+    # ── date boundaries ──────────────────────────────────────────────────────
+    anchor_dt   = datetime.strptime(anchor_today, "%Y-%m-%d").date()
+    month_start = anchor_dt.replace(day=1).strftime("%Y-%m-%d")
+    year_start  = anchor_dt.replace(month=1, day=1).strftime("%Y-%m-%d")
+
+    daily_rows  = _fetch_rows(selected_date, selected_date)
+    mtd_rows    = _fetch_rows(month_start,   anchor_today)
+    ytd_rows    = _fetch_rows(year_start,    anchor_today)
+
+    mtd_output  = _aggregate_output(mtd_rows)
+    ytd_output  = _aggregate_output(ytd_rows)
+
+    return {
+        "daily":      daily_rows,
+        "mtd_output": mtd_output,
+        "ytd_output": ytd_output,
+    }
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _fetch_rows(from_date, to_date):
+    """
+    Returns one dict per (sales_order, work_order, tracking_order, size) combo
+    with a `cells` map:  { SECTION_KEY: { "in": N, "out": N } }
+    and knitting-specific fields.
+    """
+    raw = frappe.db.sql(
+        """
+        SELECT
+            tbc.sales_order,
+            tbc.work_order,
+            tor.name           AS tracking_order,
+            tor.item           AS fg_item,
+            pi.size,
+            itm.brand,
+
+            /* ── physical cell / operation type for bucketing ─────────── */
+            UPPER(TRIM(COALESCE(isl.physical_cell, '')))   AS physical_cell,
+            UPPER(TRIM(COALESCE(op.custom_operation_type, ''))) AS operation_type,
+
+            /* ── in / out flags ─────────────────────────────────────────
+               We treat every completed scan as OUTPUT for its section.
+               INPUT for a section = OUTPUT of the immediately prior section,
+               which is computed client-side (same logic as before).        */
+            COUNT(isl.name)    AS scan_count,
+
+            /* Knitting-specific columns */
+            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
+                          AND isl.shift = 'Shift 1'
+                     THEN COALESCE(pi.quantity, 1) ELSE 0 END) AS knitting_shift1,
+            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
+                          AND isl.shift = 'Shift 2'
+                     THEN COALESCE(pi.quantity, 1) ELSE 0 END) AS knitting_shift2,
+            SUM(CASE WHEN op.custom_operation_type = 'KNITTING'
+                     THEN COALESCE(pi.wastage_qty, 0) ELSE 0 END) AS knitting_wastage,
+
+            SUM(COALESCE(pi.quantity, 1)) AS output_qty
+
+        FROM `tabItem Scan Log` isl
+
+        LEFT JOIN `tabProduction Item` pi
+            ON isl.production_item = pi.name
+
+        LEFT JOIN `tabTracking Order Bundle Configuration` tbc
+            ON pi.bundle_configuration = tbc.name
+            AND tbc.parentfield = 'component_bundle_configurations'
+
+        LEFT JOIN `tabTracking Component` tc
+            ON pi.component = tc.name
+
+        LEFT JOIN `tabTracking Order` tor
+            ON tc.parent = tor.name
+
+        LEFT JOIN `tabOperation` op
+            ON isl.operation = op.name
+
+        LEFT JOIN `tabItem` itm
+            ON tor.item = itm.name
+
+        WHERE
+            isl.log_status = 'Completed'
+            AND DATE(isl.logged_time) BETWEEN %(from_date)s AND %(to_date)s
+
+        GROUP BY
+            tbc.sales_order,
+            tbc.work_order,
+            tor.name,
+            pi.size,
+            UPPER(TRIM(COALESCE(isl.physical_cell, ''))),
+            UPPER(TRIM(COALESCE(op.custom_operation_type, '')))
+        """,
+        {"from_date": from_date, "to_date": to_date},
+        as_dict=1,
+    )
+
+    return _pivot_to_rows(raw)
+
+
+# Section key → canonical bucket name (mirrors SECTION_KEY_MAP in JS)
+SECTION_BUCKET = {
+    "KNITTING":     "KNITTING",
+    "MENDING":      "MENDING",
+    "WASHING":      "WASHING",
+    "CUTTING":      "CUTTING",
+    "LINKING":      "LINKING",
+    "SEWING":       "SEWING",
+    "EMBROIDERY":   "EMBROIDERY",
+    "PRODUCTION":   "PRODUCTION",   # "PRODUCTION OUT" in UI
+    "PRESSING":     "PRESSING",
+    "FINAL CHECK":  "FINAL CHECK",  # "FINAL CHECKING" in UI
+    "PACKING":      "PACKING",
+}
+
+
+def _resolve_bucket(row):
+    """Pick the canonical bucket for a raw row."""
+    for key in (row.get("physical_cell", ""), row.get("operation_type", "")):
+        if key in SECTION_BUCKET:
+            return SECTION_BUCKET[key]
+    return None
+
+
+def _pivot_to_rows(raw):
+    """
+    Group raw SQL rows into one record per (sales_order, work_order,
+    tracking_order, size) with a nested `cells` dict.
+    """
+    groups = {}
+
+    for r in raw:
+        bucket = _resolve_bucket(r)
+        if not bucket:
+            continue
+
+        gkey = (
+            r.get("sales_order") or "",
+            r.get("work_order")   or "",
+            r.get("tracking_order") or "",
+            r.get("size") or "",
+        )
+
+        if gkey not in groups:
+            groups[gkey] = {
+                "sales_order":    r.get("sales_order"),
+                "work_order":     r.get("work_order"),
+                "tracking_order": r.get("tracking_order"),
+                "fg_item":        r.get("fg_item"),
+                "size":           r.get("size"),
+                "brand":          r.get("brand"),
+                "planned_qty":    0,
+                "knitting_shift1":  0,
+                "knitting_shift2":  0,
+                "knitting_wastage": 0,
+                "cells": {},
+            }
+
+        g = groups[gkey]
+        out = r.get("output_qty") or 0
+
+        if bucket not in g["cells"]:
+            g["cells"][bucket] = {"in": 0, "out": 0}
+
+        g["cells"][bucket]["out"] += out
+
+        # Knitting shift / wastage accumulation
+        if bucket == "KNITTING":
+            g["knitting_shift1"]  += r.get("knitting_shift1")  or 0
+            g["knitting_shift2"]  += r.get("knitting_shift2")  or 0
+            g["knitting_wastage"] += r.get("knitting_wastage") or 0
+
+    return list(groups.values())
+
+
+def _aggregate_output(rows):
+    """
+    Returns { SECTION_KEY: total_output } summed across all rows.
+    Used for MTD / YTD.
+    """
+    totals = {k: 0 for k in SECTION_BUCKET.values()}
+
+    for row in rows:
+        cells = row.get("cells") or {}
+        for bucket, vals in cells.items():
+            if bucket in totals:
+                totals[bucket] += vals.get("out", 0)
+
+        # Knitting output = shift1 + shift2
+        knit_out = (row.get("knitting_shift1") or 0) + (row.get("knitting_shift2") or 0)
+        totals["KNITTING"] = totals.get("KNITTING", 0)
+        # Already counted via cells["KNITTING"]["out"] above; avoid double-count.
+
+    return totals
