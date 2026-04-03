@@ -75,97 +75,59 @@ def get_data(filters):
     query = f"""
         SELECT
             DATE(isl.logged_time) AS `date`,
-            isl.logged_time,
-            isl.scan_time,
+            isl.logged_time AS `logged_time`,
+            isl.scan_time AS `scan_time`,
             DATE(soi.custom_ex_fty_date) AS `ex_fty_date`,
             isl.owner AS `user`,
-            itm.brand,
-            tbc.sales_order,
-            tbc.work_order,
-            woli.line_item_no,
-            tor.name AS tracking_order,
-            tor.item AS fg_item,
-            isl.physical_cell,
-            op.custom_operation_type AS operation_type,
-            op.custom_operation_group AS operation_group,
-            isl.operation,
-            isl.workstation,
-            tc.component_name AS component,
-            pi.size,
-            itm.name AS style,
-            itm.custom_colour_name AS colour,
-            itm.custom_material_composition AS material_composition,
-            pi.production_item_number,
-            tt.tag_number,
-            so.total_qty AS sales_order_qty,
-            soi.qty AS sales_order_size_qty,
-            wo.qty AS work_order_qty,
-            woli.work_order_allocated_qty AS work_order_size_qty,
-            pi.quantity AS bundle_quantity,
-            isl.status,
-
-            -- ✅ Aggregated defects (no row explosion)
-            isld.defect_code,
-            isld.defect,
-            isld.defect_description,
-            isld.defect_severity
-
-        FROM (
-            SELECT *
-            FROM `tabItem Scan Log`
-            WHERE {where_clause}
-        ) isl
-
-        LEFT JOIN `tabProduction Item` pi 
-            ON isl.production_item = pi.name
-
-        LEFT JOIN `tabTracking Tag` tt 
-            ON pi.tracking_tag = tt.name 
-
+            itm.brand AS `brand`,   
+            tbc.sales_order AS `sales_order`,
+            tbc.work_order AS `work_order`,
+            woli.line_item_no AS `line_item_no`,
+            tor.name AS `tracking_order`,
+            tor.item AS `fg_item`,
+            isl.physical_cell AS `physical_cell`,
+            op.custom_operation_type AS `operation_type`,
+            op.custom_operation_group AS `operation_group`,
+            isl.operation AS `operation`,
+            isl.workstation AS `workstation`,
+            tc.component_name AS `component`,
+            pi.size AS `size`, 
+            itm.name AS `style`,
+            itm.custom_colour_name AS `colour`,
+            itm.custom_material_composition AS `material_composition`,
+            pi.production_item_number AS `production_item_number`,
+            tt.tag_number AS `tag_number`,
+            so.total_qty AS `sales_order_qty`,
+            soi.qty AS `sales_order_size_qty`,
+            wo.qty AS `work_order_qty`,
+            woli.work_order_allocated_qty AS `work_order_size_qty`,
+            pi.quantity AS `bundle_quantity`,
+            isl.status AS `status`,
+            isld.defect_code AS `defect_code`,
+            isld.defect AS `defect`,
+            isld.defect_description AS `defect_description`,
+            isld.severity AS `defect_severity`
+        FROM `tabItem Scan Log` isl 
+        LEFT JOIN `tabProduction Item` pi ON isl.production_item = pi.name
+        LEFT JOIN `tabItem Scan Log Defect` isld ON isl.name = isld.parent
+        LEFT JOIN `tabOperation` op ON isl.operation = op.name
+        LEFT JOIN `tabTracking Component` tc ON pi.component = tc.name
+        LEFT JOIN `tabTracking Order` tor ON tc.parent = tor.name
+        LEFT JOIN `tabTracking Tag` tt ON pi.tracking_tag = tt.name 
         LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
             ON pi.bundle_configuration = tbc.name
-
-        LEFT JOIN `tabTracking Component` tc 
-            ON pi.component = tc.name
-
-        LEFT JOIN `tabTracking Order` tor 
-            ON tc.parent = tor.name
-
-        LEFT JOIN `tabOperation` op 
-            ON isl.operation = op.name
-
-        LEFT JOIN `tabItem` itm 
-            ON tor.item = itm.name
-
-        LEFT JOIN `tabSales Order` so 
-            ON tbc.sales_order = so.name
-
+        LEFT JOIN `tabItem` itm ON tor.item = itm.name
+        LEFT JOIN `tabSales Order` so ON tbc.sales_order = so.name
         LEFT JOIN `tabSales Order Item` soi 
             ON so.name = soi.parent 
             AND tor.item = soi.item_code 
             AND pi.size = soi.custom_size
-
-        LEFT JOIN `tabWork Order` wo 
-            ON tbc.work_order = wo.name
-
+        LEFT JOIN `tabWork Order` wo ON tbc.work_order = wo.name
         LEFT JOIN `tabWork Order Line Item` woli 
             ON wo.name = woli.parent 
             AND so.name = woli.sales_order 
             AND pi.size = woli.size
-
-        -- ✅ FIXED: aggregate defects
-        LEFT JOIN (
-            SELECT 
-                parent,
-                GROUP_CONCAT(defect_code) AS defect_code,
-                GROUP_CONCAT(defect) AS defect,
-                GROUP_CONCAT(defect_description) AS defect_description,
-                GROUP_CONCAT(severity) AS defect_severity
-            FROM `tabItem Scan Log Defect`
-            GROUP BY parent
-        ) isld 
-            ON isl.name = isld.parent
-
+        WHERE {where_clause}
         ORDER BY isl.logged_time DESC
     """
 
