@@ -1,57 +1,76 @@
 /* ── Card clickable state ─────────────────────────────────────── */
 .pd-card-clickable {
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .pd-card-clickable:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
 
-/* ── Popup overlay ────────────────────────────────────────────── */
-.pd-popup-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(3px);
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
+/* Active card highlight when drill-down is open */
+.pd-card-active {
+    border: 1.5px solid rgba(59,130,246,0.6) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.12), 0 8px 24px rgba(0,0,0,0.35) !important;
+    transform: translateY(-2px);
 }
 
-.pd-popup-box {
-    background: #1e2a45;
-    border: 1px solid rgba(255,255,255,0.08);
+/* ── Inline detail panel ──────────────────────────────────────── */
+.pd-detail-panel {
+    margin: 0 16px 16px;
     border-radius: 14px;
-    width: 100%;
-    max-width: 780px;
-    max-height: 85vh;
+    border: 1px solid rgba(59,130,246,0.25);
+    background: #1e2a45;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    overflow: hidden;
+    animation: pd-detail-slide-in 0.2s ease;
+}
+
+@keyframes pd-detail-slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.pd-detail-inner {
     display: flex;
     flex-direction: column;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
-    overflow: hidden;
+    max-height: 420px;
 }
 
-/* ── Popup header ─────────────────────────────────────────────── */
-.pd-popup-header {
+/* ── Detail header (reuses popup header styles + own layout) ──── */
+.pd-detail-header {
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 18px 20px 14px;
+    padding: 14px 18px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
     background: rgba(255,255,255,0.03);
     flex-shrink: 0;
 }
 
-.pd-popup-title-wrap {
+.pd-detail-title-wrap {
     display: flex;
     align-items: center;
     gap: 10px;
     flex: 1;
 }
 
+/* ── Detail body (scrollable table area) ─────────────────────── */
+.pd-detail-body {
+    overflow-y: auto;
+    flex: 1;
+    padding: 0;
+}
+
+.pd-detail-empty {
+    text-align: center;
+    color: #94a3b8;
+    padding: 32px 0;
+    margin: 0;
+    font-size: 13px;
+}
+
+/* ── Shared badge / title / summary / close (used by detail panel) */
 .pd-popup-section-badge {
     background: #3b82f6;
     color: #fff;
@@ -113,17 +132,15 @@
     justify-content: center;
     cursor: pointer;
     flex-shrink: 0;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.pd-popup-close:hover { background: rgba(239,68,68,0.2); color: #f87171; border-color: rgba(239,68,68,0.4); }
-
-/* ── Popup body / table ───────────────────────────────────────── */
-.pd-popup-body {
-    overflow-y: auto;
-    flex: 1;
-    padding: 0;
+.pd-popup-close:hover {
+    background: rgba(239,68,68,0.2);
+    color: #f87171;
+    border-color: rgba(239,68,68,0.4);
 }
 
+/* ── Table shared styles ──────────────────────────────────────── */
 .pd-popup-table-wrap {
     overflow-x: auto;
 }

@@ -57,6 +57,8 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 				</div>
 			</div>
 
+			<div id="pd-detail-panel" class="pd-detail-panel" style="display:none;"></div>
+
 			<div class="pd-footer">
 				<span id="pd-updated">Last updated: --</span>
 				<span class="pd-auto-note">
@@ -103,7 +105,7 @@ frappe.pages["shopfloor-performance"].on_page_hide = function () {
 };
 
 var _timer    = null;
-var _lastData = [];   // raw rows — kept for popup drill-down
+var _lastData = [];   // raw rows — kept for drill-down
 
 // All sections in pipeline order
 const SECTIONS = [
@@ -136,15 +138,16 @@ const SECTION_KEY_MAP = {
 };
 
 function _load() {
-	// Read the currently selected date from the date picker
 	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
+
+	// Close detail panel on reload
+	$("#pd-detail-panel").hide().data("active-key", null);
+	$("#pd-grid .pd-card").removeClass("pd-card-active");
 
 	$("#pd-refresh-btn").addClass("loading");
 	frappe.call({
 		method: "analytix.analytix.page.shopfloor_performance.shopfloor_performance.get_dashboard_data",
-		args: {
-			date: selectedDate,
-		},
+		args: { date: selectedDate },
 		freeze: false,
 		callback: function (r) {
 			$("#pd-refresh-btn").removeClass("loading");
@@ -168,9 +171,8 @@ function _render(data) {
 		return;
 	}
 
-	_lastData = data;   // save for drill-down popups
+	_lastData = data;
 
-	// Aggregate across all style rows
 	var totals = _aggregateTotals(data);
 	var html = "";
 
@@ -187,9 +189,9 @@ function _render(data) {
 
 	$grid.html(html);
 
-	// Wire card clicks → drill-down popup
+	// Wire card clicks → inline drill-down
 	$grid.find(".pd-card").on("click", function() {
-		var sectionKey = $(this).data("section-key");
+		var sectionKey   = $(this).data("section-key");
 		var sectionLabel = $(this).data("section-label");
 		_showDrilldown(sectionLabel, sectionKey);
 	});
@@ -204,16 +206,12 @@ function _aggregateTotals(rows) {
 
 	rows.forEach(function(r) {
 		var cells = r.cells || {};
-
 		SECTIONS.forEach(function(section) {
 			var key = SECTION_KEY_MAP[section];
 			var c = cells[key] || {};
-			// Daily input / output for selected date
 			totals[key].input   += (c["in"]      || 0);
 			totals[key].output  += (c["out"]     || 0);
-			// Cumulative output — used for WIP
 			totals[key].cum_out += (c["cum_out"] || 0);
-			// MTD and YTD output (from backend)
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
 		});
@@ -242,28 +240,17 @@ function _aggregateTotals(rows) {
 		totals["KNITTING"].wastage    += (r.knitting_wastage    || 0);
 	});
 
-	// Knitting daily output = shift1 + shift2 (for display)
 	totals["KNITTING"].output  = totals["KNITTING"].shift1 + totals["KNITTING"].shift2;
-	// Knitting cumulative output = cum shifts (for WIP downstream)
 	totals["KNITTING"].cum_out = totals["KNITTING"].shift1_cum + totals["KNITTING"].shift2_cum;
-	// Knitting MTD/YTD output = combined shifts
-	totals["KNITTING"].mtd = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
-	totals["KNITTING"].ytd = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
+	totals["KNITTING"].mtd     = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
+	totals["KNITTING"].ytd     = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
 
-	// ✅ WIP = prev cumulative OUT - current cumulative OUT
+	// WIP = prev cumulative OUT − current cumulative OUT
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
-
-		if (i === 0) {
-			totals[key].wip = 0;
-			return;
-		}
-
-		var prev_key  = SECTION_KEY_MAP[SECTIONS[i - 1]];
-		var prev_cum  = totals[prev_key].cum_out || 0;
-		var curr_cum  = totals[key].cum_out      || 0;
-
-		var wip = prev_cum - curr_cum;
+		if (i === 0) { totals[key].wip = 0; return; }
+		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
+		var wip = (totals[prev_key].cum_out || 0) - (totals[key].cum_out || 0);
 		totals[key].wip = wip < 0 ? 0 : wip;
 	});
 
@@ -271,12 +258,12 @@ function _aggregateTotals(rows) {
 }
 
 function _buildKnittingCard(section, t, rows) {
-	var shift1   = t.shift1   || 0;
-	var shift2   = t.shift2   || 0;
-	var wastage  = t.wastage  || 0;
+	var shift1    = t.shift1    || 0;
+	var shift2    = t.shift2    || 0;
+	var wastage   = t.wastage   || 0;
 	var rejection = t.rejection || 0;
-	var mtd      = t.mtd      || 0;   // combined shift1_mtd + shift2_mtd
-	var ytd      = t.ytd      || 0;   // combined shift1_ytd + shift2_ytd
+	var mtd       = t.mtd       || 0;
+	var ytd       = t.ytd       || 0;
 
 	return `
 		<div class="pd-card pd-card-clickable" data-section-key="KNITTING" data-section-label="KNITTING">
@@ -397,24 +384,44 @@ function _buildSectionCard(section, key, t) {
 	`;
 }
 
-// ── Drill-down popup ──────────────────────────────────────────────────────────
+// ── Inline drill-down panel ───────────────────────────────────────────────────
 
 function _showDrilldown(sectionLabel, sectionKey) {
-	if (!_lastData || !_lastData.length) return;
-	if (sectionKey === "KNITTING") return;  // no Pending In / Actual WIP for KNITTING
+	var $panel = $("#pd-detail-panel");
 
-	// Build per-style rows — use backend-computed pending_in and actual_wip
+	// Clicking the same card again collapses the panel
+	if ($panel.data("active-key") === sectionKey && $panel.is(":visible")) {
+		$panel.hide().data("active-key", null);
+		$("#pd-grid .pd-card").removeClass("pd-card-active");
+		$(document).off("keydown.pddetail");
+		return;
+	}
+
+	// KNITTING has no per-style WIP data
+	if (sectionKey === "KNITTING") {
+		$panel.hide().data("active-key", null);
+		$("#pd-grid .pd-card").removeClass("pd-card-active");
+		return;
+	}
+
+	if (!_lastData || !_lastData.length) return;
+
+	// Highlight active card
+	$("#pd-grid .pd-card").removeClass("pd-card-active");
+	$("#pd-grid .pd-card[data-section-key='" + sectionKey + "']").addClass("pd-card-active");
+
+	// Build per-style rows
 	var styleRows = _lastData.map(function(r) {
-		var cells    = r.cells || {};
-		var cell     = cells[sectionKey] || {};
+		var cells     = r.cells || {};
+		var cell      = cells[sectionKey] || {};
 		var pendingIn = cell["pending_in"] != null ? cell["pending_in"] : 0;
 		var actualWip = cell["actual_wip"] != null ? cell["actual_wip"] : 0;
 		return {
-			style:      r.style  || "",
-			colour:     r.colour || "",
-			buyer:      r.buyer  || "",
-			pendingIn:  pendingIn,
-			actualWip:  actualWip,
+			style:     r.style  || "",
+			colour:    r.colour || "",
+			buyer:     r.buyer  || "",
+			pendingIn: pendingIn,
+			actualWip: actualWip,
 		};
 	}).filter(function(r) {
 		return r.pendingIn > 0 || r.actualWip > 0;
@@ -423,14 +430,17 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	// Sort: highest actualWip first
 	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
 
-	// Build table HTML
+	var totalPending = styleRows.reduce(function(s, r) { return s + (r.pendingIn || 0); }, 0);
+	var totalWip     = styleRows.reduce(function(s, r) { return s + (r.actualWip || 0); }, 0);
+
+	// Build table
 	var tableHtml;
 	if (!styleRows.length) {
-		tableHtml = '<p style="text-align:center;color:#94a3b8;padding:24px 0;">No pending or WIP data for this section.</p>';
+		tableHtml = '<p class="pd-detail-empty">No pending or WIP data for this section.</p>';
 	} else {
 		var tbody = styleRows.map(function(r) {
-			var piCls  = r.pendingIn  > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
-			var wipCls = r.actualWip  > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
+			var piCls  = r.pendingIn > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
+			var wipCls = r.actualWip > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
 			return `<tr>
 				<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
 				<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
@@ -463,56 +473,53 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			</div>`;
 	}
 
-	// Totals
-	var totalPending = styleRows.reduce(function(s, r) { return s + (r.pendingIn || 0); }, 0);
-	var totalWip     = styleRows.reduce(function(s, r) { return s + (r.actualWip || 0); }, 0);
-
-	// Inject popup overlay
-	$("#pd-popup-overlay").remove();
-	var overlayHtml = `
-		<div id="pd-popup-overlay" class="pd-popup-overlay">
-			<div class="pd-popup-box">
-				<div class="pd-popup-header">
-					<div class="pd-popup-title-wrap">
-						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
-						<span class="pd-popup-title">Style-wise Breakdown</span>
-					</div>
-					<div class="pd-popup-summary">
-						<div class="pd-popup-summary-item pd-popup-summary-amber">
-							<div class="pd-popup-summary-val">${_n(totalPending)}</div>
-							<div class="pd-popup-summary-lbl">Total Pending In</div>
-						</div>
-						<div class="pd-popup-summary-item pd-popup-summary-orange">
-							<div class="pd-popup-summary-val">${_n(totalWip)}</div>
-							<div class="pd-popup-summary-lbl">Total Actual WIP</div>
-						</div>
-					</div>
-					<button class="pd-popup-close" id="pd-popup-close">
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-					</button>
+	$panel.html(`
+		<div class="pd-detail-inner">
+			<div class="pd-detail-header">
+				<div class="pd-detail-title-wrap">
+					<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
+					<span class="pd-popup-title">Style-wise Breakdown</span>
 				</div>
-				<div class="pd-popup-body">
-					${tableHtml}
+				<div class="pd-popup-summary">
+					<div class="pd-popup-summary-item pd-popup-summary-amber">
+						<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+						<div class="pd-popup-summary-lbl">Total Pending In</div>
+					</div>
+					<div class="pd-popup-summary-item pd-popup-summary-orange">
+						<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+						<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+					</div>
 				</div>
+				<button class="pd-popup-close" id="pd-detail-close" title="Close">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
 			</div>
-		</div>`;
+			<div class="pd-detail-body">
+				${tableHtml}
+			</div>
+		</div>
+	`);
 
-	$("body").append(overlayHtml);
+	$panel.data("active-key", sectionKey).show();
 
-	// Close handlers
-	$("#pd-popup-close, #pd-popup-overlay").on("click", function(e) {
-		if ($(e.target).is("#pd-popup-overlay") || $(e.target).closest("#pd-popup-close").length) {
-			$("#pd-popup-overlay").remove();
-			$(document).off("keydown.pdpopup");
-		}
+	// Smooth scroll so the panel is visible
+	$("html, body").animate({ scrollTop: $panel.offset().top - 16 }, 280);
+
+	// Close button
+	$("#pd-detail-close").on("click", function() {
+		$panel.hide().data("active-key", null);
+		$("#pd-grid .pd-card").removeClass("pd-card-active");
+		$(document).off("keydown.pddetail");
 	});
-	$("#pd-popup-overlay .pd-popup-box").on("click", function(e) {
-		e.stopPropagation();
-	});
-	$(document).off("keydown.pdpopup").on("keydown.pdpopup", function(e) {
+
+	// ESC key
+	$(document).off("keydown.pddetail").on("keydown.pddetail", function(e) {
 		if (e.key === "Escape") {
-			$("#pd-popup-overlay").remove();
-			$(document).off("keydown.pdpopup");
+			$panel.hide().data("active-key", null);
+			$("#pd-grid .pd-card").removeClass("pd-card-active");
+			$(document).off("keydown.pddetail");
 		}
 	});
 }
