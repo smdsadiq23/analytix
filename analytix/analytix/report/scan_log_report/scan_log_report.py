@@ -2,167 +2,172 @@
 # For license information, please see license.txt
 
 import frappe
-from datetime import datetime
+from frappe import _
 
+def execute(filters=None):
+    if not filters:
+        filters = {}
 
-@frappe.whitelist()
-def get_dashboard_data(date=None, today=None):
-    """
-    Returns:
-        {
-            "daily":      [ ...pivoted rows for the selected date... ],
-            "mtd_output": { "KNITTING": N, "MENDING": N, ... },
-            "ytd_output": { "KNITTING": N, "MENDING": N, ... },
-        }
-    """
-    selected_date = date or frappe.utils.today()
-    anchor_today  = today or frappe.utils.today()
+    columns = get_columns()
+    data = get_data(filters)
+    return columns, data
 
-    anchor_dt   = datetime.strptime(anchor_today, "%Y-%m-%d").date()
-    month_start = anchor_dt.replace(day=1).strftime("%Y-%m-%d")
-    year_start  = anchor_dt.replace(month=1, day=1).strftime("%Y-%m-%d")
+def get_columns():
+    return [
+        {"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
+        {"label": _("Logged Time"), "fieldname": "logged_time", "fieldtype": "Datetime", "width": 180},
+        {"label": _("Scan Time"), "fieldname": "scan_time", "fieldtype": "Datetime", "width": 180},
+        {"label": _("Ex Factory Date"), "fieldname": "ex_fty_date", "fieldtype": "Date", "width": 120},
+        {"label": _("User"), "fieldname": "user", "fieldtype": "Data", "width": 150},
+        {"label": _("Brand"), "fieldname": "brand", "fieldtype": "Link", "options": "Brand", "width": 120},
+        {"label": _("Sales Order"), "fieldname": "sales_order", "fieldtype": "Link", "options": "Sales Order", "width": 150},
+        {"label": _("Work Order"), "fieldname": "work_order", "fieldtype": "Link", "options": "Work Order", "width": 150},
+        {"label": _("Line Item No"), "fieldname": "line_item_no", "fieldtype": "Data", "width": 120},
+        {"label": _("Tracking Order"), "fieldname": "tracking_order", "fieldtype": "Link", "options": "Tracking Order", "width": 150},
+        {"label": _("FG Item"), "fieldname": "fg_item", "fieldtype": "Link", "options": "Item", "width": 130},
+        {"label": _("Physical Cell"), "fieldname": "physical_cell", "fieldtype": "Data", "width": 120},
+        {"label": _("Operation Type"), "fieldname": "operation_type", "fieldtype": "Data", "width": 130},
+        {"label": _("Operation Group"), "fieldname": "operation_group", "fieldtype": "Data", "width": 140},
+        {"label": _("Operation"), "fieldname": "operation", "fieldtype": "Link", "options": "Operation", "width": 130},
+        {"label": _("Workstation"), "fieldname": "workstation", "fieldtype": "Link", "options": "Workstation", "width": 130},
+        {"label": _("Component"), "fieldname": "component", "fieldtype": "Data", "width": 120},
+        {"label": _("Size"), "fieldname": "size", "fieldtype": "Data", "width": 80},
+        {"label": _("Style"), "fieldname": "style", "fieldtype": "Link", "options": "Item", "width": 130},
+        {"label": _("Colour"), "fieldname": "colour", "fieldtype": "Data", "width": 100},
+        {"label": _("Material Composition"), "fieldname": "material_composition", "fieldtype": "Data", "width": 160},
+        {"label": _("Production Item Number"), "fieldname": "production_item_number", "fieldtype": "Data", "width": 160},
+        {"label": _("Tag Number"), "fieldname": "tag_number", "fieldtype": "Data", "width": 120},
+        {"label": _("Sales Order Qty"), "fieldname": "sales_order_qty", "fieldtype": "Float", "width": 120},
+        {"label": _("Sales Order Size Qty"), "fieldname": "sales_order_size_qty", "fieldtype": "Float", "width": 150},
+        {"label": _("Work Order Qty"), "fieldname": "work_order_qty", "fieldtype": "Float", "width": 120},
+        {"label": _("Work Order Size Qty"), "fieldname": "work_order_size_qty", "fieldtype": "Float", "width": 150},
+        {"label": _("Bundle Quantity"), "fieldname": "bundle_quantity", "fieldtype": "Float", "width": 130},
+        {"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 100},
+        {"label": _("Defect Code"), "fieldname": "defect_code", "fieldtype": "Data", "width": 120},
+        {"label": _("Defect"), "fieldname": "defect", "fieldtype": "Data", "width": 120},
+        {"label": _("Defect Description"), "fieldname": "defect_description", "fieldtype": "Text", "width": 200},
+        {"label": _("Defect Severity"), "fieldname": "defect_severity", "fieldtype": "Data", "width": 120},
+    ]
 
-    daily_raw = _fetch_raw(selected_date, selected_date)
-    mtd_raw   = _fetch_raw(month_start,   anchor_today)
-    ytd_raw   = _fetch_raw(year_start,    anchor_today)
+def get_data(filters):
+    conditions = [
+        "isl.log_status = 'Completed'",
+        "tbc.parentfield = 'component_bundle_configurations'",
+        # "tbc.activation_status = 'Completed'",
+    ]
 
-    return {
-        "daily":      _build_pivoted_rows(daily_raw),
-        "mtd_output": _sum_by_section(mtd_raw),
-        "ytd_output": _sum_by_section(ytd_raw),
-    }
+    # Date Range Filter
+    if filters.get("from_date"):
+        conditions.append("DATE(isl.logged_time) >= %(from_date)s")
+    if filters.get("to_date"):
+        conditions.append("DATE(isl.logged_time) <= %(to_date)s")
 
+    # Sales Order Filter
+    if filters.get("sales_order"):
+        conditions.append("tbc.sales_order = %(sales_order)s")
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+    # Work Order Filter
+    if filters.get("work_order"):
+        conditions.append("tbc.work_order = %(work_order)s")
 
-def _fetch_raw(from_date, to_date):
-    """
-    Uses the exact same joins as the Scan Log Detail report.
-    Returns one row per Item Scan Log entry within the date range.
-    """
-    return frappe.db.sql(
-        """
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+    query = f"""
         SELECT
-            isl.name                          AS scan_log,
-            isl.physical_cell,
-            op.custom_operation_type          AS operation_type,
-            pi.quantity                       AS bundle_quantity,
-
+            DATE(isl.logged_time) AS `date`,
+            isl.logged_time,
+            isl.scan_time,
+            DATE(soi.custom_ex_fty_date) AS `ex_fty_date`,
+            isl.owner AS `user`,
+            itm.brand,
             tbc.sales_order,
             tbc.work_order,
-            tor.name                          AS tracking_order,
-            tor.item                          AS fg_item,
+            woli.line_item_no,
+            tor.name AS tracking_order,
+            tor.item AS fg_item,
+            isl.physical_cell,
+            op.custom_operation_type AS operation_type,
+            op.custom_operation_group AS operation_group,
+            isl.operation,
+            isl.workstation,
+            tc.component_name AS component,
             pi.size,
-            itm.brand,
-            wo.qty                            AS work_order_qty
+            itm.name AS style,
+            itm.custom_colour_name AS colour,
+            itm.custom_material_composition AS material_composition,
+            pi.production_item_number,
+            tt.tag_number,
+            so.total_qty AS sales_order_qty,
+            soi.qty AS sales_order_size_qty,
+            wo.qty AS work_order_qty,
+            woli.work_order_allocated_qty AS work_order_size_qty,
+            pi.quantity AS bundle_quantity,
+            isl.status,
 
-        FROM `tabItem Scan Log` isl
+            -- ✅ Aggregated defects (no row explosion)
+            isld.defect_code,
+            isld.defect,
+            isld.defect_description,
+            isld.defect_severity
 
-        LEFT JOIN `tabProduction Item` pi
+        FROM (
+            SELECT *
+            FROM `tabItem Scan Log`
+            WHERE {where_clause}
+        ) isl
+
+        LEFT JOIN `tabProduction Item` pi 
             ON isl.production_item = pi.name
 
-        LEFT JOIN `tabTracking Order Bundle Configuration` tbc
-            ON pi.bundle_configuration = tbc.name
-            AND tbc.parentfield = 'component_bundle_configurations'
+        LEFT JOIN `tabTracking Tag` tt 
+            ON pi.tracking_tag = tt.name 
 
-        LEFT JOIN `tabTracking Component` tc
+        LEFT JOIN `tabTracking Order Bundle Configuration` tbc 
+            ON pi.bundle_configuration = tbc.name
+
+        LEFT JOIN `tabTracking Component` tc 
             ON pi.component = tc.name
 
-        LEFT JOIN `tabTracking Order` tor
+        LEFT JOIN `tabTracking Order` tor 
             ON tc.parent = tor.name
 
-        LEFT JOIN `tabOperation` op
+        LEFT JOIN `tabOperation` op 
             ON isl.operation = op.name
 
-        LEFT JOIN `tabItem` itm
+        LEFT JOIN `tabItem` itm 
             ON tor.item = itm.name
 
-        LEFT JOIN `tabWork Order` wo
+        LEFT JOIN `tabSales Order` so 
+            ON tbc.sales_order = so.name
+
+        LEFT JOIN `tabSales Order Item` soi 
+            ON so.name = soi.parent 
+            AND tor.item = soi.item_code 
+            AND pi.size = soi.custom_size
+
+        LEFT JOIN `tabWork Order` wo 
             ON tbc.work_order = wo.name
 
-        WHERE
-            isl.log_status = 'Completed'
-            AND DATE(isl.logged_time) BETWEEN %(from_date)s AND %(to_date)s
-        """,
-        {"from_date": from_date, "to_date": to_date},
-        as_dict=1,
-    )
+        LEFT JOIN `tabWork Order Line Item` woli 
+            ON wo.name = woli.parent 
+            AND so.name = woli.sales_order 
+            AND pi.size = woli.size
 
+        -- ✅ FIXED: aggregate defects
+        LEFT JOIN (
+            SELECT 
+                parent,
+                GROUP_CONCAT(defect_code) AS defect_code,
+                GROUP_CONCAT(defect) AS defect,
+                GROUP_CONCAT(defect_description) AS defect_description,
+                GROUP_CONCAT(severity) AS defect_severity
+            FROM `tabItem Scan Log Defect`
+            GROUP BY parent
+        ) isld 
+            ON isl.name = isld.parent
 
-# Canonical section keys — must match SECTION_KEY_MAP values in the JS
-KNOWN_SECTIONS = {
-    "KNITTING", "MENDING", "WASHING", "CUTTING", "LINKING",
-    "SEWING", "EMBROIDERY", "PRODUCTION", "PRESSING", "FINAL CHECK", "PACKING",
-}
-
-
-def _resolve_section(row):
-    """Try physical_cell first, then operation_type."""
-    for field in ("physical_cell", "operation_type"):
-        val = (row.get(field) or "").strip().upper()
-        if val in KNOWN_SECTIONS:
-            return val
-    return None
-
-
-def _build_pivoted_rows(raw):
+        ORDER BY isl.logged_time DESC
     """
-    Groups raw rows by (sales_order, work_order, tracking_order, size)
-    and builds a `cells` dict: { SECTION_KEY: { "in": 0, "out": N } }
-    which is exactly what the JS _aggregateTotals() iterates over.
-    Knitting output is also written to knitting_shift1 so the existing
-    WIP calculation (prev_out = shift1 + shift2) keeps working.
-    """
-    groups = {}
 
-    for r in raw:
-        section = _resolve_section(r)
-        if not section:
-            continue
-
-        gkey = (
-            r.get("sales_order")    or "",
-            r.get("work_order")     or "",
-            r.get("tracking_order") or "",
-            r.get("size")           or "",
-        )
-
-        if gkey not in groups:
-            groups[gkey] = {
-                "sales_order":      r.get("sales_order"),
-                "work_order":       r.get("work_order"),
-                "tracking_order":   r.get("tracking_order"),
-                "fg_item":          r.get("fg_item"),
-                "size":             r.get("size"),
-                "brand":            r.get("brand"),
-                "planned_qty":      r.get("work_order_qty") or 0,
-                "knitting_shift1":  0,
-                "knitting_shift2":  0,
-                "knitting_wastage": 0,
-                "cells": {},
-            }
-
-        g   = groups[gkey]
-        qty = r.get("bundle_quantity") or 1
-
-        if section not in g["cells"]:
-            g["cells"][section] = {"in": 0, "out": 0}
-        g["cells"][section]["out"] += qty
-
-        # Mirror knitting output into shift1 so the JS WIP formula works
-        if section == "KNITTING":
-            g["knitting_shift1"] += qty
-
-    return list(groups.values())
-
-
-def _sum_by_section(raw):
-    """{ SECTION_KEY: total_output } — used for MTD / YTD."""
-    totals = {s: 0 for s in KNOWN_SECTIONS}
-    for r in raw:
-        section = _resolve_section(r)
-        if section:
-            totals[section] += (r.get("bundle_quantity") or 1)
-    return totals
+    data = frappe.db.sql(query, filters, as_dict=1)
+    return data

@@ -73,11 +73,10 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 	var today = frappe.datetime.get_today();
 	$("#pd-date-input").val(today);
 
-	// ── CHANGE 1: reload when the user picks a different date ──────────────
-	$("#pd-date-input").on("change", function() { _load(); });
-
 	// Refresh button
-	$("#pd-refresh-btn").on("click", function() { _load(); });
+	$("#pd-refresh-btn").on("click", function() {
+		_load();
+	});
 
 	_load();
 	_timer = setInterval(function() { _load(); }, 60000);
@@ -130,18 +129,10 @@ const SECTION_KEY_MAP = {
 	"PACKING":        "PACKING",
 };
 
-// ── CHANGE 2: pass selected date + today to the backend ───────────────────
 function _load() {
-	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
-	var today = frappe.datetime.get_today();
-
 	$("#pd-refresh-btn").addClass("loading");
 	frappe.call({
 		method: "analytix.analytix.page.shopfloor_performance.shopfloor_performance.get_dashboard_data",
-		args: {
-			date:  selectedDate,   // daily input/output filtered to this date only
-			today: today,          // MTD/YTD always anchored to real today
-		},
 		freeze: false,
 		callback: function (r) {
 			$("#pd-refresh-btn").removeClass("loading");
@@ -149,13 +140,7 @@ function _load() {
 				_setError("Failed to load data. Check server logs.");
 				return;
 			}
-			// ── CHANGE 3: destructure the new response shape ──────────────
-			var msg = r.message || {};
-			_render(
-				msg.daily      || [],
-				msg.mtd_output || {},
-				msg.ytd_output || {}
-			);
+			_render(r.message || {});
 			var n = new Date(), h = n.getHours(), m = String(n.getMinutes()).padStart(2, "0");
 			var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
 			$("#pd-updated").text("Last updated: " + h + ":" + m + " " + ap);
@@ -163,8 +148,9 @@ function _load() {
 	});
 }
 
-// ── CHANGE 4: _render now accepts mtdOutput and ytdOutput ─────────────────
-function _render(data, mtdOutput, ytdOutput) {
+function _render(data) {
+	// data expected to have aggregated totals per section
+	// We build summary cards for each section from the row data
 	var $grid = $("#pd-grid");
 
 	if (!data || (Array.isArray(data) && !data.length)) {
@@ -172,6 +158,7 @@ function _render(data, mtdOutput, ytdOutput) {
 		return;
 	}
 
+	// Aggregate across all style rows
 	var totals = _aggregateTotals(data);
 	var html = "";
 
@@ -179,14 +166,10 @@ function _render(data, mtdOutput, ytdOutput) {
 		var key = SECTION_KEY_MAP[section];
 		var t = totals[key] || {};
 
-		// ── CHANGE 5: pass per-section MTD/YTD into each card builder ────
-		var mtd = (mtdOutput[key] || 0);
-		var ytd = (ytdOutput[key] || 0);
-
 		if (section === "KNITTING") {
-			html += _buildKnittingCard(section, t, mtd, ytd);
+			html += _buildKnittingCard(section, t, data);
 		} else {
-			html += _buildSectionCard(section, key, t, mtd, ytd);
+			html += _buildSectionCard(section, key, t);
 		}
 	});
 
@@ -194,57 +177,78 @@ function _render(data, mtdOutput, ytdOutput) {
 }
 
 function _aggregateTotals(rows) {
-	// Unchanged — aggregates only the daily rows passed in
 	var totals = {};
 	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
-		totals[key] = { input: 0, output: 0, wip: 0, rejection: 0 };
+		totals[key] = { input: 0, output: 0, wip: 0, rejection: 0, mtd: 0, ytd: 0 };
 	});
 
 	rows.forEach(function(r) {
 		var cells = r.cells || {};
+		var planned = r.planned_qty || 0;
+
 		SECTIONS.forEach(function(section) {
 			var key = SECTION_KEY_MAP[section];
 			var c = cells[key] || {};
-			totals[key].input  += (c["in"]  || 0);
-			totals[key].output += (c["out"] || 0);
+			totals[key].input    += (c["in"]  || 0);
+			totals[key].output   += (c["out"] || 0);
+			// totals[key].wip      += (c["wip"] != null ? c["wip"] : 0);
+			// MTD / YTD — not returned by current API, kept as 0 placeholders
 		});
 	});
 
-	// Knitting shifts
-	totals["KNITTING"].shift1  = 0;
-	totals["KNITTING"].shift2  = 0;
+	// Also aggregate knitting shifts
+	totals["KNITTING"].shift1 = 0;
+	totals["KNITTING"].shift2 = 0;
 	totals["KNITTING"].wastage = 0;
 
 	rows.forEach(function(r) {
-		totals["KNITTING"].shift1  += (r.knitting_shift1  || 0);
-		totals["KNITTING"].shift2  += (r.knitting_shift2  || 0);
+		totals["KNITTING"].shift1  += (r.knitting_shift1 || 0);
+		totals["KNITTING"].shift2  += (r.knitting_shift2 || 0);
 		totals["KNITTING"].wastage += (r.knitting_wastage || 0);
+		// // wastage = knitting output (common for all)
+		// totals["KNITTING"].wastage += ((r.cells && r.cells["KNITTING"] && r.cells["KNITTING"]["out"]) || 0);
 	});
 
-	// WIP = prev section output − current section output (daily only)
+	// ✅ Correct WIP calculation 
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
-		if (i === 0) { totals[key].wip = 0; return; }
+
+		if (i === 0) {
+			totals[key].wip = 0;
+			return;
+		}
 
 		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-		var prev_out = (prev_key === "KNITTING")
-			? (totals["KNITTING"].shift1 || 0) + (totals["KNITTING"].shift2 || 0)
-			: totals[prev_key].output || 0;
 
-		var wip = prev_out - (totals[key].output || 0);
+		var prev_out;
+
+		if (prev_key === "KNITTING") {
+			prev_out = (totals["KNITTING"].shift1 || 0) + (totals["KNITTING"].shift2 || 0);
+		} else {
+			prev_out = totals[prev_key].output || 0;
+		}
+
+		var curr_out = totals[key].output || 0;
+
+		var wip = prev_out - curr_out;
 		totals[key].wip = wip < 0 ? 0 : wip;
-	});
+	});	
 
 	return totals;
 }
 
-// ── CHANGE 6: card builders now receive mtd/ytd as plain args ─────────────
-function _buildKnittingCard(section, t, mtd, ytd) {
-	var shift1    = t.shift1    || 0;
-	var shift2    = t.shift2    || 0;
-	var wastage   = t.wastage   || 0;
+function _buildKnittingCard(section, t, rows) {
+	// Knitting: show Shift 1 Output, Shift 2 Output, Rejection Qty, Wastage (last)
+	// No WIP, No Input
+	var shift1 = t.shift1 || 0;
+	var shift2 = t.shift2 || 0;
+	var wastage = t.wastage || 0;
 	var rejection = t.rejection || 0;
+
+	// MTD / YTD — placeholders
+	var mtd = t.mtd || 0;
+	var ytd = t.ytd || 0;
 
 	return `
 		<div class="pd-card">
@@ -302,11 +306,13 @@ function _buildKnittingCard(section, t, mtd, ytd) {
 	`;
 }
 
-function _buildSectionCard(section, key, t, mtd, ytd) {
-	var input     = t.input     || 0;
-	var output    = t.output    || 0;
-	var wip       = t.wip       || 0;
+function _buildSectionCard(section, key, t) {
+	var input     = t.input  || 0;
+	var output    = t.output || 0;
+	var wip       = t.wip   || 0;
 	var rejection = t.rejection || 0;
+	var mtd       = t.mtd   || 0;
+	var ytd       = t.ytd   || 0;
 
 	return `
 		<div class="pd-card">
