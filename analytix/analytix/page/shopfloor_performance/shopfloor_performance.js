@@ -189,7 +189,7 @@ function _aggregateTotals(rows) {
 	var totals = {};
 	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
-		totals[key] = { input: 0, output: 0, wip: 0, rejection: 0, mtd: 0, ytd: 0 };
+		totals[key] = { input: 0, output: 0, cum_out: 0, wip: 0, rejection: 0, mtd: 0, ytd: 0 };
 	});
 
 	rows.forEach(function(r) {
@@ -199,11 +199,13 @@ function _aggregateTotals(rows) {
 			var key = SECTION_KEY_MAP[section];
 			var c = cells[key] || {};
 			// Daily input / output for selected date
-			totals[key].input  += (c["in"]  || 0);
-			totals[key].output += (c["out"] || 0);
+			totals[key].input   += (c["in"]      || 0);
+			totals[key].output  += (c["out"]     || 0);
+			// Cumulative output — used for WIP
+			totals[key].cum_out += (c["cum_out"] || 0);
 			// MTD and YTD output (from backend)
-			totals[key].mtd    += (c["mtd"] || 0);
-			totals[key].ytd    += (c["ytd"] || 0);
+			totals[key].mtd     += (c["mtd"]     || 0);
+			totals[key].ytd     += (c["ytd"]     || 0);
 		});
 	});
 
@@ -214,6 +216,8 @@ function _aggregateTotals(rows) {
 	totals["KNITTING"].shift2_mtd = 0;
 	totals["KNITTING"].shift1_ytd = 0;
 	totals["KNITTING"].shift2_ytd = 0;
+	totals["KNITTING"].shift1_cum = 0;
+	totals["KNITTING"].shift2_cum = 0;
 	totals["KNITTING"].wastage    = 0;
 
 	rows.forEach(function(r) {
@@ -223,16 +227,20 @@ function _aggregateTotals(rows) {
 		totals["KNITTING"].shift2_mtd += (r.knitting_shift2_mtd || 0);
 		totals["KNITTING"].shift1_ytd += (r.knitting_shift1_ytd || 0);
 		totals["KNITTING"].shift2_ytd += (r.knitting_shift2_ytd || 0);
+		totals["KNITTING"].shift1_cum += (r.knitting_shift1_cum || 0);
+		totals["KNITTING"].shift2_cum += (r.knitting_shift2_cum || 0);
 		totals["KNITTING"].wastage    += (r.knitting_wastage    || 0);
 	});
 
-	// Knitting daily output = shift1 + shift2 (for WIP downstream)
-	totals["KNITTING"].output = totals["KNITTING"].shift1 + totals["KNITTING"].shift2;
+	// Knitting daily output = shift1 + shift2 (for display)
+	totals["KNITTING"].output  = totals["KNITTING"].shift1 + totals["KNITTING"].shift2;
+	// Knitting cumulative output = cum shifts (for WIP downstream)
+	totals["KNITTING"].cum_out = totals["KNITTING"].shift1_cum + totals["KNITTING"].shift2_cum;
 	// Knitting MTD/YTD output = combined shifts
 	totals["KNITTING"].mtd = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
 	totals["KNITTING"].ytd = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
 
-	// ✅ Correct WIP calculation: prev daily OUT - current daily OUT
+	// ✅ WIP = prev cumulative OUT - current cumulative OUT
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
 
@@ -241,11 +249,11 @@ function _aggregateTotals(rows) {
 			return;
 		}
 
-		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-		var prev_out = totals[prev_key].output || 0;
-		var curr_out = totals[key].output      || 0;
+		var prev_key  = SECTION_KEY_MAP[SECTIONS[i - 1]];
+		var prev_cum  = totals[prev_key].cum_out || 0;
+		var curr_cum  = totals[key].cum_out      || 0;
 
-		var wip = prev_out - curr_out;
+		var wip = prev_cum - curr_cum;
 		totals[key].wip = wip < 0 ? 0 : wip;
 	});
 
