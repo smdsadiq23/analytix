@@ -102,7 +102,8 @@ frappe.pages["shopfloor-performance"].on_page_hide = function () {
 	if (_timer) { clearInterval(_timer); _timer = null; }
 };
 
-var _timer = null;
+var _timer    = null;
+var _lastData = [];   // raw rows — kept for popup drill-down
 
 // All sections in pipeline order
 const SECTIONS = [
@@ -167,6 +168,8 @@ function _render(data) {
 		return;
 	}
 
+	_lastData = data;   // save for drill-down popups
+
 	// Aggregate across all style rows
 	var totals = _aggregateTotals(data);
 	var html = "";
@@ -183,6 +186,13 @@ function _render(data) {
 	});
 
 	$grid.html(html);
+
+	// Wire card clicks → drill-down popup
+	$grid.find(".pd-card").on("click", function() {
+		var sectionKey = $(this).data("section-key");
+		var sectionLabel = $(this).data("section-label");
+		_showDrilldown(sectionLabel, sectionKey);
+	});
 }
 
 function _aggregateTotals(rows) {
@@ -269,7 +279,7 @@ function _buildKnittingCard(section, t, rows) {
 	var ytd      = t.ytd      || 0;   // combined shift1_ytd + shift2_ytd
 
 	return `
-		<div class="pd-card">
+		<div class="pd-card pd-card-clickable" data-section-key="KNITTING" data-section-label="KNITTING">
 			<div class="pd-card-header">
 				<span class="pd-card-title">${_e(section)}</span>
 				<span class="pd-card-badge">2 Shifts</span>
@@ -333,7 +343,7 @@ function _buildSectionCard(section, key, t) {
 	var ytd       = t.ytd       || 0;
 
 	return `
-		<div class="pd-card">
+		<div class="pd-card pd-card-clickable" data-section-key="${_e(key)}" data-section-label="${_e(section)}">
 			<div class="pd-card-header">
 				<span class="pd-card-title">${_e(section)}</span>
 			</div>
@@ -385,6 +395,126 @@ function _buildSectionCard(section, key, t) {
 			</div>
 		</div>
 	`;
+}
+
+// ── Drill-down popup ──────────────────────────────────────────────────────────
+
+function _showDrilldown(sectionLabel, sectionKey) {
+	if (!_lastData || !_lastData.length) return;
+	if (sectionKey === "KNITTING") return;  // no Pending In / Actual WIP for KNITTING
+
+	// Build per-style rows — use backend-computed pending_in and actual_wip
+	var styleRows = _lastData.map(function(r) {
+		var cells    = r.cells || {};
+		var cell     = cells[sectionKey] || {};
+		var pendingIn = cell["pending_in"] != null ? cell["pending_in"] : 0;
+		var actualWip = cell["actual_wip"] != null ? cell["actual_wip"] : 0;
+		return {
+			style:      r.style  || "",
+			colour:     r.colour || "",
+			buyer:      r.buyer  || "",
+			pendingIn:  pendingIn,
+			actualWip:  actualWip,
+		};
+	}).filter(function(r) {
+		return r.pendingIn > 0 || r.actualWip > 0;
+	});
+
+	// Sort: highest actualWip first
+	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
+
+	// Build table HTML
+	var tableHtml;
+	if (!styleRows.length) {
+		tableHtml = '<p style="text-align:center;color:#94a3b8;padding:24px 0;">No pending or WIP data for this section.</p>';
+	} else {
+		var tbody = styleRows.map(function(r) {
+			var piCls  = r.pendingIn  > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
+			var wipCls = r.actualWip  > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
+			return `<tr>
+				<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
+				<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
+				<td class="pd-popup-td pd-popup-buyer">${_e(r.buyer)}</td>
+				<td class="pd-popup-td pd-popup-num ${piCls}">${_n(r.pendingIn)}</td>
+				<td class="pd-popup-td pd-popup-num ${wipCls}">${_n(r.actualWip)}</td>
+			</tr>`;
+		}).join("");
+
+		tableHtml = `
+			<div class="pd-popup-table-wrap">
+				<table class="pd-popup-table">
+					<thead>
+						<tr>
+							<th class="pd-popup-th">Style</th>
+							<th class="pd-popup-th">Colour</th>
+							<th class="pd-popup-th">Buyer</th>
+							<th class="pd-popup-th pd-popup-num">
+								<span class="pd-popup-th-badge pd-popup-th-amber">Pending In</span>
+								<div class="pd-popup-th-sub">Prev OUT − Curr IN</div>
+							</th>
+							<th class="pd-popup-th pd-popup-num">
+								<span class="pd-popup-th-badge pd-popup-th-orange">Actual WIP</span>
+								<div class="pd-popup-th-sub">Curr IN − Curr OUT</div>
+							</th>
+						</tr>
+					</thead>
+					<tbody>${tbody}</tbody>
+				</table>
+			</div>`;
+	}
+
+	// Totals
+	var totalPending = styleRows.reduce(function(s, r) { return s + (r.pendingIn || 0); }, 0);
+	var totalWip     = styleRows.reduce(function(s, r) { return s + (r.actualWip || 0); }, 0);
+
+	// Inject popup overlay
+	$("#pd-popup-overlay").remove();
+	var overlayHtml = `
+		<div id="pd-popup-overlay" class="pd-popup-overlay">
+			<div class="pd-popup-box">
+				<div class="pd-popup-header">
+					<div class="pd-popup-title-wrap">
+						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
+						<span class="pd-popup-title">Style-wise Breakdown</span>
+					</div>
+					<div class="pd-popup-summary">
+						<div class="pd-popup-summary-item pd-popup-summary-amber">
+							<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+							<div class="pd-popup-summary-lbl">Total Pending In</div>
+						</div>
+						<div class="pd-popup-summary-item pd-popup-summary-orange">
+							<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+							<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+						</div>
+					</div>
+					<button class="pd-popup-close" id="pd-popup-close">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+					</button>
+				</div>
+				<div class="pd-popup-body">
+					${tableHtml}
+				</div>
+			</div>
+		</div>`;
+
+	$("body").append(overlayHtml);
+
+	// Close handlers
+	$("#pd-popup-close, #pd-popup-overlay").on("click", function(e) {
+		if ($(e.target).is("#pd-popup-overlay") || $(e.target).closest("#pd-popup-close").length) {
+			$("#pd-popup-overlay").remove();
+			$(document).off("keydown.pdpopup");
+		}
+	});
+	$("#pd-popup-overlay .pd-popup-box").on("click", function(e) {
+		e.stopPropagation();
+	});
+	$(document).off("keydown.pdpopup").on("keydown.pdpopup", function(e) {
+		if (e.key === "Escape") {
+			$("#pd-popup-overlay").remove();
+			$(document).off("keydown.pdpopup");
+		}
+	});
 }
 
 function _setError(msg) {

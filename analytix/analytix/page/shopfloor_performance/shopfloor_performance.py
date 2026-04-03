@@ -43,11 +43,12 @@ def get_dashboard_data(date=None):
     knitting_shift1_map = _get_knitting_shift_map_for_period(shift=1, date_condition=daily_condition, params=daily_params)
     knitting_shift2_map = _get_knitting_shift_map_for_period(shift=2, date_condition=daily_condition, params=daily_params)
 
-    # ── Cumulative maps (all-time, no date filter — used for WIP) ────────
+    # ── Cumulative maps (all-time, no date filter — used for WIP & popup) ─
     cum_condition = "1=1"
     cum_params    = {}
 
-    cell_out_cum_map        = _get_cell_op_map_for_period(op_type="last", date_condition=cum_condition, params=cum_params)
+    cell_in_cum_map         = _get_cell_op_map_for_period(op_type="first", date_condition=cum_condition, params=cum_params)
+    cell_out_cum_map        = _get_cell_op_map_for_period(op_type="last",  date_condition=cum_condition, params=cum_params)
     knitting_shift1_cum_map = _get_knitting_shift_map_for_period(shift=1, date_condition=cum_condition, params=cum_params)
     knitting_shift2_cum_map = _get_knitting_shift_map_for_period(shift=2, date_condition=cum_condition, params=cum_params)
 
@@ -92,6 +93,7 @@ def get_dashboard_data(date=None):
         "cell_out_mtd":                defaultdict(int),
         "cell_out_ytd":                defaultdict(int),
         "cell_out_cum":                defaultdict(int),
+        "cell_in_cum":                 defaultdict(int),
         "cell_in_logged_date":         {},
         "cell_out_logged_date":        {},
         "cell_out_last_logged_date":   {},
@@ -129,6 +131,7 @@ def get_dashboard_data(date=None):
             agg[key]["cell_out_mtd"][cell] += cell_out_mtd_map.get((style, colour, size, cell), 0)
             agg[key]["cell_out_ytd"][cell] += cell_out_ytd_map.get((style, colour, size, cell), 0)
             agg[key]["cell_out_cum"][cell] += cell_out_cum_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_in_cum"][cell]  += cell_in_cum_map.get((style, colour, size, cell), 0)
 
             in_d = cell_in_logged_date_map.get((style, colour, size, cell))
             if in_d:
@@ -204,17 +207,25 @@ def get_dashboard_data(date=None):
             cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
             cell_out_ytd = b["cell_out_ytd"].get(cell, 0)
             cell_out_cum = b["cell_out_cum"].get(cell, 0)
+            cell_in_cum  = b["cell_in_cum"].get(cell, 0)
             pct          = round((cell_out / order_qty) * 100) if order_qty else 0
 
-            # WIP uses cumulative (all-time) output: prev cumulative OUT - current cumulative OUT
+            # WIP uses cumulative figures:
+            #   Actual WIP  = cum_in − cum_out  (material entered but not yet exited)
+            #   Pending In  = prev_cum_out − cum_in  (material that left prev cell but not yet entered here)
+            # Backend stores both for the frontend popup.
             if i == 0:
-                wip = None
+                # KNITTING: wip not applicable; cum_in not meaningful (output comes from shift maps)
+                actual_wip = None
+                pending_in = None
             else:
                 prev_cell    = CELL_ORDER[i - 1]
                 prev_out_cum = b["cell_out_cum"].get(prev_cell, 0)
-                wip = prev_out_cum - cell_out_cum
-                if wip < 0:
-                    wip = 0
+                actual_wip   = max(0, cell_in_cum - cell_out_cum)
+                pending_in   = max(0, prev_out_cum - cell_in_cum)
+
+            # Legacy wip field = actual_wip (keeps card display unchanged)
+            wip = actual_wip
 
             # Days calculation (still cumulative — unchanged)
             if cell in NO_IN_CELLS:
@@ -229,23 +240,28 @@ def get_dashboard_data(date=None):
                 days = (today - first_ref).days if first_ref else None
 
             cells[cell] = {
-                "in":      cell_in,
-                "out":     cell_out,
-                "cum_out": cell_out_cum,
-                "mtd":     cell_out_mtd,
-                "ytd":     cell_out_ytd,
-                "wip":     wip,
-                "pct":     pct,
-                "days":    days,
+                "in":         cell_in,
+                "out":        cell_out,
+                "cum_out":    cell_out_cum,
+                "cum_in":     cell_in_cum,
+                "pending_in": pending_in,
+                "actual_wip": actual_wip,
+                "mtd":        cell_out_mtd,
+                "ytd":        cell_out_ytd,
+                "wip":        wip,
+                "pct":        pct,
+                "days":       days,
             }
 
         # KNITTING cum_out is sourced from shift maps, not cell_op_map — patch it
         knitting_cum = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
         cells["KNITTING"]["cum_out"] = knitting_cum
 
-        # Re-derive MENDING WIP now that KNITTING cum_out is correct
-        mending_wip = knitting_cum - cells["MENDING"]["cum_out"]
-        cells["MENDING"]["wip"] = max(mending_wip, 0)
+        # Re-derive MENDING figures now that KNITTING cum_out is correct
+        mending_in_cum  = cells["MENDING"]["cum_in"]
+        cells["MENDING"]["pending_in"] = max(0, knitting_cum - mending_in_cum)
+        cells["MENDING"]["actual_wip"] = max(0, mending_in_cum - cells["MENDING"]["cum_out"])
+        cells["MENDING"]["wip"]        = cells["MENDING"]["actual_wip"]
 
         # ── Lead Days ──────────────────────────────────────────────────────
         knitting_first_ref = _to_date(b["knitting_first_logged"])
