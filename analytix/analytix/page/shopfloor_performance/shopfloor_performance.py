@@ -23,34 +23,55 @@ CELL_ORDER = [
 
 
 @frappe.whitelist()
-def get_dashboard_data():
+def get_dashboard_data(date=None):
+    # Default to today if no date provided
+    if not date:
+        date = _date.today().isoformat()
+
     order_map = _get_order_map()
     if not order_map:
         return []
 
-    # Two separate maps:
-    #   cell_in_map  — qty that completed the FIRST operation of each cell
-    #   cell_out_map — qty that completed the LAST operation of each cell
-    # For a single-operation cell, first = last so both maps return the same qty.
-    cell_in_map   = _get_cell_op_map(op_type="first")
-    cell_out_map  = _get_cell_op_map(op_type="last")
+    # ── Daily maps (scans on the selected date only) ──────────────────────
+    daily_condition = "DATE(isl.logged_time) = %(filter_date)s"
+    daily_params    = {"filter_date": date}
 
-    # Knitting shift maps — shift 1: 10am-8pm, shift 2: 8pm-next day 10am
-    knitting_shift1_map = _get_knitting_shift_map(shift=1)
-    knitting_shift2_map = _get_knitting_shift_map(shift=2)
+    cell_in_map  = _get_cell_op_map_for_period(op_type="first", date_condition=daily_condition, params=daily_params)
+    cell_out_map = _get_cell_op_map_for_period(op_type="last",  date_condition=daily_condition, params=daily_params)
 
-    # First logged date maps — earliest logged_time per (style, colour, size, cell)
+    # Knitting shift maps — shift 1: 10am–8pm, shift 2: 8pm–next day 10am (daily)
+    knitting_shift1_map = _get_knitting_shift_map_for_period(shift=1, date_condition=daily_condition, params=daily_params)
+    knitting_shift2_map = _get_knitting_shift_map_for_period(shift=2, date_condition=daily_condition, params=daily_params)
+
+    # ── MTD maps (scans from start of selected month up to and including selected date) ──
+    mtd_condition = (
+        "YEAR(isl.logged_time) = YEAR(%(filter_date)s) "
+        "AND MONTH(isl.logged_time) = MONTH(%(filter_date)s) "
+        "AND DATE(isl.logged_time) <= %(filter_date)s"
+    )
+    mtd_params = {"filter_date": date}
+
+    cell_out_mtd_map = _get_cell_op_map_for_period(op_type="last", date_condition=mtd_condition, params=mtd_params)
+    knitting_shift1_mtd = _get_knitting_shift_map_for_period(shift=1, date_condition=mtd_condition, params=mtd_params)
+    knitting_shift2_mtd = _get_knitting_shift_map_for_period(shift=2, date_condition=mtd_condition, params=mtd_params)
+
+    # ── YTD maps (scans from start of selected year up to and including selected date) ──
+    ytd_condition = (
+        "YEAR(isl.logged_time) = YEAR(%(filter_date)s) "
+        "AND DATE(isl.logged_time) <= %(filter_date)s"
+    )
+    ytd_params = {"filter_date": date}
+
+    cell_out_ytd_map = _get_cell_op_map_for_period(op_type="last", date_condition=ytd_condition, params=ytd_params)
+    knitting_shift1_ytd = _get_knitting_shift_map_for_period(shift=1, date_condition=ytd_condition, params=ytd_params)
+    knitting_shift2_ytd = _get_knitting_shift_map_for_period(shift=2, date_condition=ytd_condition, params=ytd_params)
+
+    # ── Date reference maps (still cumulative — for lead days / completion tracking) ──
     cell_in_logged_date_map       = _get_cell_first_logged_date_map(op_type="first")
     cell_out_logged_date_map      = _get_cell_first_logged_date_map(op_type="last")
-
-    # Last logged date maps
     cell_out_last_logged_date_map = _get_cell_last_logged_date_map()
-
-    # Knitting first logged_time per (style, colour, size)
-    knitting_logged_time_map = _get_knitting_first_logged_time_map()
-
-    # Earliest logged_time per (style, colour, size) — used for sorting
-    logged_time_map = _get_min_logged_time_map()
+    knitting_logged_time_map      = _get_knitting_first_logged_time_map()
+    logged_time_map               = _get_min_logged_time_map()
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
@@ -60,12 +81,18 @@ def get_dashboard_data():
         "min_logged_time":             None,
         "cell_in":                     defaultdict(int),
         "cell_out":                    defaultdict(int),
+        "cell_out_mtd":                defaultdict(int),
+        "cell_out_ytd":                defaultdict(int),
         "cell_in_logged_date":         {},
         "cell_out_logged_date":        {},
         "cell_out_last_logged_date":   {},
         "knitting_first_logged":       None,
         "knitting_shift1":             0,
         "knitting_shift2":             0,
+        "knitting_shift1_mtd":         0,
+        "knitting_shift2_mtd":         0,
+        "knitting_shift1_ytd":         0,
+        "knitting_shift2_ytd":         0,
     })
 
     for (style, colour, size), info in order_map.items():
@@ -86,8 +113,10 @@ def get_dashboard_data():
             agg[key]["knitting_first_logged"] = klt
 
         for cell in CELL_ORDER:
-            agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_out"][cell] += cell_out_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_in"][cell]      += cell_in_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out"][cell]     += cell_out_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out_mtd"][cell] += cell_out_mtd_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out_ytd"][cell] += cell_out_ytd_map.get((style, colour, size, cell), 0)
 
             in_d = cell_in_logged_date_map.get((style, colour, size, cell))
             if in_d:
@@ -107,9 +136,17 @@ def get_dashboard_data():
                 if ex is None or last_out_d > ex:
                     agg[key]["cell_out_last_logged_date"][cell] = last_out_d
 
-        # Knitting shifts
+        # Daily knitting shifts
         agg[key]["knitting_shift1"] += knitting_shift1_map.get((style, colour, size), 0)
         agg[key]["knitting_shift2"] += knitting_shift2_map.get((style, colour, size), 0)
+
+        # MTD knitting shifts
+        agg[key]["knitting_shift1_mtd"] += knitting_shift1_mtd.get((style, colour, size), 0)
+        agg[key]["knitting_shift2_mtd"] += knitting_shift2_mtd.get((style, colour, size), 0)
+
+        # YTD knitting shifts
+        agg[key]["knitting_shift1_ytd"] += knitting_shift1_ytd.get((style, colour, size), 0)
+        agg[key]["knitting_shift2_ytd"] += knitting_shift2_ytd.get((style, colour, size), 0)
 
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
@@ -144,36 +181,30 @@ def get_dashboard_data():
         order_qty   = b["order_qty"]
         planned_qty = b["planned_qty"]
 
-        # Build per-cell data with corrected WIP formula:
-        # WIP = (previous cell OUT + current cell IN) - current cell OUT
-        # For the first cell (KNITTING), there is no previous cell, so WIP is not shown.
         cells = {}
         for i, cell in enumerate(CELL_ORDER):
-            cell_in  = b["cell_in"].get(cell, 0)
-            cell_out = b["cell_out"].get(cell, 0)
-            pct      = round((cell_out / order_qty) * 100) if order_qty else 0
+            cell_in      = b["cell_in"].get(cell, 0)
+            cell_out     = b["cell_out"].get(cell, 0)
+            cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
+            cell_out_ytd = b["cell_out_ytd"].get(cell, 0)
+            pct          = round((cell_out / order_qty) * 100) if order_qty else 0
 
-            # WIP formula: previous cell OUT + current cell IN - current cell OUT
+            # WIP: previous OUT - current OUT (daily figures)
             if i == 0:
-                # KNITTING: no WIP
                 wip = None
             else:
                 prev_cell = CELL_ORDER[i - 1]
                 prev_out  = b["cell_out"].get(prev_cell, 0)
-
-                # New WIP formula: previous OUT - current OUT
                 wip = prev_out - cell_out
-
                 if wip < 0:
                     wip = 0
 
-            # Determine the "start" reference date for this cell
+            # Days calculation (still cumulative — unchanged)
             if cell in NO_IN_CELLS:
                 first_ref = _to_date(b["cell_out_logged_date"].get(cell))
             else:
                 first_ref = _to_date(b["cell_in_logged_date"].get(cell))
 
-            # Days calculation
             if cell_out >= planned_qty:
                 last_out_ref = _to_date(b["cell_out_last_logged_date"].get(cell))
                 days = (last_out_ref - first_ref).days if (first_ref and last_out_ref) else None
@@ -183,6 +214,8 @@ def get_dashboard_data():
             cells[cell] = {
                 "in":   cell_in,
                 "out":  cell_out,
+                "mtd":  cell_out_mtd,
+                "ytd":  cell_out_ytd,
                 "wip":  wip,
                 "pct":  pct,
                 "days": days,
@@ -211,8 +244,12 @@ def get_dashboard_data():
         if completion_pct >= 105:
             continue
 
-        if cells["KNITTING"]["in"] == 0:
-            continue
+        if cells["KNITTING"]["in"] == 0 and cells["KNITTING"]["out"] == 0:
+            # Skip styles with zero activity on selected date
+            # But keep if they have MTD/YTD data — guard changed:
+            # Only skip if there's NO knitting output in MTD either
+            if (b["knitting_shift1_mtd"] + b["knitting_shift2_mtd"]) == 0:
+                continue
 
         result.append({
             "style":              style,
@@ -227,7 +264,11 @@ def get_dashboard_data():
             "lead_days":          lead_days,
             "knitting_shift1":    b["knitting_shift1"],
             "knitting_shift2":    b["knitting_shift2"],
-            "knitting_wastage":   0  # wastage is common for knitting
+            "knitting_shift1_mtd": b["knitting_shift1_mtd"],
+            "knitting_shift2_mtd": b["knitting_shift2_mtd"],
+            "knitting_shift1_ytd": b["knitting_shift1_ytd"],
+            "knitting_shift2_ytd": b["knitting_shift2_ytd"],
+            "knitting_wastage":   0,
         })
 
     return result
@@ -313,18 +354,19 @@ def _get_knitting_first_logged_time_map():
     return {(r.style, r.colour, r.size): r.first_logged_time for r in rows}
 
 
-def _get_knitting_shift_map(shift=1):
+def _get_knitting_shift_map_for_period(shift=1, date_condition="1=1", params=None):
     """
-    Returns total scanned qty per (style, colour, size) for KNITTING by shift:
-      Shift 1: scans between 10:00 AM and 20:00 (8 PM) — same day
-      Shift 2: scans between 20:00 (8 PM) and next day 10:00 AM
-    Uses TIME() on logged_time for shift bucketing.
+    Returns total scanned qty per (style, colour, size) for KNITTING by shift,
+    filtered to the given date_condition.
+      Shift 1: 10:00 AM – 20:00 (8 PM)
+      Shift 2: 20:00 (8 PM) – next day 10:00 AM
     """
+    if params is None:
+        params = {}
+
     if shift == 1:
-        # Shift 1: 10:00 <= TIME(logged_time) < 20:00
         time_condition = "TIME(isl.logged_time) >= '10:00:00' AND TIME(isl.logged_time) < '20:00:00'"
     else:
-        # Shift 2: TIME(logged_time) >= 20:00 OR TIME(logged_time) < 10:00
         time_condition = "(TIME(isl.logged_time) >= '20:00:00' OR TIME(isl.logged_time) < '10:00:00')"
 
     rows = frappe.db.sql(f"""
@@ -346,22 +388,27 @@ def _get_knitting_shift_map(shift=1):
         INNER JOIN `tabPhysical Cell` pc        ON pc.name = isl.physical_cell
         WHERE pc.cell_name = 'KNITTING'
           AND isl.log_status = 'Completed'
+          AND {date_condition}
           AND {time_condition}
           AND (
               isl.status IN ('Counted', 'Activated', 'Pass')
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
           )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
-    """, as_dict=True)
+    """, values=params, as_dict=True)
 
     return {(r.style, r.colour, r.size): int(r.qty) for r in rows}
 
 
-def _get_cell_op_map(op_type="last"):
+def _get_cell_op_map_for_period(op_type="last", date_condition="1=1", params=None):
     """
     Returns qty per (style, colour, size, cell_name) for either
-    the first or last operation of each physical cell.
+    the first or last operation of each physical cell,
+    filtered to the given date_condition.
     """
+    if params is None:
+        params = {}
+
     op_field         = "first_operation" if op_type == "first" else "last_operation"
     mending_op       = "MENDING IN"      if op_type == "first" else "MENDING OUT"
     cell_list        = ", ".join([f"'{c}'" for c in CELL_ORDER])
@@ -395,13 +442,14 @@ def _get_cell_op_map(op_type="last"):
                 ELSE pcflo.{op_field}
               END
           AND isl.log_status = 'Completed'
+          AND {date_condition}
           AND pc.cell_name IN ({cell_list})
           AND (
               isl.status IN ('Counted', 'Activated', 'Pass')
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
           )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
-    """, as_dict=True)
+    """, values=params, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
 
