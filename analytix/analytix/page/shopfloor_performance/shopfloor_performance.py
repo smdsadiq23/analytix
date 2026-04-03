@@ -423,7 +423,7 @@ def _get_knitting_shift_map_for_period(shift=1, date_condition="1=1", params=Non
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
           )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
-    """, values=params, as_dict=True)
+    """, params or None, as_dict=True)
 
     return {(r.style, r.colour, r.size): int(r.qty) for r in rows}
 
@@ -477,7 +477,7 @@ def _get_cell_op_map_for_period(op_type="last", date_condition="1=1", params=Non
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
           )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
-    """, values=params, as_dict=True)
+    """, params or None, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
 
