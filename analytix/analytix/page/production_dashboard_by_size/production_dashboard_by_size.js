@@ -95,7 +95,7 @@ frappe.pages["production-dashboard-by-size"].on_page_show = function (wrapper) {
 
 	if (_timer) { clearInterval(_timer); _timer = null; }
 	_load(cellName);
-	// _resetAutoScroll();
+	_resetAutoScroll();
 	_timer = setInterval(function() { _load(_activeCell); /* _resetAutoScroll(); */ }, 60000);
 };
 
@@ -105,7 +105,7 @@ frappe.pages["production-dashboard-by-size"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
 	if (_timer) { clearInterval(_timer); _timer = null; }
-	// _stopAutoScroll();
+	_stopAutoScroll();
 };
 
 var _timer      = null;
@@ -114,7 +114,7 @@ var _activeCell = "KNITTING";   // tracks current cell across timer ticks
 // Cells with only one operation — IN has no meaning, display "NA" instead
 const SINGLE_OP_CELLS = ["KNITTING", "FINAL CHECK"];
 
-const SCROLL_CONFIG = { step: 90, interval: 5000, pauseOnHover: true, edgePause: 2000 };
+const SCROLL_CONFIG = { step: 90, interval: 30000, pauseOnHover: true, edgePause: 2000 };
 var _scrollTimer     = null;
 var _scrollDirection = 1;
 var _edgePauseTimer  = null;
@@ -229,7 +229,7 @@ function _render(rows, cellName) {
 		html += "</div></td></tr>";
 	});
 	$("#lkd-tbody").html(html);
-	// _resetAutoScroll();
+	_resetAutoScroll();
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
