@@ -116,17 +116,37 @@ def get_columns():
     ]
 
 
-def get_raw_data():
+def get_raw_data(filters=None):
     """
     Lean SQL — fetches only raw scalar fields.
     No expressions, no CASE, no arithmetic in SQL.
+    Filters:
+      - process_date        : DATE(isl.logged_time) — defaults to today
+      - operator_not_filled : 1/True → only rows where custom_operator is blank
     """
+    filters = filters or {}
+
+    conditions = [
+        "pc.cell_name = 'KNITTING'",
+        "isl.operation = 'KNITTING OUT'",
+        "isl.log_status = 'Completed'",
+        "isl.status IN ('Counted', 'Pass')",
+        "DATE(isl.logged_time) = %(process_date)s",
+    ]
+
+    if filters.get("operator_not_filled"):
+        conditions.append(
+            "(isl.custom_operator IS NULL OR isl.custom_operator = '')"
+        )
+
+    where_clause = " AND ".join(conditions)
+
     return frappe.db.sql(
-        """
+        f"""
         SELECT
             isl.name                                    AS isl_name,
             DATE(isl.logged_time)                       AS process_date,
-            TIME_FORMAT(isl.logged_time, '%H:%i:%s')    AS process_time,
+            TIME_FORMAT(isl.logged_time, '%%H:%%i:%%s') AS process_time,
             tt.tag_number                               AS rfid_tag,
             so.custom_brand                             AS buyer,
             itm.custom_style_master                     AS style,
@@ -164,18 +184,16 @@ def get_raw_data():
             ON wol.parent = tbc.work_order AND wol.size = tbc.size
         LEFT JOIN `tabEmployee` emp
             ON emp.name = isl.custom_operator
-        WHERE pc.cell_name = 'KNITTING'
-            AND isl.operation = 'KNITTING OUT'
-            AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted', 'Pass')
+        WHERE {where_clause}
         ORDER BY isl.logged_time DESC
         """,
+        {"process_date": filters.get("process_date") or frappe.utils.today()},
         as_dict=True,
     )
 
 
 def get_data(filters=None):
-    rows = get_raw_data()
+    rows = get_raw_data(filters)
     result = []
 
     for row in rows:

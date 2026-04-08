@@ -2,7 +2,21 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Knitting Data Entry"] = {
-    filters: [],
+    filters: [
+        {
+            fieldname:  "process_date",
+            label:      __("Process Date"),
+            fieldtype:  "Date",
+            default:    frappe.datetime.get_today(),
+            reqd:       1,
+        },
+        {
+            fieldname:  "operator_not_filled",
+            label:      __("Operator Not Filled"),
+            fieldtype:  "Check",
+            default:    1,
+        },
+    ],
 
     // ── Column formatters ─────────────────────────────────────────────────────
     formatter(value, row, column, data, default_formatter) {
