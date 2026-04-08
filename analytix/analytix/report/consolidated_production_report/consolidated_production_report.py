@@ -1,9 +1,10 @@
 # Copyright (c) 2026 Your Company.
 # Consolidated Production Report - Cutting from Cut Confirmation, Sew/Fin from Scan Log
-# YTD period starts from February 1st for 2026 only (special fiscal year requirement)
 
 import frappe
 from datetime import date
+from frappe.utils import getdate
+from erpnext.accounts.utils import get_fiscal_year
 
 def execute(filters=None):
     as_on_date_str = filters.get("as_on_date") if filters else None
@@ -14,11 +15,15 @@ def execute(filters=None):
 
     first_day_month = as_on_date.replace(day=1)
     
-    # Special YTD logic: Start from Feb 1 for 2026 only, otherwise Jan 1
-    if as_on_date.year == 2026:
-        ytd_start_date = as_on_date.replace(month=2, day=1)
-    else:
-        ytd_start_date = as_on_date.replace(month=1, day=1)
+    # # Special YTD logic: Start from Feb 1 for 2026 only, otherwise Jan 1
+    # if as_on_date.year == 2026:
+    #     ytd_start_date = as_on_date.replace(month=2, day=1)
+    # else:
+    #     ytd_start_date = as_on_date.replace(month=1, day=1)
+
+    # Get fiscal year start date
+    fiscal_year = get_fiscal_year(as_on_date, as_dict=True)
+    ytd_start_date = fiscal_year.year_start_date
 
     # Fetch cutting data (from Cut Confirmation)
     cutting_rows = get_cutting_data(from_date=ytd_start_date, to_date=as_on_date)
@@ -97,8 +102,10 @@ def execute(filters=None):
                 unit_summary[factory_name]["finishing_ytd"] += qty
 
     report_date = as_on_date.strftime("%d %b %Y")
-    fiscal_note = " (YTD from Feb 1)" if as_on_date.year == 2026 else ""
-    message = f"Report as on {report_date}{fiscal_note}"
+    # fiscal_note = " (YTD from Feb 1)" if as_on_date.year == 2026 else ""
+    # message = f"Report as on {report_date}{fiscal_note}"
+    
+    message = f"Report as on {report_date} (YTD from Fiscal Year Start)"
 
     sorted_data = sorted(unit_summary.values(), key=lambda x: x['unit'])
     return get_columns(), sorted_data, message
