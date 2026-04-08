@@ -24,6 +24,7 @@ def get_columns():
         {"label": _("Order Qty"), "fieldname": "order_qty", "fieldtype": "Int", "width": 100},
         {"label": _("Fabric Ordered"), "fieldname": "fabric_ordered", "fieldtype": "Float", "width": 120},
         {"label": _("Fabric Issued"), "fieldname": "fabric_issued", "fieldtype": "Float", "width": 140},
+        {"label": _("Fabric Used"), "fieldname": "total_roll_weight", "fieldtype": "Float", "width": 140},
         {"label": _("Folding"), "fieldname": "folding", "fieldtype": "Data", "width": 120},
 
         {"label": _("Calculated End Bit"), "fieldname": "calculated_end_bit", "fieldtype": "Float", "width": 120},
@@ -97,6 +98,7 @@ def get_data(filters):
             cc.fabric_issued,
             cc.folding,
 
+            clr.total_roll_weight       AS total_roll_weight,
             clr.end_bit_quantity        AS calculated_end_bit,
             clr.actual_end_bit_quanity  AS actual_end_bit,
             clr.chindi_weight           AS chindi_weight,
@@ -148,6 +150,7 @@ def get_data(filters):
             SELECT
                 ocn,
                 colour,
+                SUM(total_roll_weight)      AS total_roll_weight,
                 SUM(end_bit_quantity)       AS end_bit_quantity,
                 SUM(actual_end_bit_quanity) AS actual_end_bit_quanity,
                 SUM(chindi_weight)          AS chindi_weight
