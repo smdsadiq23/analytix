@@ -150,7 +150,7 @@ def get_data(filters):
             SELECT
                 ocn,
                 colour,
-                SUM(acutal_total_roll_weight)   AS total_roll_weight,
+                SUM(actual_total_roll_weight)   AS total_roll_weight,
                 SUM(end_bit_quantity)           AS end_bit_quantity,
                 SUM(actual_end_bit_quanity)     AS actual_end_bit_quanity,
                 SUM(chindi_weight)              AS chindi_weight
