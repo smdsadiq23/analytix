@@ -22,8 +22,15 @@ def execute(filters=None):
     #     ytd_start_date = as_on_date.replace(month=1, day=1)
 
     # Get fiscal year start date
-    fiscal_year = get_fiscal_year(as_on_date, as_dict=True)
-    ytd_start_date = fiscal_year.year_start_date
+    try:
+        fiscal_year = get_fiscal_year(as_on_date, as_dict=True)
+        ytd_start_date = fiscal_year.year_start_date
+    except:
+        # fallback to April logic (India FY)
+        if as_on_date.month >= 4:
+            ytd_start_date = as_on_date.replace(month=4, day=1)
+        else:
+            ytd_start_date = as_on_date.replace(year=as_on_date.year - 1, month=4, day=1)
 
     # Fetch cutting data (from Cut Confirmation)
     cutting_rows = get_cutting_data(from_date=ytd_start_date, to_date=as_on_date)
