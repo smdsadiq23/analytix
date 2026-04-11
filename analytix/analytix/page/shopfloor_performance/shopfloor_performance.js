@@ -57,8 +57,6 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 				</div>
 			</div>
 
-			<div id="pd-detail-panel" class="pd-detail-panel" style="display:none;"></div>
-
 			<div class="pd-footer">
 				<span id="pd-updated">Last updated: --</span>
 				<span class="pd-auto-note">
@@ -102,6 +100,7 @@ frappe.pages["shopfloor-performance"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
 	if (_timer) { clearInterval(_timer); _timer = null; }
+	_closeModal();
 };
 
 var _timer    = null;
@@ -137,12 +136,17 @@ const SECTION_KEY_MAP = {
 	"PACKING":        "PACKING",
 };
 
+function _closeModal() {
+	$("#pd-modal-overlay").remove();
+	$("#pd-grid .pd-card").removeClass("pd-card-active");
+	$(document).off("keydown.pddetail");
+}
+
 function _load() {
 	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
 
-	// Close detail panel on reload
-	$("#pd-detail-panel").hide().data("active-key", null);
-	$("#pd-grid .pd-card").removeClass("pd-card-active");
+	// Close modal on reload
+	_closeModal();
 
 	$("#pd-refresh-btn").addClass("loading");
 	frappe.call({
@@ -189,7 +193,7 @@ function _render(data) {
 
 	$grid.html(html);
 
-	// Wire card clicks → inline drill-down
+	// Wire card clicks → modal popup drill-down
 	$grid.find(".pd-card").on("click", function() {
 		var sectionKey   = $(this).data("section-key");
 		var sectionLabel = $(this).data("section-label");
@@ -384,27 +388,26 @@ function _buildSectionCard(section, key, t) {
 	`;
 }
 
-// ── Inline drill-down panel ───────────────────────────────────────────────────
+// ── Modal popup drill-down ────────────────────────────────────────────────────
 
 function _showDrilldown(sectionLabel, sectionKey) {
-	var $panel = $("#pd-detail-panel");
-
-	// Clicking the same card again collapses the panel
-	if ($panel.data("active-key") === sectionKey && $panel.is(":visible")) {
-		$panel.hide().data("active-key", null);
-		$("#pd-grid .pd-card").removeClass("pd-card-active");
-		$(document).off("keydown.pddetail");
+	// If same card clicked while modal is open, close it
+	var $existing = $("#pd-modal-overlay");
+	if ($existing.length && $existing.data("active-key") === sectionKey) {
+		_closeModal();
 		return;
 	}
 
 	// KNITTING has no per-style WIP data
 	if (sectionKey === "KNITTING") {
-		$panel.hide().data("active-key", null);
-		$("#pd-grid .pd-card").removeClass("pd-card-active");
+		_closeModal();
 		return;
 	}
 
 	if (!_lastData || !_lastData.length) return;
+
+	// Remove any existing modal
+	$existing.remove();
 
 	// Highlight active card
 	$("#pd-grid .pd-card").removeClass("pd-card-active");
@@ -473,54 +476,51 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			</div>`;
 	}
 
-	$panel.html(`
-		<div class="pd-detail-inner">
-			<div class="pd-detail-header">
-				<div class="pd-detail-title-wrap">
-					<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
-					<span class="pd-popup-title">Style-wise Breakdown</span>
-				</div>
-				<div class="pd-popup-summary">
-					<div class="pd-popup-summary-item pd-popup-summary-amber">
-						<div class="pd-popup-summary-val">${_n(totalPending)}</div>
-						<div class="pd-popup-summary-lbl">Total Pending In</div>
+	var $overlay = $(`
+		<div id="pd-modal-overlay" class="pd-modal-overlay">
+			<div class="pd-modal-box">
+				<div class="pd-detail-header">
+					<div class="pd-detail-title-wrap">
+						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
+						<span class="pd-popup-title">Style-wise Breakdown</span>
 					</div>
-					<div class="pd-popup-summary-item pd-popup-summary-orange">
-						<div class="pd-popup-summary-val">${_n(totalWip)}</div>
-						<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+					<div class="pd-popup-summary">
+						<div class="pd-popup-summary-item pd-popup-summary-amber">
+							<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+							<div class="pd-popup-summary-lbl">Total Pending In</div>
+						</div>
+						<div class="pd-popup-summary-item pd-popup-summary-orange">
+							<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+							<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+						</div>
 					</div>
+					<button class="pd-popup-close" id="pd-detail-close" title="Close">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+					</button>
 				</div>
-				<button class="pd-popup-close" id="pd-detail-close" title="Close">
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-					</svg>
-				</button>
-			</div>
-			<div class="pd-detail-body">
-				${tableHtml}
+				<div class="pd-detail-body">
+					${tableHtml}
+				</div>
 			</div>
 		</div>
 	`);
 
-	$panel.data("active-key", sectionKey).show();
+	$overlay.data("active-key", sectionKey);
+	$("body").append($overlay);
 
-	// Smooth scroll so the panel is visible
-	$("html, body").animate({ scrollTop: $panel.offset().top - 16 }, 280);
+	// Close on backdrop click
+	$overlay.on("click", function(e) {
+		if ($(e.target).is("#pd-modal-overlay")) { _closeModal(); }
+	});
 
 	// Close button
-	$("#pd-detail-close").on("click", function() {
-		$panel.hide().data("active-key", null);
-		$("#pd-grid .pd-card").removeClass("pd-card-active");
-		$(document).off("keydown.pddetail");
-	});
+	$("#pd-detail-close").on("click", function() { _closeModal(); });
 
 	// ESC key
 	$(document).off("keydown.pddetail").on("keydown.pddetail", function(e) {
-		if (e.key === "Escape") {
-			$panel.hide().data("active-key", null);
-			$("#pd-grid .pd-card").removeClass("pd-card-active");
-			$(document).off("keydown.pddetail");
-		}
+		if (e.key === "Escape") { _closeModal(); }
 	});
 }
 

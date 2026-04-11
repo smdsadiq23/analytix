@@ -8,36 +8,49 @@
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
 }
 
-/* Active card highlight when drill-down is open */
+/* Active card highlight when modal is open */
 .pd-card-active {
     border: 1.5px solid rgba(59,130,246,0.6) !important;
     box-shadow: 0 0 0 3px rgba(59,130,246,0.12), 0 8px 24px rgba(0,0,0,0.35) !important;
     transform: translateY(-2px);
 }
 
-/* ── Inline detail panel ──────────────────────────────────────── */
-.pd-detail-panel {
-    margin: 0 16px 16px;
+/* ── Modal overlay ────────────────────────────────────────────── */
+.pd-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pd-overlay-fade-in 0.18s ease;
+}
+
+@keyframes pd-overlay-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.pd-modal-box {
+    display: flex;
+    flex-direction: column;
+    width: min(860px, 92vw);
+    max-height: 80vh;
     border-radius: 14px;
     border: 1px solid rgba(59,130,246,0.25);
     background: #1e2a45;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
     overflow: hidden;
-    animation: pd-detail-slide-in 0.2s ease;
+    animation: pd-modal-pop-in 0.2s ease;
 }
 
-@keyframes pd-detail-slide-in {
-    from { opacity: 0; transform: translateY(-8px); }
-    to   { opacity: 1; transform: translateY(0); }
+@keyframes pd-modal-pop-in {
+    from { opacity: 0; transform: scale(0.95) translateY(-12px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.pd-detail-inner {
-    display: flex;
-    flex-direction: column;
-    max-height: 420px;
-}
-
-/* ── Detail header (reuses popup header styles + own layout) ──── */
+/* ── Detail header ────────────────────────────────────────────── */
 .pd-detail-header {
     display: flex;
     align-items: center;
@@ -70,7 +83,7 @@
     font-size: 13px;
 }
 
-/* ── Shared badge / title / summary / close (used by detail panel) */
+/* ── Badge / title / summary / close ─────────────────────────── */
 .pd-popup-section-badge {
     background: #3b82f6;
     color: #fff;
