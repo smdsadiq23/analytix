@@ -32,6 +32,10 @@ def get_dashboard_data(date=None):
     if not order_map:
         return []
 
+    # Which physical cells are actually in the operation map for each (style, colour, size)?
+    # Used to skip non-applicable cells in WIP and pending_in calculations.
+    applicable_cells_map = _get_applicable_cells_map()
+
     # ── Daily maps (scans on the selected date only) ──────────────────────
     daily_condition = "DATE(isl.logged_time) = %(filter_date)s"
     daily_params    = {"filter_date": date}
@@ -106,12 +110,21 @@ def get_dashboard_data(date=None):
         "knitting_shift2_ytd":         0,
         "knitting_shift1_cum":         0,
         "knitting_shift2_cum":         0,
+        # Cells actually present in the Cut Kit operation map for this group.
+        # KNITTING is always included (output sourced from shift maps, not pcflo).
+        "applicable_cells":            set(),
     })
 
     for (style, colour, size), info in order_map.items():
         key = (info.buyer or "", info.season or "", style, colour)
         agg[key]["order_qty"]   += int(info.order_qty or 0)
         agg[key]["planned_qty"] += int(info.planned_qty or 0)
+
+        # Accumulate applicable cells from the Cut Kit operation map.
+        # KNITTING is always included because its output is tracked via shift maps.
+        sku_cells = applicable_cells_map.get((style, colour, size), set())
+        agg[key]["applicable_cells"] |= sku_cells
+        agg[key]["applicable_cells"].add("KNITTING")
 
         d = info.delivery_date
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
@@ -200,29 +213,56 @@ def get_dashboard_data(date=None):
         order_qty   = b["order_qty"]
         planned_qty = b["planned_qty"]
 
+        # Pre-compute KNITTING cum_out from shift maps (used throughout WIP logic below).
+        knitting_cum = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
+
+        # Cells that are actually part of this style's Cut Kit operation map.
+        # Fall back to all cells if the map is empty (e.g. legacy data with no pcflo rows).
+        applicable_cells = b["applicable_cells"] or set(CELL_ORDER)
+
         cells = {}
         for i, cell in enumerate(CELL_ORDER):
             cell_in      = b["cell_in"].get(cell, 0)
             cell_out     = b["cell_out"].get(cell, 0)
             cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
             cell_out_ytd = b["cell_out_ytd"].get(cell, 0)
-            cell_out_cum = b["cell_out_cum"].get(cell, 0)
+            # For KNITTING, override cum_out with the authoritative shift-map total.
+            cell_out_cum = knitting_cum if cell == "KNITTING" else b["cell_out_cum"].get(cell, 0)
             cell_in_cum  = b["cell_in_cum"].get(cell, 0)
             pct          = round((cell_out / order_qty) * 100) if order_qty else 0
 
             # WIP uses cumulative figures:
             #   Actual WIP  = cum_in − cum_out  (material entered but not yet exited)
-            #   Pending In  = prev_cum_out − cum_in  (material that left prev cell but not yet entered here)
-            # Backend stores both for the frontend popup.
+            #   Pending In  = prev_applicable_cum_out − cum_in
+            #
+            # Only compute WIP for cells that are in the Cut Kit operation map.
+            # Non-applicable cells (e.g. CUTTING skipped for a plain knit style) get None
+            # so the frontend can render them as N/A rather than showing misleading zeros.
             if i == 0:
-                # KNITTING: wip not applicable; cum_in not meaningful (output comes from shift maps)
+                # KNITTING: wip not applicable; cum_out is set from shift maps above.
+                actual_wip = None
+                pending_in = None
+            elif cell not in applicable_cells:
+                # This physical cell is not part of the operation map for this style.
                 actual_wip = None
                 pending_in = None
             else:
-                prev_cell    = CELL_ORDER[i - 1]
-                prev_out_cum = b["cell_out_cum"].get(prev_cell, 0)
-                actual_wip   = max(0, cell_in_cum - cell_out_cum)
-                pending_in   = max(0, prev_out_cum - cell_in_cum)
+                # Walk backwards to find the nearest applicable predecessor cell.
+                prev_applicable = None
+                for j in range(i - 1, -1, -1):
+                    if CELL_ORDER[j] in applicable_cells:
+                        prev_applicable = CELL_ORDER[j]
+                        break
+
+                if prev_applicable == "KNITTING":
+                    prev_out_cum = knitting_cum
+                elif prev_applicable:
+                    prev_out_cum = b["cell_out_cum"].get(prev_applicable, 0)
+                else:
+                    prev_out_cum = 0
+
+                actual_wip = max(0, cell_in_cum - cell_out_cum)
+                pending_in = max(0, prev_out_cum - cell_in_cum)
 
             # Legacy wip field = actual_wip (keeps card display unchanged)
             wip = actual_wip
@@ -252,16 +292,6 @@ def get_dashboard_data(date=None):
                 "pct":        pct,
                 "days":       days,
             }
-
-        # KNITTING cum_out is sourced from shift maps, not cell_op_map — patch it
-        knitting_cum = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
-        cells["KNITTING"]["cum_out"] = knitting_cum
-
-        # Re-derive MENDING figures now that KNITTING cum_out is correct
-        mending_in_cum  = cells["MENDING"]["cum_in"]
-        cells["MENDING"]["pending_in"] = max(0, knitting_cum - mending_in_cum)
-        cells["MENDING"]["actual_wip"] = max(0, mending_in_cum - cells["MENDING"]["cum_out"])
-        cells["MENDING"]["wip"]        = cells["MENDING"]["actual_wip"]
 
         # ── Lead Days ──────────────────────────────────────────────────────
         knitting_first_ref = _to_date(b["knitting_first_logged"])
@@ -543,6 +573,43 @@ def _get_cell_first_logged_date_map(op_type="first"):
     """, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): r.first_logged_date for r in rows}
+
+
+def _get_applicable_cells_map():
+    """
+    Returns a dict keyed by (style, colour, size) whose value is the set of
+    cell_names that have at least one configured operation in the Cut Kit
+    operation map (tabPhysical Cell First and Last Operation).
+
+    This drives the WIP / pending-in logic: cells that are NOT in the map for
+    a particular SKU are non-applicable and their WIP is rendered as N/A rather
+    than as a misleading zero.
+
+    KNITTING is intentionally excluded here — the caller always adds it, because
+    KNITTING is tracked via shift maps rather than via pcflo rows.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND pc.cell_name IN ({cell_list})
+    """, as_dict=True)
+
+    result = defaultdict(set)
+    for r in rows:
+        result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
 
 
 def _get_cell_last_logged_date_map():
