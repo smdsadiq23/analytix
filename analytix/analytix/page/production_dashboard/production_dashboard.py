@@ -1,10 +1,22 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
+import re
 import frappe
 from collections import defaultdict
 from datetime import date as _date
 from frappe.utils import formatdate
+
+_SIZE_ORDER = ["2XS", "XS", "S", "M", "L", "XL", "2XL", "XXL", "3XL", "XXXL", "4XL", "XXXXL"]
+
+def _size_sort_key(size):
+    upper = (size or "").upper().strip()
+    if upper in _SIZE_ORDER:
+        return (0, _SIZE_ORDER.index(upper), "")
+    m = re.match(r"^(\d+)", upper)
+    if m:
+        return (1, int(m.group(1)), upper)
+    return (2, 0, upper)
 
 # Physical cell display names (pc.cell_name) in pipeline order
 CELL_ORDER = [
@@ -493,3 +505,207 @@ def _get_cell_last_logged_date_map():
     """, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): r.last_logged_date for r in rows}
+
+
+def _get_applicable_cells_map():
+    """
+    Returns {(style, colour, size) → set(cell_names)} from the Cut Kit
+    operation map (tabPhysical Cell First and Last Operation).
+    KNITTING is excluded here — callers add it explicitly.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND pc.cell_name IN ({cell_list})
+    """, as_dict=True)
+    result = defaultdict(set)
+    for r in rows:
+        result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
+@frappe.whitelist()
+def get_style_sizewise_data(style, colour):
+    """
+    Returns cumulative size-wise IN / OUT data for every applicable cell
+    of the given (style, colour).  Drives the size-wise popup.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    # ── Order info per size ───────────────────────────────────────────────
+    order_rows = frappe.db.sql("""
+        SELECT
+            so.custom_brand                             AS buyer,
+            stm.custom_season                           AS season,
+            MAX(so.delivery_date)                       AS delivery_date,
+            tbc.size                                    AS size,
+            COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
+            COALESCE(SUM(soi.qty), 0)                   AS planned_qty
+        FROM (
+            SELECT DISTINCT sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+        INNER JOIN `tabSales Order` so       ON so.name = tbc.sales_order
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+                                            AND soi.custom_size = tbc.size
+        INNER JOIN `tabItem` itm             ON itm.name = soi.item_code
+        INNER JOIN `tabStyle Master` stm     ON stm.name = itm.custom_style_master
+        WHERE itm.custom_style_master = %(style)s
+          AND itm.custom_colour_name  = %(colour)s
+        GROUP BY so.custom_brand, stm.custom_season, tbc.size
+    """, {"style": style, "colour": colour}, as_dict=True)
+
+    if not order_rows:
+        return None
+
+    buyer = order_rows[0].buyer or ""
+    season = order_rows[0].season or ""
+    delivery_date = None
+    sizes_info = {}
+    total_order_qty = total_planned_qty = 0
+
+    for r in order_rows:
+        sizes_info[r.size] = {
+            "order_qty":   int(r.order_qty   or 0),
+            "planned_qty": int(r.planned_qty or 0),
+        }
+        total_order_qty   += int(r.order_qty   or 0)
+        total_planned_qty += int(r.planned_qty or 0)
+        d = r.delivery_date
+        if d and (delivery_date is None or d > delivery_date):
+            delivery_date = d
+
+    sorted_sizes = sorted(sizes_info.keys(), key=_size_sort_key)
+
+    # ── Applicable cells from operation map ───────────────────────────────
+    applicable_cells_map = _get_applicable_cells_map()
+    applicable_cells = set()
+    for size in sizes_info:
+        applicable_cells |= applicable_cells_map.get((style, colour, size), set())
+
+    # ── Cumulative IN / OUT per (style, colour, size, cell) ───────────────
+    scan_rows = frappe.db.sql(f"""
+        SELECT
+            tbc.size                                    AS size,
+            pc.cell_name                                AS cell_name,
+            pcflo.first_operation                       AS first_op,
+            pcflo.last_operation                        AS last_op,
+            isl.operation                               AS operation,
+            COALESCE(SUM(pi.quantity), 0)               AS qty
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc                                       ON tbc.parent = tor.name
+                                                   AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
+                                                   AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                   ON pcflo.parent = tbc.work_order
+                                                   AND pcflo.physical_cell = pc.name
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE itm.custom_style_master = %(style)s
+          AND itm.custom_colour_name  = %(colour)s
+          AND isl.log_status = 'Completed'
+          AND pc.cell_name IN ({cell_list})
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+          AND isl.operation IN (
+              CASE WHEN pc.cell_name = 'MENDING' THEN 'MENDING IN'  ELSE pcflo.first_operation END,
+              CASE WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT' ELSE pcflo.last_operation  END
+          )
+        GROUP BY tbc.size, pc.cell_name, pcflo.first_operation, pcflo.last_operation, isl.operation
+    """, {"style": style, "colour": colour}, as_dict=True)
+
+    # Organise into {(size, cell): {first_op: qty, last_op: qty}}
+    scan_map = defaultdict(lambda: {"in": 0, "out": 0})
+    for r in scan_rows:
+        key = (r.size, r.cell_name)
+        mending_first = "MENDING IN"
+        mending_last  = "MENDING OUT"
+        if r.cell_name == "MENDING":
+            if r.operation == mending_first:
+                scan_map[key]["in"]  += int(r.qty)
+            if r.operation == mending_last:
+                scan_map[key]["out"] += int(r.qty)
+        else:
+            if r.operation == r.first_op:
+                scan_map[key]["in"]  += int(r.qty)
+            if r.operation == r.last_op:
+                scan_map[key]["out"] += int(r.qty)
+
+    # ── Build per-cell rows ───────────────────────────────────────────────
+    prev_total_out = 0
+    cell_rows = []
+
+    for cell in CELL_ORDER:
+        if cell == "KNITTING" or cell not in applicable_cells:
+            continue
+
+        in_by_size = {}
+        out_by_size = {}
+        total_in = total_out = 0
+
+        for size in sorted_sizes:
+            sz_order_qty = sizes_info[size]["order_qty"]
+            qty_in  = scan_map[(size, cell)]["in"]
+            qty_out = scan_map[(size, cell)]["out"]
+            in_by_size[size] = {
+                "qty": qty_in,
+                "pct": round(qty_in  / sz_order_qty * 100) if sz_order_qty else 0,
+            }
+            out_by_size[size] = {
+                "qty": qty_out,
+                "pct": round(qty_out / sz_order_qty * 100) if sz_order_qty else 0,
+            }
+            total_in  += qty_in
+            total_out += qty_out
+
+        wip_pending = max(0, prev_total_out - total_in)
+        wip_actual  = max(0, total_in - total_out)
+        in_balance_pct  = round(total_in  / total_order_qty * 100) if total_order_qty else 0
+        out_balance_pct = round(total_out / total_order_qty * 100) if total_order_qty else 0
+
+        cell_rows.append({
+            "cell":            cell,
+            "in_by_size":      in_by_size,
+            "out_by_size":     out_by_size,
+            "total_in":        total_in,
+            "total_out":       total_out,
+            "wip_pending":     wip_pending,
+            "wip_actual":      wip_actual,
+            "in_balance_pct":  in_balance_pct,
+            "out_balance_pct": out_balance_pct,
+        })
+        prev_total_out = total_out
+
+    return {
+        "style":         style,
+        "colour":        colour,
+        "buyer":         buyer,
+        "season":        season,
+        "delivery_date": formatdate(delivery_date, "dd-mm-yyyy") if delivery_date else "",
+        "order_qty":     total_order_qty,
+        "planned_qty":   total_planned_qty,
+        "sizes":         sorted_sizes,
+        "cells":         cell_rows,
+    }

@@ -476,7 +476,7 @@ function _showDrilldown(sectionLabel, sectionKey) {
 		var tbody = styleRows.map(function(r) {
 			var piCls  = r.pendingIn > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
 			var wipCls = r.actualWip > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
-			return `<tr class="pd-popup-style-row" data-style="${_e(r.style)}" data-colour="${_e(r.colour)}" title="Click for size-wise breakdown">
+			return `<tr>
 				<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
 				<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
 				<td class="pd-popup-td pd-popup-buyer">${_e(r.buyer)}</td>
@@ -554,140 +554,6 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	$(document).off("keydown.pddetail").on("keydown.pddetail", function(e) {
 		if (e.key === "Escape") { _closeModal(); }
 	});
-
-	// Style row click → size-wise popup
-	$overlay.find(".pd-popup-style-row").on("click", function() {
-		var style  = $(this).data("style");
-		var colour = $(this).data("colour");
-		_showStyleSizewise(style, colour);
-	});
-}
-
-// ── Size-wise style popup ─────────────────────────────────────────────────────
-
-function _closeSizewiseModal() {
-	$("#pd-sizewise-overlay").remove();
-	$(document).off("keydown.pdsizewise");
-}
-
-function _showStyleSizewise(style, colour) {
-	_closeSizewiseModal();
-
-	// Show a loading shell immediately
-	var $overlay = $(`
-		<div id="pd-sizewise-overlay" class="pd-sizewise-overlay">
-			<div class="pd-sizewise-box">
-				<div class="pd-sizewise-header">
-					<div class="pd-sizewise-title-wrap">
-						<span class="pd-popup-section-badge">${_e(style)}</span>
-						<span class="pd-popup-title">Size-Wise Breakdown</span>
-					</div>
-					<button class="pd-popup-close" id="pd-sizewise-close">
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-						</svg>
-					</button>
-				</div>
-				<div class="pd-sizewise-body pd-sizewise-loading">
-					<div class="pd-spinner"></div> Loading&hellip;
-				</div>
-			</div>
-		</div>
-	`);
-	$("body").append($overlay);
-
-	$overlay.on("click", function(e) {
-		if ($(e.target).is("#pd-sizewise-overlay")) { _closeSizewiseModal(); }
-	});
-	$("#pd-sizewise-close").on("click", function() { _closeSizewiseModal(); });
-	$(document).off("keydown.pdsizewise").on("keydown.pdsizewise", function(e) {
-		if (e.key === "Escape") { _closeSizewiseModal(); }
-	});
-
-	frappe.call({
-		method: "analytix.analytix.page.shopfloor_performance.shopfloor_performance.get_style_sizewise_data",
-		args: { style: style, colour: colour },
-		freeze: false,
-		callback: function(r) {
-			var d = r.message;
-			if (!d) {
-				$("#pd-sizewise-overlay .pd-sizewise-body").html('<p class="pd-detail-empty">No data found.</p>');
-				return;
-			}
-			_renderSizewisePopup(d);
-		},
-	});
-}
-
-function _renderSizewisePopup(d) {
-	var sizes   = d.sizes || [];
-	var cells   = d.cells || [];
-
-	// ── Meta row ─────────────────────────────────────────────────────────
-	var metaHtml = `
-		<div class="pd-sizewise-meta">
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">BUYER</span><span class="pd-sw-meta-val">${_e(d.buyer)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">SEASON</span><span class="pd-sw-meta-val">${_e(d.season)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">STYLE</span><span class="pd-sw-meta-val">${_e(d.style)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">DELIVERY DATE</span><span class="pd-sw-meta-val">${_e(d.delivery_date)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">ORDER QTY</span><span class="pd-sw-meta-val">${_n(d.order_qty)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">PLANNED QTY</span><span class="pd-sw-meta-val">${_n(d.planned_qty)}</span></span>
-		</div>`;
-
-	// ── Table header ─────────────────────────────────────────────────────
-	var thead = '<tr class="pd-sw-thead-row"><th class="pd-sw-th pd-sw-th-section">SECTION</th>';
-	sizes.forEach(function(sz) { thead += '<th class="pd-sw-th pd-sw-th-size">' + _e(sz) + '</th>'; });
-	thead += '<th class="pd-sw-th pd-sw-th-wip">WIP</th>';
-	thead += '<th class="pd-sw-th pd-sw-th-completed">COMPLETED QTY</th>';
-	thead += '<th class="pd-sw-th pd-sw-th-balance">BALANCE</th></tr>';
-
-	// ── Table body ────────────────────────────────────────────────────────
-	var tbody = "";
-	cells.forEach(function(cell) {
-		// IN row
-		var inTotDeviation = cell.total_in - d.order_qty;
-		var inDevStr  = inTotDeviation >= 0 ? "+" + _n(inTotDeviation) : _n(inTotDeviation);
-		var inBalCls  = cell.in_balance_pct >= 100 ? "pd-sw-bal-green" : cell.in_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
-		tbody += '<tr class="pd-sw-row pd-sw-row-in">';
-		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">IN</span></td>';
-		sizes.forEach(function(sz) {
-			var s = (cell.in_by_size || {})[sz] || {qty: 0, pct: 0};
-			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
-			tbody += '<td class="pd-sw-td pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + '%</span></td>';
-		});
-		tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_pending > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-pending">' + _n(cell.wip_pending) + '</span>' : '<span class="pd-sw-wip-zero">—</span>') + '</td>';
-		tbody += '<td class="pd-sw-td pd-sw-completed"><span class="pd-sw-total">' + _n(cell.total_in) + '</span><span class="pd-sw-deviation">' + inDevStr + '</span></td>';
-		tbody += '<td class="pd-sw-td pd-sw-balance"><span class="pd-sw-bal ' + inBalCls + '">' + cell.in_balance_pct + '%</span></td>';
-		tbody += '</tr>';
-
-		// OUT row
-		var outTotDeviation = cell.total_out - d.order_qty;
-		var outDevStr  = outTotDeviation >= 0 ? "+" + _n(outTotDeviation) : _n(outTotDeviation);
-		var outBalCls  = cell.out_balance_pct >= 100 ? "pd-sw-bal-green" : cell.out_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
-		tbody += '<tr class="pd-sw-row pd-sw-row-out">';
-		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">OUT</span></td>';
-		sizes.forEach(function(sz) {
-			var s = (cell.out_by_size || {})[sz] || {qty: 0, pct: 0};
-			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
-			tbody += '<td class="pd-sw-td pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + '%</span></td>';
-		});
-		tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_actual > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-actual">' + _n(cell.wip_actual) + '</span>' : '<span class="pd-sw-wip-zero">—</span>') + '</td>';
-		tbody += '<td class="pd-sw-td pd-sw-completed"><span class="pd-sw-total">' + _n(cell.total_out) + '</span><span class="pd-sw-deviation">' + outDevStr + '</span></td>';
-		tbody += '<td class="pd-sw-td pd-sw-balance"><span class="pd-sw-bal ' + outBalCls + '">' + cell.out_balance_pct + '%</span></td>';
-		tbody += '</tr>';
-	});
-
-	var bodyHtml = metaHtml + `
-		<div class="pd-sw-table-wrap">
-			<table class="pd-sw-table">
-				<thead>${thead}</thead>
-				<tbody>${tbody}</tbody>
-			</table>
-		</div>`;
-
-	// Update title and body
-	$("#pd-sizewise-overlay .pd-popup-title").text("Size-Wise from " + d.style);
-	$("#pd-sizewise-overlay .pd-sizewise-body").removeClass("pd-sizewise-loading").html(bodyHtml);
 }
 
 function _setError(msg) {
