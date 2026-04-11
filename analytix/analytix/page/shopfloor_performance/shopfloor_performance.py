@@ -1,10 +1,23 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
 
+import re
 import frappe
 from collections import defaultdict
 from datetime import date as _date
 from frappe.utils import formatdate
+
+# Standard garment size order used for sorting size columns in the popup
+_SIZE_ORDER = ["2XS", "XS", "S", "M", "L", "XL", "2XL", "XXL", "3XL", "XXXL", "4XL", "XXXXL"]
+
+def _size_sort_key(size):
+    upper = (size or "").upper().strip()
+    if upper in _SIZE_ORDER:
+        return (0, _SIZE_ORDER.index(upper), "")
+    m = re.match(r"^(\d+)", upper)
+    if m:
+        return (1, int(m.group(1)), upper)
+    return (2, 0, upper)
 
 # Physical cell display names (pc.cell_name) in pipeline order
 CELL_ORDER = [
@@ -365,6 +378,145 @@ def get_dashboard_data(date=None):
         })
 
     return result
+
+
+@frappe.whitelist()
+def get_style_sizewise_data(style, colour):
+    """
+    Returns cumulative size-wise IN / OUT data for every applicable cell of
+    the given (style, colour).  Used by the size-wise popup when a style row
+    is clicked inside the section drill-down modal.
+
+    Each element of the returned "cells" list has:
+        cell        – cell name (e.g. "CUTTING")
+        in_by_size  – {size: {qty, pct}} for first operation
+        out_by_size – {size: {qty, pct}} for last operation
+        total_in / total_out
+        wip_pending – prev applicable cell out − this cell in  (pending entry)
+        wip_actual  – this cell in − this cell out              (inside cell)
+    """
+    # ── Order info (per size) ─────────────────────────────────────────────
+    order_rows = frappe.db.sql("""
+        SELECT
+            so.custom_brand                             AS buyer,
+            stm.custom_season                           AS season,
+            MAX(so.delivery_date)                       AS delivery_date,
+            tbc.size                                    AS size,
+            COALESCE(SUM(soi.custom_order_qty), 0)      AS order_qty,
+            COALESCE(SUM(soi.qty), 0)                   AS planned_qty
+        FROM (
+            SELECT DISTINCT sales_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+        INNER JOIN `tabSales Order` so       ON so.name = tbc.sales_order
+        INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
+                                            AND soi.custom_size = tbc.size
+        INNER JOIN `tabItem` itm             ON itm.name = soi.item_code
+        INNER JOIN `tabStyle Master` stm     ON stm.name = itm.custom_style_master
+        WHERE itm.custom_style_master = %(style)s
+          AND itm.custom_colour_name  = %(colour)s
+        GROUP BY so.custom_brand, stm.custom_season, tbc.size
+    """, {"style": style, "colour": colour}, as_dict=True)
+
+    if not order_rows:
+        return None
+
+    buyer    = order_rows[0].buyer  or ""
+    season   = order_rows[0].season or ""
+    delivery_date     = None
+    sizes_info        = {}
+    total_order_qty   = 0
+    total_planned_qty = 0
+
+    for r in order_rows:
+        sizes_info[r.size] = {
+            "order_qty":   int(r.order_qty   or 0),
+            "planned_qty": int(r.planned_qty or 0),
+        }
+        total_order_qty   += int(r.order_qty   or 0)
+        total_planned_qty += int(r.planned_qty or 0)
+        d = r.delivery_date
+        if d and (delivery_date is None or d > delivery_date):
+            delivery_date = d
+
+    sorted_sizes = sorted(sizes_info.keys(), key=_size_sort_key)
+
+    # ── Applicable cells from operation map ───────────────────────────────
+    applicable_cells_map = _get_applicable_cells_map()
+    applicable_cells = set()
+    for size in sizes_info:
+        applicable_cells |= applicable_cells_map.get((style, colour, size), set())
+    # KNITTING is shown via shift maps; exclude from the cell table
+
+    # ── Cumulative IN / OUT scan quantities ───────────────────────────────
+    cum_in_map  = _get_cell_op_map_for_period(op_type="first", date_condition="1=1", params={})
+    cum_out_map = _get_cell_op_map_for_period(op_type="last",  date_condition="1=1", params={})
+
+    # ── Build per-cell rows ───────────────────────────────────────────────
+    # We need the previous applicable cell's total_out to compute wip_pending.
+    prev_total_out = 0   # starts at 0 (nothing before first cell)
+    cell_rows = []
+
+    for i, cell in enumerate(CELL_ORDER):
+        if cell == "KNITTING":
+            # KNITTING cum_out tracked via shift maps — not in cum_out_map;
+            # skip building a row but don't update prev_total_out here.
+            continue
+        if cell not in applicable_cells:
+            continue
+
+        in_by_size  = {}
+        out_by_size = {}
+        total_in = total_out = 0
+
+        for size in sorted_sizes:
+            sz_order_qty = sizes_info[size]["order_qty"]
+            qty_in  = cum_in_map.get( (style, colour, size, cell), 0)
+            qty_out = cum_out_map.get((style, colour, size, cell), 0)
+
+            in_by_size[size] = {
+                "qty": qty_in,
+                "pct": round(qty_in  / sz_order_qty * 100) if sz_order_qty else 0,
+            }
+            out_by_size[size] = {
+                "qty": qty_out,
+                "pct": round(qty_out / sz_order_qty * 100) if sz_order_qty else 0,
+            }
+            total_in  += qty_in
+            total_out += qty_out
+
+        wip_pending = max(0, prev_total_out - total_in)
+        wip_actual  = max(0, total_in - total_out)
+
+        in_balance_pct  = round(total_in  / total_order_qty * 100) if total_order_qty else 0
+        out_balance_pct = round(total_out / total_order_qty * 100) if total_order_qty else 0
+
+        cell_rows.append({
+            "cell":           cell,
+            "in_by_size":     in_by_size,
+            "out_by_size":    out_by_size,
+            "total_in":       total_in,
+            "total_out":      total_out,
+            "wip_pending":    wip_pending,   # prev out − this in  (pending entry)
+            "wip_actual":     wip_actual,    # this in  − this out (inside cell)
+            "in_balance_pct": in_balance_pct,
+            "out_balance_pct": out_balance_pct,
+        })
+
+        prev_total_out = total_out   # carry forward for next cell's wip_pending
+
+    return {
+        "style":         style,
+        "colour":        colour,
+        "buyer":         buyer,
+        "season":        season,
+        "delivery_date": formatdate(delivery_date, "dd-mm-yyyy") if delivery_date else "",
+        "order_qty":     total_order_qty,
+        "planned_qty":   total_planned_qty,
+        "sizes":         sorted_sizes,
+        "cells":         cell_rows,
+    }
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
