@@ -249,12 +249,44 @@ function _aggregateTotals(rows) {
 	totals["KNITTING"].mtd     = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
 	totals["KNITTING"].ytd     = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
 
-	// WIP = prev cumulative OUT − current cumulative OUT
+	// Build the set of applicable cell keys from the operation map.
+	// A cell is applicable if at least one style row has it marked applicable.
+	// KNITTING is always included (driven by shift maps, not pcflo rows).
+	var applicableCellKeys = new Set(["KNITTING"]);
+	rows.forEach(function(r) {
+		var cells = r.cells || {};
+		SECTIONS.forEach(function(section) {
+			var key = SECTION_KEY_MAP[section];
+			if ((cells[key] || {})["applicable"]) {
+				applicableCellKeys.add(key);
+			}
+		});
+	});
+
+	// WIP = prev **applicable** cell's cumulative OUT − current cumulative OUT.
+	// Non-applicable cells (e.g. EMBROIDERY when no WO has that operation) are
+	// skipped entirely — their WIP is 0 and their cum_out is not used as a
+	// predecessor for the next cell.
 	SECTIONS.forEach(function (section, i) {
 		var key = SECTION_KEY_MAP[section];
 		if (i === 0) { totals[key].wip = 0; return; }
-		var prev_key = SECTION_KEY_MAP[SECTIONS[i - 1]];
-		var wip = (totals[prev_key].cum_out || 0) - (totals[key].cum_out || 0);
+
+		if (!applicableCellKeys.has(key)) {
+			totals[key].wip = 0;
+			return;
+		}
+
+		// Walk backwards to find the nearest applicable predecessor.
+		var prevCumOut = 0;
+		for (var j = i - 1; j >= 0; j--) {
+			var prevKey = SECTION_KEY_MAP[SECTIONS[j]];
+			if (applicableCellKeys.has(prevKey)) {
+				prevCumOut = totals[prevKey].cum_out || 0;
+				break;
+			}
+		}
+
+		var wip = prevCumOut - (totals[key].cum_out || 0);
 		totals[key].wip = wip < 0 ? 0 : wip;
 	});
 

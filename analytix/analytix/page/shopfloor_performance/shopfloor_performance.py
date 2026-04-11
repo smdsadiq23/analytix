@@ -291,6 +291,9 @@ def get_dashboard_data(date=None):
                 "wip":        wip,
                 "pct":        pct,
                 "days":       days,
+                # False for cells absent from the Cut Kit operation map —
+                # lets the frontend skip them in its own WIP calculation.
+                "applicable": (i == 0) or (cell in applicable_cells),
             }
 
         # ── Lead Days ──────────────────────────────────────────────────────
