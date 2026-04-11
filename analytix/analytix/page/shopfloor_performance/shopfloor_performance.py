@@ -296,6 +296,22 @@ def get_dashboard_data(date=None):
                 "applicable": (i == 0) or (cell in applicable_cells),
             }
 
+        # ── Patch cum_out for non-applicable cells ─────────────────────────
+        # The JS computes WIP as: prev_cell.cum_out − current_cell.cum_out
+        # For a non-applicable cell (e.g. EMBROIDERY not in any WO's operation map),
+        # its real cum_out is 0, so the JS would show WIP = SEWING.cum_out − 0 = large number.
+        # Fix: set cum_out of each non-applicable cell to its nearest applicable
+        # predecessor's cum_out, so JS yields 0 for that cell and the next
+        # applicable cell (PRODUCTION) gets the correct value.
+        for i, cell in enumerate(CELL_ORDER):
+            if i == 0 or cell in applicable_cells:
+                continue
+            for j in range(i - 1, -1, -1):
+                pred = CELL_ORDER[j]
+                if pred in applicable_cells or j == 0:
+                    cells[cell]["cum_out"] = cells[pred]["cum_out"]
+                    break
+
         # ── Lead Days ──────────────────────────────────────────────────────
         knitting_first_ref = _to_date(b["knitting_first_logged"])
         packing_out        = cells["PACKING"]["out"]
