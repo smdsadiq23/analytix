@@ -472,17 +472,23 @@ def _get_knitting_shift_map_for_period(shift=1, date_condition="1=1", params=Non
         INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
         INNER JOIN (
-            SELECT DISTINCT parent, sales_order, size
+            SELECT DISTINCT parent, sales_order, work_order, size
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc                                   ON tbc.parent = tor.name
                                                AND tbc.size = pi.size
         INNER JOIN `tabItem` itm                ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc        ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc   ON tc.name = pi.component
+                                               AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                               ON pcflo.parent = tbc.work_order
+                                               AND pcflo.physical_cell = pc.name
         WHERE pc.cell_name = 'KNITTING'
           AND isl.log_status = 'Completed'
           AND {date_condition}
           AND {time_condition}
+          AND isl.operation = pcflo.last_operation
           AND (
               isl.status IN ('Counted', 'Activated', 'Pass')
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')

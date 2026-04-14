@@ -314,7 +314,7 @@ function _renderSizewisePopup(d) {
 	sizes.forEach(function (sz) { thead += '<th class="pd-sw-th pd-sw-th-size">' + _e(sz) + "</th>"; });
 	thead += '<th class="pd-sw-th pd-sw-th-wip">WIP</th>';
 	thead += '<th class="pd-sw-th pd-sw-th-completed">COMPLETED QTY</th>';
-	thead += '<th class="pd-sw-th pd-sw-th-balance">BALANCE</th></tr>';
+	thead += '<th class="pd-sw-th pd-sw-th-balance">COMPLETED %</th></tr>';
 
 	// ── Table body ────────────────────────────────────────────────────────
 	var tbody = "";
