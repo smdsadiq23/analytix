@@ -184,7 +184,7 @@ function _load() {
 	$("#od-chart").hide();
 
 	frappe.call({
-		method: "analytix.analytix.page.shopfloor_performance.shopfloor_performance.get_dashboard_data",
+		method: "analytix.analytix.page.owner_dashboard.owner_dashboard.get_owner_dashboard_data",
 		args: { date: selectedDate },
 		freeze: false,
 		callback: function (r) {
@@ -203,76 +203,57 @@ function _load() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function _render(data, selectedDate) {
-	if (!data || (Array.isArray(data) && !data.length)) {
+	if (!data || Object.keys(data).length === 0) {
 		$("#od-loading").html('<span>No production data available for selected date.</span>');
 		return;
 	}
 
-	// ── Update chart title with date ──────────────────────────────────────
 	var d = new Date(selectedDate + "T00:00:00");
 	var dayStr = d.getDate() + _ordinal(d.getDate()) + " " + _monthName(d.getMonth()) + " Production";
-	$("#od-chart-title").text(dayStr + " — Input vs Output and Pending Qty");
+	$("#od-chart-title").text(dayStr + " \u2014 Input vs Output and Pending Qty");
 
-	// ── Aggregate totals (same logic as shopfloor_performance.js) ────────
-	var totals = _aggregateTotals(data);
-
-	// ── Previous day label for Knitting Shift 2 ───────────────────────────
 	var prevDate = new Date(selectedDate + "T00:00:00");
 	prevDate.setDate(prevDate.getDate() - 1);
 	var prevLabel = prevDate.getDate().toString().padStart(2, "0") + "-" +
 		(prevDate.getMonth() + 1).toString().padStart(2, "0") + "-" +
 		prevDate.getFullYear();
-
 	var selDay = d.getDate().toString().padStart(2, "0") + "-" +
 		(d.getMonth() + 1).toString().padStart(2, "0") + "-" +
 		d.getFullYear();
 
-	// ── Build chart labels & series ───────────────────────────────────────
-	var labels = [];
-	var inputVals    = [];
-	var outputVals   = [];
-	var pendingVals  = [];  // pending_in = "ready for input"
-	var wipVals      = [];
+	var labels = [], inputVals = [], outputVals = [], pendingVals = [], wipVals = [];
 
-	// KNITTING: two pseudo-sections for shift 1 and shift 2
-	var kn = totals["KNITTING"] || {};
-	labels.push("KNITTING\n(1st Shift · " + selDay + ")");
-	inputVals.push(null);
-	outputVals.push(kn.shift1 || 0);
-	pendingVals.push(null);
-	wipVals.push(null);
+	// KNITTING — two bars for each shift
+	var kn = data["KNITTING"] || {};
+	labels.push("KNITTING\n(1st Shift \u00b7 " + selDay + ")");
+	inputVals.push(null); outputVals.push(kn.shift1 || 0); pendingVals.push(null); wipVals.push(null);
 
-	labels.push("KNITTING\n(2nd Shift · " + prevLabel + ")");
-	inputVals.push(null);
-	outputVals.push(kn.shift2 || 0);
-	pendingVals.push(null);
-	wipVals.push(null);
+	labels.push("KNITTING\n(2nd Shift \u00b7 " + prevLabel + ")");
+	inputVals.push(null); outputVals.push(kn.shift2 || 0); pendingVals.push(null); wipVals.push(null);
 
-	// All other sections
+	// All other sections — data is already aggregated by the backend
 	OD_SECTIONS.forEach(function (section) {
 		if (section === "KNITTING") return;
 		var key = OD_SECTION_KEY_MAP[section];
-		var t = totals[key] || {};
+		var t = data[key] || {};
 		labels.push(section);
-		inputVals.push(t.input   || 0);
-		outputVals.push(t.output  || 0);
-		pendingVals.push(t.pendingIn || 0);
-		wipVals.push(t.wip    || 0);
+		inputVals.push(t.input      != null ? t.input      : 0);
+		outputVals.push(t.output    != null ? t.output     : 0);
+		pendingVals.push(t.pending_in != null ? t.pending_in : 0);
+		wipVals.push(t.wip          != null ? t.wip        : 0);
 	});
 
-	// ── Draw / update chart ───────────────────────────────────────────────
 	_drawChart(labels, inputVals, outputVals, pendingVals, wipVals);
 }
 
+
 function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 	$("#od-loading").hide();
-	var $canvas = $("#od-chart");
-	$canvas.show();
+	$("#od-chart").show();
 
 	var ctx = document.getElementById("od-chart").getContext("2d");
-
-	var fontSize   = 10;
-	var barThick   = 28;
+	var fontSize = 10;
+	var barThick = 28;
 
 	var datasets = [
 		{
@@ -314,7 +295,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 		align: "top",
 		offset: 2,
 		color: "#374151",
-		font: { size: fontSize, weight: "600", family: "'Segoe UI', system-ui, sans-serif" },
+		font: { size: fontSize, weight: "600", family: "\'Segoe UI\', system-ui, sans-serif" },
 		formatter: function (val) {
 			if (val === null || val === undefined) return "";
 			if (val === 0) return "0";
@@ -362,9 +343,9 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					grid: { display: false },
 					ticks: {
 						color: "#374151",
-						font: { size: 10.5, weight: "600", family: "'Segoe UI', system-ui, sans-serif" },
-						maxRotation: 90,
-						minRotation: 90,
+						font: { size: 10.5, weight: "600", family: "\'Segoe UI\', system-ui, sans-serif" },
+						maxRotation: 120,
+						minRotation: 120,
 						autoSkip: false,
 					},
 					border: { display: false },
@@ -377,7 +358,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					},
 					ticks: {
 						color: "#6b7280",
-						font: { size: 10, family: "'Segoe UI', system-ui, sans-serif" },
+						font: { size: 10, family: "\'Segoe UI\', system-ui, sans-serif" },
 						padding: 8,
 						callback: function (v) { return Number(v).toLocaleString("en-IN"); },
 					},
@@ -386,70 +367,6 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 			},
 		},
 	});
-}
-
-// ── Aggregate totals (mirrors shopfloor_performance aggregation logic) ────────
-function _aggregateTotals(rows) {
-	var totals = {};
-	OD_SECTIONS.forEach(function (section) {
-		var key = OD_SECTION_KEY_MAP[section];
-		totals[key] = { input: 0, output: 0, cum_out: 0, wip: 0, pendingIn: 0, mtd: 0, ytd: 0 };
-	});
-
-	rows.forEach(function (r) {
-		var cells = r.cells || {};
-		OD_SECTIONS.forEach(function (section) {
-			if (section === "KNITTING") return;
-			var key = OD_SECTION_KEY_MAP[section];
-			var c = cells[key] || {};
-			totals[key].input     += (c["in"]         || 0);
-			totals[key].output    += (c["out"]        || 0);
-			totals[key].cum_out   += (c["cum_out"]    || 0);
-			totals[key].mtd       += (c["mtd"]        || 0);
-			totals[key].ytd       += (c["ytd"]        || 0);
-			// pending_in from backend = "ready for input"
-			if (c["pending_in"] != null && c["pending_in"] > 0) {
-				totals[key].pendingIn += c["pending_in"];
-			}
-		});
-	});
-
-	// ── Build applicable-cell set (for WIP calc) ──────────────────────────
-	var applicableCellKeys = new Set(["KNITTING"]);
-	rows.forEach(function (r) {
-		var cells = r.cells || {};
-		OD_SECTIONS.forEach(function (section) {
-			var key = OD_SECTION_KEY_MAP[section];
-			if ((cells[key] || {})["applicable"]) applicableCellKeys.add(key);
-		});
-	});
-
-	// ── WIP = prev applicable cum_out − current cum_out ───────────────────
-	OD_SECTIONS.forEach(function (section, i) {
-		if (section === "KNITTING") return;
-		var key = OD_SECTION_KEY_MAP[section];
-		if (!applicableCellKeys.has(key)) { totals[key].wip = 0; return; }
-		var prevCumOut = 0;
-		for (var j = i - 1; j >= 0; j--) {
-			var prevKey = OD_SECTION_KEY_MAP[OD_SECTIONS[j]];
-			if (applicableCellKeys.has(prevKey)) {
-				prevCumOut = totals[prevKey].cum_out || 0;
-				break;
-			}
-		}
-		var wip = prevCumOut - (totals[key].cum_out || 0);
-		totals[key].wip = wip < 0 ? 0 : wip;
-	});
-
-	// ── KNITTING: aggregate from shift fields ─────────────────────────────
-	totals["KNITTING"].shift1 = 0;
-	totals["KNITTING"].shift2 = 0;
-	rows.forEach(function (r) {
-		totals["KNITTING"].shift1 += (r.knitting_shift1 || 0);
-		totals["KNITTING"].shift2 += (r.knitting_shift2 || 0);
-	});
-
-	return totals;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
