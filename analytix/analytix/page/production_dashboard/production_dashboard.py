@@ -658,7 +658,7 @@ def get_style_sizewise_data(style, colour):
     cell_rows = []
 
     for cell in CELL_ORDER:
-        if cell == "KNITTING" or cell not in applicable_cells:
+        if cell not in applicable_cells:
             continue
 
         in_by_size = {}
