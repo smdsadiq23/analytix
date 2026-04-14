@@ -95,7 +95,7 @@ frappe.pages["owner-dashboard"].on_page_load = function (wrapper) {
 
 	_ensureChartJS(function () {
 		_load();
-		_timer = setInterval(function () { _load(); }, 60000);
+		_startTimer();
 	});
 };
 
@@ -104,6 +104,8 @@ frappe.pages["owner-dashboard"].on_page_show = function (wrapper) {
 	$(".page-body").css({ padding: "0", margin: "0" });
 	$(".layout-main-section-wrapper").css({ padding: "0", margin: "0" });
 	$(".layout-main-section").css({ padding: "0", margin: "0", "max-width": "100%" });
+	// Restart timer on every page show — prevents stacked intervals on re-navigation
+	_startTimer();
 };
 
 frappe.pages["owner-dashboard"].on_page_hide = function () {
@@ -111,12 +113,22 @@ frappe.pages["owner-dashboard"].on_page_hide = function () {
 	$(".page-body").css({ padding: "", margin: "" });
 	$(".layout-main-section-wrapper").css({ padding: "", margin: "" });
 	$(".layout-main-section").css({ padding: "", margin: "", "max-width": "" });
-	if (_timer) { clearInterval(_timer); _timer = null; }
+	_stopTimer();
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
 var _timer     = null;
 var _chartInst = null;
+
+// ── Timer helpers ─────────────────────────────────────────────────────────────
+// Always clear before setting so re-navigation never stacks two intervals.
+function _startTimer() {
+	_stopTimer();
+	_timer = setInterval(function () { _load(); }, 60000);
+}
+function _stopTimer() {
+	if (_timer) { clearInterval(_timer); _timer = null; }
+}
 
 // ── Section pipeline ──────────────────────────────────────────────────────────
 const OD_SECTIONS = [
@@ -214,9 +226,8 @@ function _render(data, selectedDate) {
 		(d.getMonth() + 1).toString().padStart(2, "0") + "-" +
 		d.getFullYear();
 
-	// ── Build chart data arrays ───────────────────────────────────────────
-	// Labels are arrays of strings — Chart.js renders each array element
-	// on a separate line, giving us horizontal wrapped text with no rotation.
+	// Labels are arrays — Chart.js renders each element on its own line,
+	// giving horizontal wrapped text without any rotation.
 	var labels = [], inputVals = [], outputVals = [], pendingVals = [], wipVals = [];
 
 	// KNITTING — two separate bar groups, one per shift
@@ -233,7 +244,7 @@ function _render(data, selectedDate) {
 		var key = OD_SECTION_KEY_MAP[section];
 		var t = data[key] || {};
 
-		// Split multi-word section names onto two lines for compactness
+		// Split multi-word names onto two lines for compactness
 		var parts = section.split(" ");
 		var labelArr = parts.length > 1
 			? [parts.slice(0, Math.ceil(parts.length / 2)).join(" "),
@@ -241,10 +252,10 @@ function _render(data, selectedDate) {
 			: [section];
 
 		labels.push(labelArr);
-		inputVals.push(t.input       != null ? t.input       : 0);
-		outputVals.push(t.output     != null ? t.output      : 0);
-		pendingVals.push(t.pending_in != null ? t.pending_in  : 0);
-		wipVals.push(t.wip           != null ? t.wip         : 0);
+		inputVals.push(t.input        != null ? t.input        : 0);
+		outputVals.push(t.output      != null ? t.output       : 0);
+		pendingVals.push(t.pending_in != null ? t.pending_in   : 0);
+		wipVals.push(t.wip            != null ? t.wip          : 0);
 	});
 
 	_drawChart(labels, inputVals, outputVals, pendingVals, wipVals);
@@ -333,7 +344,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					borderWidth: 1,
 					padding: 10,
 					callbacks: {
-						// Join array labels back to a single string for the tooltip title
+						// Join array labels back into a single string for the tooltip title
 						title: function (items) {
 							var lbl = items[0].label;
 							return Array.isArray(lbl) ? lbl.join(" ") : lbl;
@@ -351,11 +362,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 				x: {
 					grid: { display: false },
 					ticks: {
-						// ── Horizontal wrapped labels ──────────────────────────────
-						// maxRotation: 0 keeps text upright.
-						// Chart.js natively renders array labels as multi-line text,
-						// so passing label arrays (built in _render) gives wrapping
-						// without any rotation.
+						// Horizontal wrapped labels: maxRotation 0 keeps text upright;
+						// Chart.js natively renders label arrays as multi-line text.
 						maxRotation: 0,
 						minRotation: 0,
 						autoSkip: false,

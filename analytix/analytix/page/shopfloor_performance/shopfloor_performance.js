@@ -84,7 +84,7 @@ frappe.pages['shopfloor-performance'].on_page_load = function(wrapper) {
 	});
 
 	_load();
-	_timer = setInterval(function() { _load(); }, 60000);
+	_startTimer();
 };
 
 frappe.pages["shopfloor-performance"].on_page_show = function (wrapper) {
@@ -92,6 +92,8 @@ frappe.pages["shopfloor-performance"].on_page_show = function (wrapper) {
 	$(".page-body").css({ "padding": "0", "margin": "0" });
 	$(".layout-main-section-wrapper").css({ "padding": "0", "margin": "0" });
 	$(".layout-main-section").css({ "padding": "0", "margin": "0", "max-width": "100%" });
+	// Restart timer on every page show — prevents stacked intervals on re-navigation
+	_startTimer();
 };
 
 frappe.pages["shopfloor-performance"].on_page_hide = function () {
@@ -99,12 +101,22 @@ frappe.pages["shopfloor-performance"].on_page_hide = function () {
 	$(".page-body").css({ "padding": "", "margin": "" });
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
-	if (_timer) { clearInterval(_timer); _timer = null; }
+	_stopTimer();
 	_closeModal();
 };
 
 var _timer    = null;
 var _lastData = [];   // raw rows — kept for drill-down
+
+// ── Timer helpers ─────────────────────────────────────────────────────────────
+// Always clear before setting so re-navigation never stacks two intervals.
+function _startTimer() {
+	_stopTimer();
+	_timer = setInterval(function() { _load(); }, 60000);
+}
+function _stopTimer() {
+	if (_timer) { clearInterval(_timer); _timer = null; }
+}
 
 // All sections in pipeline order
 const SECTIONS = [
@@ -219,20 +231,10 @@ function _aggregateTotals(rows) {
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
 
-			// ── FIX: sum pre-computed per-style values from Python backend ──
-			// The old code recomputed WIP globally as:
-			//   prev_applicable.cum_out − curr.cum_out
-			// This is wrong when a cell (e.g. EMBROIDERY) is applicable for
-			// only some styles. The global cum_out for that cell only covers
-			// those styles, so the predecessor value is too small and
-			// pending_in gets clamped to 0 for other styles, losing data.
-			//
-			// The Python backend already computes correct per-style
-			// pending_in and actual_wip with proper max(0,...) clamping and
-			// predecessor walks. Summing them here is always correct.
-			//
 			// Card WIP = pending_in + actual_wip (total material not yet out
 			// of this cell). The popup splits these into two columns.
+			// Summing pre-computed per-style values from Python is correct even
+			// when a cell (e.g. EMBROIDERY) is only applicable for some styles.
 			if (c["pending_in"] != null) {
 				totals[key].wip += c["pending_in"];
 			}
@@ -270,11 +272,6 @@ function _aggregateTotals(rows) {
 	totals["KNITTING"].mtd     = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
 	totals["KNITTING"].ytd     = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
 	totals["KNITTING"].wip     = 0;  // KNITTING has no WIP concept
-
-	// NOTE: The old applicableCellKeys + SECTIONS.forEach WIP recomputation
-	// block has been removed entirely. Card WIP now comes directly from
-	// summing cells[key].actual_wip across all style rows (done above),
-	// which matches the popup's "Total Actual WIP" exactly.
 
 	return totals;
 }
@@ -419,14 +416,12 @@ function _buildSectionCard(section, key, t) {
 // ── Modal popup drill-down ────────────────────────────────────────────────────
 
 function _showDrilldown(sectionLabel, sectionKey) {
-	// If same card clicked while modal is open, close it
 	var $existing = $("#pd-modal-overlay");
 	if ($existing.length && $existing.data("active-key") === sectionKey) {
 		_closeModal();
 		return;
 	}
 
-	// KNITTING has no per-style WIP data
 	if (sectionKey === "KNITTING") {
 		_closeModal();
 		return;
@@ -434,14 +429,11 @@ function _showDrilldown(sectionLabel, sectionKey) {
 
 	if (!_lastData || !_lastData.length) return;
 
-	// Remove any existing modal
 	$existing.remove();
 
-	// Highlight active card
 	$("#pd-grid .pd-card").removeClass("pd-card-active");
 	$("#pd-grid .pd-card[data-section-key='" + sectionKey + "']").addClass("pd-card-active");
 
-	// Build per-style rows
 	var styleRows = _lastData.map(function(r) {
 		var cells     = r.cells || {};
 		var cell      = cells[sectionKey] || {};
@@ -458,13 +450,11 @@ function _showDrilldown(sectionLabel, sectionKey) {
 		return r.pendingIn > 0 || r.actualWip > 0;
 	});
 
-	// Sort: highest actualWip first
 	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
 
 	var totalPending = styleRows.reduce(function(s, r) { return s + (r.pendingIn || 0); }, 0);
 	var totalWip     = styleRows.reduce(function(s, r) { return s + (r.actualWip || 0); }, 0);
 
-	// Build table
 	var tableHtml;
 	if (!styleRows.length) {
 		tableHtml = '<p class="pd-detail-empty">No pending or WIP data for this section.</p>';
@@ -538,15 +528,12 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	$overlay.data("active-key", sectionKey);
 	$("body").append($overlay);
 
-	// Close on backdrop click
 	$overlay.on("click", function(e) {
 		if ($(e.target).is("#pd-modal-overlay")) { _closeModal(); }
 	});
 
-	// Close button
 	$("#pd-detail-close").on("click", function() { _closeModal(); });
 
-	// ESC key
 	$(document).off("keydown.pddetail").on("keydown.pddetail", function(e) {
 		if (e.key === "Escape") { _closeModal(); }
 	});
