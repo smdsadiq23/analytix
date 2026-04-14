@@ -218,6 +218,21 @@ function _aggregateTotals(rows) {
 			totals[key].cum_out += (c["cum_out"] || 0);
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
+
+			// ── FIX: sum pre-computed per-style values from Python backend ──
+			// The old code recomputed WIP globally as:
+			//   prev_applicable.cum_out − curr.cum_out
+			// This is wrong when a cell (e.g. EMBROIDERY) is applicable for
+			// only some styles. The global cum_out for that cell only covers
+			// those styles, so the predecessor value is too small and
+			// pending_in gets clamped to 0 for other styles, losing data.
+			//
+			// The Python backend already computes correct per-style
+			// pending_in and actual_wip with proper max(0,...) clamping and
+			// predecessor walks. Summing them here is always correct.
+			if (c["actual_wip"] != null) {
+				totals[key].wip += c["actual_wip"];
+			}
 		});
 	});
 
@@ -248,47 +263,12 @@ function _aggregateTotals(rows) {
 	totals["KNITTING"].cum_out = totals["KNITTING"].shift1_cum + totals["KNITTING"].shift2_cum;
 	totals["KNITTING"].mtd     = totals["KNITTING"].shift1_mtd + totals["KNITTING"].shift2_mtd;
 	totals["KNITTING"].ytd     = totals["KNITTING"].shift1_ytd + totals["KNITTING"].shift2_ytd;
+	totals["KNITTING"].wip     = 0;  // KNITTING has no WIP concept
 
-	// Build the set of applicable cell keys from the operation map.
-	// A cell is applicable if at least one style row has it marked applicable.
-	// KNITTING is always included (driven by shift maps, not pcflo rows).
-	var applicableCellKeys = new Set(["KNITTING"]);
-	rows.forEach(function(r) {
-		var cells = r.cells || {};
-		SECTIONS.forEach(function(section) {
-			var key = SECTION_KEY_MAP[section];
-			if ((cells[key] || {})["applicable"]) {
-				applicableCellKeys.add(key);
-			}
-		});
-	});
-
-	// WIP = prev **applicable** cell's cumulative OUT − current cumulative OUT.
-	// Non-applicable cells (e.g. EMBROIDERY when no WO has that operation) are
-	// skipped entirely — their WIP is 0 and their cum_out is not used as a
-	// predecessor for the next cell.
-	SECTIONS.forEach(function (section, i) {
-		var key = SECTION_KEY_MAP[section];
-		if (i === 0) { totals[key].wip = 0; return; }
-
-		if (!applicableCellKeys.has(key)) {
-			totals[key].wip = 0;
-			return;
-		}
-
-		// Walk backwards to find the nearest applicable predecessor.
-		var prevCumOut = 0;
-		for (var j = i - 1; j >= 0; j--) {
-			var prevKey = SECTION_KEY_MAP[SECTIONS[j]];
-			if (applicableCellKeys.has(prevKey)) {
-				prevCumOut = totals[prevKey].cum_out || 0;
-				break;
-			}
-		}
-
-		var wip = prevCumOut - (totals[key].cum_out || 0);
-		totals[key].wip = wip < 0 ? 0 : wip;
-	});
+	// NOTE: The old applicableCellKeys + SECTIONS.forEach WIP recomputation
+	// block has been removed entirely. Card WIP now comes directly from
+	// summing cells[key].actual_wip across all style rows (done above),
+	// which matches the popup's "Total Actual WIP" exactly.
 
 	return totals;
 }
