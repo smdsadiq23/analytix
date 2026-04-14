@@ -230,6 +230,12 @@ function _aggregateTotals(rows) {
 			// The Python backend already computes correct per-style
 			// pending_in and actual_wip with proper max(0,...) clamping and
 			// predecessor walks. Summing them here is always correct.
+			//
+			// Card WIP = pending_in + actual_wip (total material not yet out
+			// of this cell). The popup splits these into two columns.
+			if (c["pending_in"] != null) {
+				totals[key].wip += c["pending_in"];
+			}
 			if (c["actual_wip"] != null) {
 				totals[key].wip += c["actual_wip"];
 			}
