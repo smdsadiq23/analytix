@@ -294,6 +294,16 @@ function _aggregateTotals(rows) {
 }
 
 function _buildKnittingCard(section, t, rows) {
+    // ── Previous day label for Shift 2 ───────────────────────────────────
+    var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
+    var prevDate     = new Date(selectedDate);
+    prevDate.setDate(prevDate.getDate() - 1);
+    var pd = prevDate.getDate().toString().padStart(2, "0");
+    var pm = (prevDate.getMonth() + 1).toString().padStart(2, "0");
+    var py = prevDate.getFullYear();
+    var prevDateLabel = pd + "-" + pm + "-" + py;
+    // ─────────────────────────────────────────────────────────────────────
+
 	var shift1    = t.shift1    || 0;
 	var shift2    = t.shift2    || 0;
 	var wastage   = t.wastage   || 0;
@@ -318,7 +328,7 @@ function _buildKnittingCard(section, t, rows) {
 				<div class="pd-row">
 					<div class="pd-row-label">
 						<span class="pd-icon pd-icon-output"></span>
-						Shift 2 Output
+						Shift 2 Output <span style="color:var(--color-text-tertiary);font-size:11px">(${prevDateLabel})</span>
 					</div>
 					<div class="pd-row-val pd-val-green">${_n(shift2)}</div>
 				</div>
