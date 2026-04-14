@@ -185,8 +185,13 @@ function _load() {
 	var selectedDate = $("#od-date-input").val() || frappe.datetime.get_today();
 
 	$("#od-refresh-btn").addClass("loading");
-	$("#od-loading").show();
-	$("#od-chart").hide();
+
+	// Only show the loading spinner on the very first load (no chart yet).
+	// On auto-refresh the chart stays visible and updates silently in-place.
+	if (!_chartInst) {
+		$("#od-loading").show();
+		$("#od-chart").hide();
+	}
 
 	frappe.call({
 		method: "analytix.analytix.page.owner_dashboard.owner_dashboard.get_owner_dashboard_data",
@@ -195,7 +200,9 @@ function _load() {
 		callback: function (r) {
 			$("#od-refresh-btn").removeClass("loading");
 			if (r.exc) {
-				$("#od-loading").html('<span style="color:#ef4444">&#9888; Failed to load data. Check server logs.</span>');
+				if (!_chartInst) {
+					$("#od-loading").html('<span style="color:#ef4444">&#9888; Failed to load data. Check server logs.</span>');
+				}
 				return;
 			}
 			_render(r.message || [], selectedDate);
@@ -209,7 +216,9 @@ function _load() {
 // ── Render ────────────────────────────────────────────────────────────────────
 function _render(data, selectedDate) {
 	if (!data || Object.keys(data).length === 0) {
-		$("#od-loading").html('<span>No production data available for selected date.</span>');
+		if (!_chartInst) {
+			$("#od-loading").html('<span>No production data available for selected date.</span>');
+		}
 		return;
 	}
 
@@ -263,8 +272,11 @@ function _render(data, selectedDate) {
 
 // ── Draw / update chart ───────────────────────────────────────────────────────
 function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
-	$("#od-loading").hide();
-	$("#od-chart").show();
+	// Only toggle visibility on first draw; subsequent updates keep chart visible
+	if (!_chartInst) {
+		$("#od-loading").hide();
+		$("#od-chart").show();
+	}
 
 	var ctx      = document.getElementById("od-chart").getContext("2d");
 	var barThick = 28;
