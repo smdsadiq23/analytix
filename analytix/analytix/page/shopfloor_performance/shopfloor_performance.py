@@ -336,11 +336,15 @@ def get_dashboard_data(date=None):
             continue
 
         if cells["KNITTING"]["in"] == 0 and cells["KNITTING"]["out"] == 0:
-            # Skip styles with zero activity on selected date
-            # But keep if they have MTD/YTD data — guard changed:
-            # Only skip if there's NO knitting output in MTD either
             if (b["knitting_shift1_mtd"] + b["knitting_shift2_mtd"]) == 0:
-                continue
+                # Keep styles where knitting is done but downstream cells still have WIP
+                has_downstream_wip = any(
+                    b["cell_out_cum"].get(cell, 0) > 0
+                    for cell in CELL_ORDER
+                    if cell != "KNITTING"
+                )
+                if not has_downstream_wip:
+                    continue        
 
         result.append({
             "style":              style,
