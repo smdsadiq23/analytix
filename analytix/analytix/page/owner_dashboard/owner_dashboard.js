@@ -337,7 +337,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 			responsive: true,
 			maintainAspectRatio: false,
 			animation: { duration: 600 },
-			layout: { padding: { top: 24, right: 16, bottom: 0, left: 8 } },
+			layout: { padding: { top: 24, right: 16, bottom: 8, left: 8 } },
 			plugins: {
 				legend: { display: false },
 				tooltip: {
@@ -363,8 +363,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					ticks: {
 						color: "#374151",
 						font: { size: 10.5, weight: "600", family: "'Segoe UI', system-ui, sans-serif" },
-						maxRotation: 0,
-						minRotation: 0,
+						maxRotation: 90,
+						minRotation: 90,
 						autoSkip: false,
 					},
 					border: { display: false },

@@ -183,8 +183,8 @@ html, body {
 /* ── Canvas wrapper ───────────────────────────────────────────────── */
 .od-canvas-wrap {
 	flex: 1;
-	min-height: 420px;
-	padding: 12px 8px 16px;
+	min-height: 480px;
+	padding: 12px 8px 4px;
 	position: relative;
 	box-sizing: border-box;
 }
