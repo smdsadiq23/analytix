@@ -3,14 +3,21 @@
 #
 # Owner Dashboard — optimised backend
 #
-# Original shopfloor_performance.get_dashboard_data fires 21 SQL queries
-# (MTD, YTD, date-log maps, lead-days, per-style rows …) and returns
-# thousands of per-style rows that the JS then re-aggregates.
+# Fix: EMBROIDERY (and any other non-applicable cell) was showing inflated
+# "Ready for Input" values because _get_applicable_cells() returned a global
+# set (cells that exist in ANY work order's pcflo rows), not filtered by
+# whether scans actually passed through that cell.
 #
-# The owner dashboard only needs four numbers per section:
-#   Input, Output, Pending In (Ready for Input), WIP
-# This module fetches exactly that with 8 targeted queries that aggregate
-# directly in SQL, cutting load time from ~30s to 2-3s.
+# The corrected approach:
+#   1. After fetching cumulative IN/OUT maps, derive applicable_set from
+#      scan data itself: a cell is applicable iff it has cum_in > 0 OR
+#      cum_out > 0.  This is equivalent to what shopfloor_performance.py
+#      does via the per-style applicable_cells flag.
+#   2. Patch non-applicable cells' cum_out to their nearest applicable
+#      predecessor's cum_out — exactly what shopfloor_performance.py does
+#      in its "Patch cum_out for non-applicable cells" block — so the WIP
+#      chain skips them cleanly instead of leaking a large predecessor
+#      cum_out into pending_in.
 
 import frappe
 from datetime import date as _date
@@ -94,7 +101,7 @@ def get_owner_dashboard_data(date=None):
         GROUP BY pc.cell_name
     """, params)
 
-    # ── 3. Cumulative INPUT per section (all time, for pending_in) ────────
+    # ── 3. Cumulative INPUT per section (all time, for pending_in / wip) ──
     cum_in = _run(f"""
         SELECT pc.cell_name, COALESCE(SUM(pi.quantity), 0) AS qty
         {_SCAN_JOINS}
@@ -118,10 +125,7 @@ def get_owner_dashboard_data(date=None):
     knitting_shift1_cum = _knitting_shift(None, shift=1)
     knitting_shift2_cum = _knitting_shift(None, shift=2)
 
-    # ── 9. Applicable cells (determines which cells have WIP) ─────────────
-    applicable_set = _get_applicable_cells()
-
-    # ── Build lookup dicts ────────────────────────────────────────────────
+    # ── Build mutable lookup dicts ────────────────────────────────────────
     d_in  = {r["cell_name"]: int(r["qty"]) for r in daily_in}
     d_out = {r["cell_name"]: int(r["qty"]) for r in daily_out}
     c_in  = {r["cell_name"]: int(r["qty"]) for r in cum_in}
@@ -130,6 +134,35 @@ def get_owner_dashboard_data(date=None):
     # KNITTING cumulative output comes from shift totals, not last_operation scans
     knitting_cum = knitting_shift1_cum + knitting_shift2_cum
     c_out["KNITTING"] = knitting_cum
+
+    # ── Derive applicable set from scan data ──────────────────────────────
+    # A cell is applicable iff garments have actually been scanned through it
+    # (cum_in > 0 or cum_out > 0).  This matches the per-style applicable_cells
+    # logic in shopfloor_performance.py and avoids EMBROIDERY (or any optional
+    # cell) incorrectly appearing applicable when no styles use it.
+    # KNITTING is always included because its output is tracked via shift maps.
+    applicable_set = {
+        cell for cell in CELL_ORDER
+        if c_in.get(cell, 0) > 0 or c_out.get(cell, 0) > 0
+    }
+    applicable_set.add("KNITTING")
+
+    # ── Patch non-applicable cells' cum_out ───────────────────────────────
+    # For any cell not in applicable_set, set its cum_out to its nearest
+    # applicable predecessor's cum_out.  This ensures the WIP chain skips
+    # non-applicable cells rather than computing a huge pending_in against
+    # their zero cum_in (e.g. EMBROIDERY: pending_in = SEWING.cum_out − 0).
+    # Mirrors the "Patch cum_out for non-applicable cells" block in
+    # shopfloor_performance.py.
+    for i, cell in enumerate(CELL_ORDER):
+        if i == 0 or cell in applicable_set:
+            continue
+        # Walk back to nearest applicable predecessor
+        for j in range(i - 1, -1, -1):
+            pred = CELL_ORDER[j]
+            if pred in applicable_set:
+                c_out[cell] = c_out.get(pred, 0)
+                break
 
     # ── Compute section results ───────────────────────────────────────────
     result = {}
@@ -157,7 +190,7 @@ def get_owner_dashboard_data(date=None):
             }
             continue
 
-        # Nearest applicable predecessor's cumulative output
+        # Nearest applicable predecessor's (patched) cumulative output
         prev_cum_out = 0
         for j in range(i - 1, -1, -1):
             pred = CELL_ORDER[j]
@@ -222,14 +255,3 @@ def _knitting_shift(date, shift):
     """, params, as_dict=True)
 
     return int(rows[0].qty) if rows else 0
-
-
-def _get_applicable_cells():
-    """Set of cell_names that have at least one pcflo row across all work orders."""
-    rows = frappe.db.sql(f"""
-        SELECT DISTINCT pc.cell_name
-        FROM `tabPhysical Cell First and Last Operation` pcflo
-        INNER JOIN `tabPhysical Cell` pc ON pc.name = pcflo.physical_cell
-        WHERE pc.cell_name IN ({CELL_LIST_SQL})
-    """, as_dict=True)
-    return {r["cell_name"] for r in rows}
