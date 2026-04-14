@@ -24,7 +24,6 @@ CELL_ORDER = [
 
 @frappe.whitelist()
 def get_dashboard_data(date=None):
-    # Default to today if no date provided
     if not date:
         date = _date.today().isoformat()
 
@@ -32,59 +31,53 @@ def get_dashboard_data(date=None):
     if not order_map:
         return []
 
-    # Which physical cells are actually in the operation map for each (style, colour, size)?
-    # Used to skip non-applicable cells in WIP and pending_in calculations.
     applicable_cells_map = _get_applicable_cells_map()
 
-    # ── Daily maps (scans on the selected date only) ──────────────────────
-    daily_condition = "DATE(isl.logged_time) = %(filter_date)s"
-    daily_params    = {"filter_date": date}
+    # ── Optimised: 21 queries → 7 ─────────────────────────────────────────
+    #
+    # Old approach fired one SQL per (op_type × period), totalling 14 heavy
+    # scan-log queries plus 3 date-log queries = 17 scan queries.
+    #
+    # New approach: each of the three scan JOIN templates is executed ONCE,
+    # with conditional aggregation (SUM + CASE WHEN) returning all periods
+    # in a single pass over the scan log table.
+    #
+    # Query map (old count → new count):
+    #   cell first/last × daily/cum/mtd/ytd  (8 queries) → 1 (_get_cell_all_periods)
+    #   knitting shifts × 2 shifts × daily/cum/mtd/ytd   (8 queries) → 1 (_get_knitting_all_periods)
+    #   cell date maps (first_in, first_out, last_out)    (3 queries) → 1 (_get_cell_date_maps)
+    #   order_map, applicable_cells, knitting_first, min_logged_time unchanged (4)
+    #
+    # Total: 21 → 7 queries.
 
-    cell_in_map  = _get_cell_op_map_for_period(op_type="first", date_condition=daily_condition, params=daily_params)
-    cell_out_map = _get_cell_op_map_for_period(op_type="last",  date_condition=daily_condition, params=daily_params)
+    cell_maps       = _get_cell_all_periods(date)
+    knitting_maps   = _get_knitting_all_periods(date)
+    cell_date_maps  = _get_cell_date_maps()
+    knitting_logged_time_map = _get_knitting_first_logged_time_map()
+    logged_time_map          = _get_min_logged_time_map()
 
-    # Knitting shift maps — shift 1: 10am–8pm, shift 2: 8pm–next day 10am (daily)
-    knitting_shift1_map = _get_knitting_shift_map_for_period(shift=1, date_condition=daily_condition, params=daily_params)
-    knitting_shift2_map = _get_knitting_shift_map_for_period(shift=2, date_condition=daily_condition, params=daily_params)
+    # Unpack cell maps
+    cell_in_map      = cell_maps["daily_in"]
+    cell_out_map     = cell_maps["daily_out"]
+    cell_in_cum_map  = cell_maps["cum_in"]
+    cell_out_cum_map = cell_maps["cum_out"]
+    cell_out_mtd_map = cell_maps["mtd_out"]
+    cell_out_ytd_map = cell_maps["ytd_out"]
 
-    # ── Cumulative maps (all-time, no date filter — used for WIP & popup) ─
-    cum_condition = "1=1"
-    cum_params    = {}
+    # Unpack knitting maps
+    knitting_shift1_map     = knitting_maps["daily_s1"]
+    knitting_shift2_map     = knitting_maps["daily_s2"]
+    knitting_shift1_cum_map = knitting_maps["cum_s1"]
+    knitting_shift2_cum_map = knitting_maps["cum_s2"]
+    knitting_shift1_mtd     = knitting_maps["mtd_s1"]
+    knitting_shift2_mtd     = knitting_maps["mtd_s2"]
+    knitting_shift1_ytd     = knitting_maps["ytd_s1"]
+    knitting_shift2_ytd     = knitting_maps["ytd_s2"]
 
-    cell_in_cum_map         = _get_cell_op_map_for_period(op_type="first", date_condition=cum_condition, params=cum_params)
-    cell_out_cum_map        = _get_cell_op_map_for_period(op_type="last",  date_condition=cum_condition, params=cum_params)
-    knitting_shift1_cum_map = _get_knitting_shift_map_for_period(shift=1, date_condition=cum_condition, params=cum_params)
-    knitting_shift2_cum_map = _get_knitting_shift_map_for_period(shift=2, date_condition=cum_condition, params=cum_params)
-
-    # ── MTD maps (scans from start of selected month up to and including selected date) ──
-    mtd_condition = (
-        "YEAR(isl.logged_time) = YEAR(%(filter_date)s) "
-        "AND MONTH(isl.logged_time) = MONTH(%(filter_date)s) "
-        "AND DATE(isl.logged_time) <= %(filter_date)s"
-    )
-    mtd_params = {"filter_date": date}
-
-    cell_out_mtd_map = _get_cell_op_map_for_period(op_type="last", date_condition=mtd_condition, params=mtd_params)
-    knitting_shift1_mtd = _get_knitting_shift_map_for_period(shift=1, date_condition=mtd_condition, params=mtd_params)
-    knitting_shift2_mtd = _get_knitting_shift_map_for_period(shift=2, date_condition=mtd_condition, params=mtd_params)
-
-    # ── YTD maps (scans from start of selected year up to and including selected date) ──
-    ytd_condition = (
-        "YEAR(isl.logged_time) = YEAR(%(filter_date)s) "
-        "AND DATE(isl.logged_time) <= %(filter_date)s"
-    )
-    ytd_params = {"filter_date": date}
-
-    cell_out_ytd_map = _get_cell_op_map_for_period(op_type="last", date_condition=ytd_condition, params=ytd_params)
-    knitting_shift1_ytd = _get_knitting_shift_map_for_period(shift=1, date_condition=ytd_condition, params=ytd_params)
-    knitting_shift2_ytd = _get_knitting_shift_map_for_period(shift=2, date_condition=ytd_condition, params=ytd_params)
-
-    # ── Date reference maps (still cumulative — for lead days / completion tracking) ──
-    cell_in_logged_date_map       = _get_cell_first_logged_date_map(op_type="first")
-    cell_out_logged_date_map      = _get_cell_first_logged_date_map(op_type="last")
-    cell_out_last_logged_date_map = _get_cell_last_logged_date_map()
-    knitting_logged_time_map      = _get_knitting_first_logged_time_map()
-    logged_time_map               = _get_min_logged_time_map()
+    # Unpack date maps
+    cell_in_logged_date_map       = cell_date_maps["first_in"]
+    cell_out_logged_date_map      = cell_date_maps["first_out"]
+    cell_out_last_logged_date_map = cell_date_maps["last_out"]
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
@@ -110,8 +103,6 @@ def get_dashboard_data(date=None):
         "knitting_shift2_ytd":         0,
         "knitting_shift1_cum":         0,
         "knitting_shift2_cum":         0,
-        # Cells actually present in the Cut Kit operation map for this group.
-        # KNITTING is always included (output sourced from shift maps, not pcflo).
         "applicable_cells":            set(),
     })
 
@@ -120,8 +111,6 @@ def get_dashboard_data(date=None):
         agg[key]["order_qty"]   += int(info.order_qty or 0)
         agg[key]["planned_qty"] += int(info.planned_qty or 0)
 
-        # Accumulate applicable cells from the Cut Kit operation map.
-        # KNITTING is always included because its output is tracked via shift maps.
         sku_cells = applicable_cells_map.get((style, colour, size), set())
         agg[key]["applicable_cells"] |= sku_cells
         agg[key]["applicable_cells"].add("KNITTING")
@@ -164,19 +153,12 @@ def get_dashboard_data(date=None):
                 if ex is None or last_out_d > ex:
                     agg[key]["cell_out_last_logged_date"][cell] = last_out_d
 
-        # Daily knitting shifts
-        agg[key]["knitting_shift1"] += knitting_shift1_map.get((style, colour, size), 0)
-        agg[key]["knitting_shift2"] += knitting_shift2_map.get((style, colour, size), 0)
-
-        # MTD knitting shifts
+        agg[key]["knitting_shift1"]     += knitting_shift1_map.get((style, colour, size), 0)
+        agg[key]["knitting_shift2"]     += knitting_shift2_map.get((style, colour, size), 0)
         agg[key]["knitting_shift1_mtd"] += knitting_shift1_mtd.get((style, colour, size), 0)
         agg[key]["knitting_shift2_mtd"] += knitting_shift2_mtd.get((style, colour, size), 0)
-
-        # YTD knitting shifts
         agg[key]["knitting_shift1_ytd"] += knitting_shift1_ytd.get((style, colour, size), 0)
         agg[key]["knitting_shift2_ytd"] += knitting_shift2_ytd.get((style, colour, size), 0)
-
-        # Cumulative knitting shifts (for WIP)
         agg[key]["knitting_shift1_cum"] += knitting_shift1_cum_map.get((style, colour, size), 0)
         agg[key]["knitting_shift2_cum"] += knitting_shift2_cum_map.get((style, colour, size), 0)
 
@@ -213,11 +195,7 @@ def get_dashboard_data(date=None):
         order_qty   = b["order_qty"]
         planned_qty = b["planned_qty"]
 
-        # Pre-compute KNITTING cum_out from shift maps (used throughout WIP logic below).
-        knitting_cum = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
-
-        # Cells that are actually part of this style's Cut Kit operation map.
-        # Fall back to all cells if the map is empty (e.g. legacy data with no pcflo rows).
+        knitting_cum     = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
         applicable_cells = b["applicable_cells"] or set(CELL_ORDER)
 
         cells = {}
@@ -226,28 +204,17 @@ def get_dashboard_data(date=None):
             cell_out     = b["cell_out"].get(cell, 0)
             cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
             cell_out_ytd = b["cell_out_ytd"].get(cell, 0)
-            # For KNITTING, override cum_out with the authoritative shift-map total.
             cell_out_cum = knitting_cum if cell == "KNITTING" else b["cell_out_cum"].get(cell, 0)
             cell_in_cum  = b["cell_in_cum"].get(cell, 0)
             pct          = round((cell_out / order_qty) * 100) if order_qty else 0
 
-            # WIP uses cumulative figures:
-            #   Actual WIP  = cum_in − cum_out  (material entered but not yet exited)
-            #   Pending In  = prev_applicable_cum_out − cum_in
-            #
-            # Only compute WIP for cells that are in the Cut Kit operation map.
-            # Non-applicable cells (e.g. CUTTING skipped for a plain knit style) get None
-            # so the frontend can render them as N/A rather than showing misleading zeros.
             if i == 0:
-                # KNITTING: wip not applicable; cum_out is set from shift maps above.
                 actual_wip = None
                 pending_in = None
             elif cell not in applicable_cells:
-                # This physical cell is not part of the operation map for this style.
                 actual_wip = None
                 pending_in = None
             else:
-                # Walk backwards to find the nearest applicable predecessor cell.
                 prev_applicable = None
                 for j in range(i - 1, -1, -1):
                     if CELL_ORDER[j] in applicable_cells:
@@ -264,10 +231,8 @@ def get_dashboard_data(date=None):
                 actual_wip = max(0, cell_in_cum - cell_out_cum)
                 pending_in = max(0, prev_out_cum - cell_in_cum)
 
-            # Legacy wip field = actual_wip (keeps card display unchanged)
             wip = actual_wip
 
-            # Days calculation (still cumulative — unchanged)
             if cell in NO_IN_CELLS:
                 first_ref = _to_date(b["cell_out_logged_date"].get(cell))
             else:
@@ -291,18 +256,10 @@ def get_dashboard_data(date=None):
                 "wip":        wip,
                 "pct":        pct,
                 "days":       days,
-                # False for cells absent from the Cut Kit operation map —
-                # lets the frontend skip them in its own WIP calculation.
                 "applicable": (i == 0) or (cell in applicable_cells),
             }
 
-        # ── Patch cum_out for non-applicable cells ─────────────────────────
-        # The JS computes WIP as: prev_cell.cum_out − current_cell.cum_out
-        # For a non-applicable cell (e.g. EMBROIDERY not in any WO's operation map),
-        # its real cum_out is 0, so the JS would show WIP = SEWING.cum_out − 0 = large number.
-        # Fix: set cum_out of each non-applicable cell to its nearest applicable
-        # predecessor's cum_out, so JS yields 0 for that cell and the next
-        # applicable cell (PRODUCTION) gets the correct value.
+        # Patch cum_out for non-applicable cells
         for i, cell in enumerate(CELL_ORDER):
             if i == 0 or cell in applicable_cells:
                 continue
@@ -312,7 +269,7 @@ def get_dashboard_data(date=None):
                     cells[cell]["cum_out"] = cells[pred]["cum_out"]
                     break
 
-        # ── Lead Days ──────────────────────────────────────────────────────
+        # Lead Days
         knitting_first_ref = _to_date(b["knitting_first_logged"])
         packing_out        = cells["PACKING"]["out"]
 
@@ -337,41 +294,391 @@ def get_dashboard_data(date=None):
 
         if cells["KNITTING"]["in"] == 0 and cells["KNITTING"]["out"] == 0:
             if (b["knitting_shift1_mtd"] + b["knitting_shift2_mtd"]) == 0:
-                # Keep styles where knitting is done but downstream cells still have WIP
                 has_downstream_wip = any(
                     b["cell_out_cum"].get(cell, 0) > 0
                     for cell in CELL_ORDER
                     if cell != "KNITTING"
                 )
                 if not has_downstream_wip:
-                    continue        
+                    continue
 
         result.append({
-            "style":              style,
-            "buyer":              buyer,
-            "colour":             colour,
-            "season":             season,
-            "delivery_date":      delivery_date,
-            "order_qty":          order_qty,
-            "planned_qty":        planned_qty,
-            "cells":              cells,
-            "completion_pct":     completion_pct,
-            "lead_days":          lead_days,
-            "knitting_shift1":    b["knitting_shift1"],
-            "knitting_shift2":    b["knitting_shift2"],
+            "style":               style,
+            "buyer":               buyer,
+            "colour":              colour,
+            "season":              season,
+            "delivery_date":       delivery_date,
+            "order_qty":           order_qty,
+            "planned_qty":         planned_qty,
+            "cells":               cells,
+            "completion_pct":      completion_pct,
+            "lead_days":           lead_days,
+            "knitting_shift1":     b["knitting_shift1"],
+            "knitting_shift2":     b["knitting_shift2"],
             "knitting_shift1_mtd": b["knitting_shift1_mtd"],
             "knitting_shift2_mtd": b["knitting_shift2_mtd"],
             "knitting_shift1_ytd": b["knitting_shift1_ytd"],
             "knitting_shift2_ytd": b["knitting_shift2_ytd"],
             "knitting_shift1_cum": b["knitting_shift1_cum"],
             "knitting_shift2_cum": b["knitting_shift2_cum"],
-            "knitting_wastage":   0,
+            "knitting_wastage":    0,
         })
 
     return result
 
 
-# ── Private helpers ───────────────────────────────────────────────────────────
+# ── Optimised helpers ─────────────────────────────────────────────────────────
+
+def _get_cell_all_periods(date):
+    """
+    Replaces 6 separate _get_cell_op_map_for_period calls with one query.
+    Returns all six maps in a single dict using conditional SUM aggregation:
+      daily_in, daily_out   — first/last operation scans on `date`
+      cum_in,   cum_out     — first/last operation scans all time
+      mtd_out               — last operation scans month-to-date
+      ytd_out               — last operation scans year-to-date
+
+    The key insight: every call shared the same JOIN structure; only the
+    date condition and first/last operation field differed.  We compute both
+    first_operation (IN) and last_operation (OUT) in one pass, and apply
+    date filters as CASE WHEN conditions inside SUM().
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    # For MENDING, first_op = 'MENDING IN', last_op = 'MENDING OUT'.
+    # For all other cells, first_op/last_op come from pcflo.
+    # We need to match the scan's operation against both first and last
+    # simultaneously, so we use two separate indicator expressions:
+    #   is_first = (isl.operation = first_op_for_this_cell)
+    #   is_last  = (isl.operation = last_op_for_this_cell)
+    # then SUM(pi.quantity * is_first * date_filter) etc.
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name,
+
+            -- ── daily IN (first_operation, selected date) ──────────────
+            COALESCE(SUM(
+                CASE WHEN DATE(isl.logged_time) = %(date)s
+                      AND isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING IN'
+                            ELSE pcflo.first_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS daily_in,
+
+            -- ── daily OUT (last_operation, selected date) ──────────────
+            COALESCE(SUM(
+                CASE WHEN DATE(isl.logged_time) = %(date)s
+                      AND isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS daily_out,
+
+            -- ── cumulative IN (first_operation, all time) ──────────────
+            COALESCE(SUM(
+                CASE WHEN isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING IN'
+                            ELSE pcflo.first_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS cum_in,
+
+            -- ── cumulative OUT (last_operation, all time) ──────────────
+            COALESCE(SUM(
+                CASE WHEN isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS cum_out,
+
+            -- ── MTD OUT (last_operation, month-to-date) ────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time)  = YEAR(%(date)s)
+                      AND MONTH(isl.logged_time) = MONTH(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS mtd_out,
+
+            -- ── YTD OUT (last_operation, year-to-date) ─────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time) = YEAR(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS ytd_out
+
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi
+            ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc
+            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc
+            ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order
+            AND pcflo.physical_cell = pc.name
+        WHERE isl.log_status = 'Completed'
+          AND pc.cell_name IN ({cell_list})
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+    """, {"date": date}, as_dict=True)
+
+    daily_in  = {}
+    daily_out = {}
+    cum_in    = {}
+    cum_out   = {}
+    mtd_out   = {}
+    ytd_out   = {}
+
+    for r in rows:
+        k = (r.style, r.colour, r.size, r.cell_name)
+        daily_in[k]  = int(r.daily_in  or 0)
+        daily_out[k] = int(r.daily_out or 0)
+        cum_in[k]    = int(r.cum_in    or 0)
+        cum_out[k]   = int(r.cum_out   or 0)
+        mtd_out[k]   = int(r.mtd_out   or 0)
+        ytd_out[k]   = int(r.ytd_out   or 0)
+
+    return {
+        "daily_in":  daily_in,
+        "daily_out": daily_out,
+        "cum_in":    cum_in,
+        "cum_out":   cum_out,
+        "mtd_out":   mtd_out,
+        "ytd_out":   ytd_out,
+    }
+
+
+def _get_knitting_all_periods(date):
+    """
+    Replaces 8 separate _get_knitting_shift_map_for_period calls with one query.
+    Returns daily/cum/mtd/ytd × shift1/shift2 in a single dict.
+
+    Shift 1: 10:00–20:00   Shift 2: 20:00–10:00 (next day)
+    """
+    rows = frappe.db.sql("""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+
+            -- ── daily shift 1 ──────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN DATE(isl.logged_time) = %(date)s
+                      AND TIME(isl.logged_time) >= '10:00:00'
+                      AND TIME(isl.logged_time) <  '20:00:00'
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS daily_s1,
+
+            -- ── daily shift 2 ──────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN DATE(isl.logged_time) = %(date)s
+                      AND (TIME(isl.logged_time) >= '20:00:00'
+                           OR TIME(isl.logged_time) < '10:00:00')
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS daily_s2,
+
+            -- ── cumulative shift 1 (all time) ──────────────────────────
+            COALESCE(SUM(
+                CASE WHEN TIME(isl.logged_time) >= '10:00:00'
+                      AND TIME(isl.logged_time) <  '20:00:00'
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS cum_s1,
+
+            -- ── cumulative shift 2 (all time) ──────────────────────────
+            COALESCE(SUM(
+                CASE WHEN TIME(isl.logged_time) >= '20:00:00'
+                      OR  TIME(isl.logged_time) <  '10:00:00'
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS cum_s2,
+
+            -- ── MTD shift 1 ────────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time)  = YEAR(%(date)s)
+                      AND MONTH(isl.logged_time) = MONTH(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND TIME(isl.logged_time) >= '10:00:00'
+                      AND TIME(isl.logged_time) <  '20:00:00'
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS mtd_s1,
+
+            -- ── MTD shift 2 ────────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time)  = YEAR(%(date)s)
+                      AND MONTH(isl.logged_time) = MONTH(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND (TIME(isl.logged_time) >= '20:00:00'
+                           OR TIME(isl.logged_time) < '10:00:00')
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS mtd_s2,
+
+            -- ── YTD shift 1 ────────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time) = YEAR(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND TIME(isl.logged_time) >= '10:00:00'
+                      AND TIME(isl.logged_time) <  '20:00:00'
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS ytd_s1,
+
+            -- ── YTD shift 2 ────────────────────────────────────────────
+            COALESCE(SUM(
+                CASE WHEN YEAR(isl.logged_time) = YEAR(%(date)s)
+                      AND DATE(isl.logged_time) <= %(date)s
+                      AND (TIME(isl.logged_time) >= '20:00:00'
+                           OR TIME(isl.logged_time) < '10:00:00')
+                THEN pi.quantity ELSE 0 END
+            ), 0) AS ytd_s2
+
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi
+            ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc
+            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc
+            ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order
+            AND pcflo.physical_cell = pc.name
+        WHERE pc.cell_name = 'KNITTING'
+          AND isl.log_status = 'Completed'
+          AND isl.operation = pcflo.last_operation
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, {"date": date}, as_dict=True)
+
+    daily_s1 = {}; daily_s2 = {}
+    cum_s1   = {}; cum_s2   = {}
+    mtd_s1   = {}; mtd_s2   = {}
+    ytd_s1   = {}; ytd_s2   = {}
+
+    for r in rows:
+        k = (r.style, r.colour, r.size)
+        daily_s1[k] = int(r.daily_s1 or 0)
+        daily_s2[k] = int(r.daily_s2 or 0)
+        cum_s1[k]   = int(r.cum_s1   or 0)
+        cum_s2[k]   = int(r.cum_s2   or 0)
+        mtd_s1[k]   = int(r.mtd_s1   or 0)
+        mtd_s2[k]   = int(r.mtd_s2   or 0)
+        ytd_s1[k]   = int(r.ytd_s1   or 0)
+        ytd_s2[k]   = int(r.ytd_s2   or 0)
+
+    return {
+        "daily_s1": daily_s1, "daily_s2": daily_s2,
+        "cum_s1":   cum_s1,   "cum_s2":   cum_s2,
+        "mtd_s1":   mtd_s1,   "mtd_s2":   mtd_s2,
+        "ytd_s1":   ytd_s1,   "ytd_s2":   ytd_s2,
+    }
+
+
+def _get_cell_date_maps():
+    """
+    Replaces 3 separate date-map queries with one query returning:
+      first_in  — MIN(logged_time) for first_operation scans per (sku, cell)
+      first_out — MIN(logged_time) for last_operation  scans per (sku, cell)
+      last_out  — MAX(logged_time) for last_operation  scans per (sku, cell)
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name,
+
+            MIN(CASE WHEN isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING IN'
+                            ELSE pcflo.first_operation END
+                THEN isl.logged_time ELSE NULL END) AS first_in,
+
+            MIN(CASE WHEN isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN isl.logged_time ELSE NULL END) AS first_out,
+
+            MAX(CASE WHEN isl.operation = CASE
+                            WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
+                            ELSE pcflo.last_operation END
+                THEN isl.logged_time ELSE NULL END) AS last_out
+
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi
+            ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc
+            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc
+            ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order
+            AND pcflo.physical_cell = pc.name
+        WHERE isl.log_status = 'Completed'
+          AND pc.cell_name IN ({cell_list})
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+    """, as_dict=True)
+
+    first_in  = {}
+    first_out = {}
+    last_out  = {}
+
+    for r in rows:
+        k = (r.style, r.colour, r.size, r.cell_name)
+        if r.first_in:
+            first_in[k]  = r.first_in
+        if r.first_out:
+            first_out[k] = r.first_out
+        if r.last_out:
+            last_out[k]  = r.last_out
+
+    return {"first_in": first_in, "first_out": first_out, "last_out": last_out}
+
+
+# ── Unchanged helpers ─────────────────────────────────────────────────────────
 
 def _get_order_map():
     rows = frappe.db.sql("""
@@ -451,174 +758,8 @@ def _get_knitting_first_logged_time_map():
     return {(r.style, r.colour, r.size): r.first_logged_time for r in rows}
 
 
-def _get_knitting_shift_map_for_period(shift=1, date_condition="1=1", params=None):
-    """
-    Returns total scanned qty per (style, colour, size) for KNITTING by shift,
-    filtered to the given date_condition.
-      Shift 1: 10:00 AM – 20:00 (8 PM)
-      Shift 2: 20:00 (8 PM) – next day 10:00 AM
-    """
-    if params is None:
-        params = {}
-
-    if shift == 1:
-        time_condition = "TIME(isl.logged_time) >= '10:00:00' AND TIME(isl.logged_time) < '20:00:00'"
-    else:
-        time_condition = "(TIME(isl.logged_time) >= '20:00:00' OR TIME(isl.logged_time) < '10:00:00')"
-
-    sql_query = f"""
-        SELECT
-            itm.custom_style_master                     AS style,
-            itm.custom_colour_name                      AS colour,
-            tbc.size                                    AS size,
-            COALESCE(SUM(pi.quantity), 0)               AS qty
-        FROM `tabItem Scan Log` isl
-        INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
-        INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
-        INNER JOIN (
-            SELECT DISTINCT parent, sales_order, work_order, size
-            FROM `tabTracking Order Bundle Configuration`
-            WHERE parentfield = 'bundle_configurations'
-        ) tbc                                   ON tbc.parent = tor.name
-                                               AND tbc.size = pi.size
-        INNER JOIN `tabItem` itm                ON itm.name = tor.item
-        INNER JOIN `tabPhysical Cell` pc        ON pc.name = isl.physical_cell
-        INNER JOIN `tabTracking Component` tc   ON tc.name = pi.component
-                                               AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-                                               ON pcflo.parent = tbc.work_order
-                                               AND pcflo.physical_cell = pc.name
-        WHERE pc.cell_name = 'KNITTING'
-          AND isl.log_status = 'Completed'
-          AND {date_condition}
-          AND {time_condition}
-          AND isl.operation = pcflo.last_operation
-          AND (
-              isl.status IN ('Counted', 'Activated', 'Pass')
-              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-          )
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
-    """
-    rows = frappe.db.sql(sql_query, params, as_dict=True) if params else frappe.db.sql(sql_query, as_dict=True)
-
-    return {(r.style, r.colour, r.size): int(r.qty) for r in rows}
-
-
-def _get_cell_op_map_for_period(op_type="last", date_condition="1=1", params=None):
-    """
-    Returns qty per (style, colour, size, cell_name) for either
-    the first or last operation of each physical cell,
-    filtered to the given date_condition.
-    """
-    if params is None:
-        params = {}
-
-    op_field         = "first_operation" if op_type == "first" else "last_operation"
-    mending_op       = "MENDING IN"      if op_type == "first" else "MENDING OUT"
-    cell_list        = ", ".join([f"'{c}'" for c in CELL_ORDER])
-
-    sql_query = f"""
-        SELECT
-            itm.custom_style_master                     AS style,
-            itm.custom_colour_name                      AS colour,
-            tbc.size                                    AS size,
-            pc.cell_name                                AS cell_name,
-            COALESCE(SUM(pi.quantity), 0)               AS qty
-        FROM `tabItem Scan Log` isl
-        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
-        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
-        INNER JOIN (
-            SELECT DISTINCT parent, sales_order, work_order, size
-            FROM `tabTracking Order Bundle Configuration`
-            WHERE parentfield = 'bundle_configurations'
-        ) tbc
-            ON tbc.parent = tor.name AND tbc.size = pi.size
-        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
-        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
-        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
-                                                   AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-                                                   ON pcflo.parent = tbc.work_order
-                                                   AND pcflo.physical_cell = pc.name
-        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = CASE
-                WHEN pc.cell_name = 'MENDING' THEN '{mending_op}'
-                ELSE pcflo.{op_field}
-              END
-          AND isl.log_status = 'Completed'
-          AND {date_condition}
-          AND pc.cell_name IN ({cell_list})
-          AND (
-              isl.status IN ('Counted', 'Activated', 'Pass')
-              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-          )
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
-    """
-    rows = frappe.db.sql(sql_query, params, as_dict=True) if params else frappe.db.sql(sql_query, as_dict=True)
-
-    return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
-
-
-def _get_cell_first_logged_date_map(op_type="first"):
-    op_field   = "first_operation" if op_type == "first" else "last_operation"
-    mending_op = "MENDING IN"      if op_type == "first" else "MENDING OUT"
-    cell_list  = ", ".join([f"'{c}'" for c in CELL_ORDER])
-
-    rows = frappe.db.sql(f"""
-        SELECT
-            itm.custom_style_master                     AS style,
-            itm.custom_colour_name                      AS colour,
-            tbc.size                                    AS size,
-            pc.cell_name                                AS cell_name,
-            MIN(isl.logged_time)                        AS first_logged_date
-        FROM `tabItem Scan Log` isl
-        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
-        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
-        INNER JOIN (
-            SELECT DISTINCT parent, sales_order, work_order, size
-            FROM `tabTracking Order Bundle Configuration`
-            WHERE parentfield = 'bundle_configurations'
-        ) tbc
-            ON tbc.parent = tor.name AND tbc.size = pi.size
-        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
-        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
-        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
-                                                   AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-                                                   ON pcflo.parent = tbc.work_order
-                                                   AND pcflo.physical_cell = pc.name
-        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = CASE
-                WHEN pc.cell_name = 'MENDING' THEN '{mending_op}'
-                ELSE pcflo.{op_field}
-              END
-          AND isl.log_status = 'Completed'
-          AND pc.cell_name IN ({cell_list})
-          AND (
-              isl.status IN ('Counted', 'Activated', 'Pass')
-              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-          )
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
-    """, as_dict=True)
-
-    return {(r.style, r.colour, r.size, r.cell_name): r.first_logged_date for r in rows}
-
-
 def _get_applicable_cells_map():
-    """
-    Returns a dict keyed by (style, colour, size) whose value is the set of
-    cell_names that have at least one configured operation in the Cut Kit
-    operation map (tabPhysical Cell First and Last Operation).
-
-    This drives the WIP / pending-in logic: cells that are NOT in the map for
-    a particular SKU are non-applicable and their WIP is rendered as N/A rather
-    than as a misleading zero.
-
-    KNITTING is intentionally excluded here — the caller always adds it, because
-    KNITTING is tracked via shift maps rather than via pcflo rows.
-    """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
-
     rows = frappe.db.sql(f"""
         SELECT DISTINCT
             itm.custom_style_master  AS style,
@@ -634,51 +775,7 @@ def _get_applicable_cells_map():
         WHERE tbc.parentfield = 'bundle_configurations'
           AND pc.cell_name IN ({cell_list})
     """, as_dict=True)
-
     result = defaultdict(set)
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
     return result
-
-
-def _get_cell_last_logged_date_map():
-    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
-
-    rows = frappe.db.sql(f"""
-        SELECT
-            itm.custom_style_master                     AS style,
-            itm.custom_colour_name                      AS colour,
-            tbc.size                                    AS size,
-            pc.cell_name                                AS cell_name,
-            MAX(isl.logged_time)                        AS last_logged_date
-        FROM `tabItem Scan Log` isl
-        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
-        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
-        INNER JOIN (
-            SELECT DISTINCT parent, sales_order, work_order, size
-            FROM `tabTracking Order Bundle Configuration`
-            WHERE parentfield = 'bundle_configurations'
-        ) tbc
-            ON tbc.parent = tor.name AND tbc.size = pi.size
-        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
-        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
-        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component
-                                                   AND tc.is_main = 1
-        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
-                                                   ON pcflo.parent = tbc.work_order
-                                                   AND pcflo.physical_cell = pc.name
-        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
-        WHERE isl.operation = CASE
-                WHEN pc.cell_name = 'MENDING' THEN 'MENDING OUT'
-                ELSE pcflo.last_operation
-              END
-          AND isl.log_status = 'Completed'
-          AND pc.cell_name IN ({cell_list})
-          AND (
-              isl.status IN ('Counted', 'Activated', 'Pass')
-              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
-          )
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
-    """, as_dict=True)
-
-    return {(r.style, r.colour, r.size, r.cell_name): r.last_logged_date for r in rows}
