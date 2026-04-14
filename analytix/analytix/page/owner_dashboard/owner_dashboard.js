@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Owner Dashboard  —  analytix / owner_dashboard
 //  Grouped bar chart: Input vs Output vs Pending In (Ready for Input) vs WIP
-//  Reuses shopfloor_performance.get_dashboard_data on the backend.
 // ═══════════════════════════════════════════════════════════════════
 
 frappe.pages["owner-dashboard"].on_page_load = function (wrapper) {
@@ -116,10 +115,10 @@ frappe.pages["owner-dashboard"].on_page_hide = function () {
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
-var _timer    = null;
-var _chartInst = null;   // Chart.js instance
+var _timer     = null;
+var _chartInst = null;
 
-// ── Section pipeline (matches shopfloor_performance SECTIONS) ─────────────────
+// ── Section pipeline ──────────────────────────────────────────────────────────
 const OD_SECTIONS = [
 	"KNITTING",
 	"MENDING",
@@ -150,23 +149,17 @@ const OD_SECTION_KEY_MAP = {
 
 // ── Chart.js lazy-load ────────────────────────────────────────────────────────
 function _ensureChartJS(cb) {
-	if (window.Chart && Chart.register) {
-		cb();
-		return;
-	}
-	// Load Chart.js + datalabels plugin from CDN
+	if (window.Chart && Chart.register) { cb(); return; }
 	var s1 = document.createElement("script");
 	s1.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js";
 	s1.onload = function () {
 		var s2 = document.createElement("script");
 		s2.src = "https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js";
 		s2.onload = function () {
-			if (window.ChartDataLabels) {
-				Chart.register(ChartDataLabels);
-			}
+			if (window.ChartDataLabels) { Chart.register(ChartDataLabels); }
 			cb();
 		};
-		s2.onerror = function () { cb(); };   // proceed without labels
+		s2.onerror = function () { cb(); };
 		document.head.appendChild(s2);
 	};
 	s1.onerror = function () {
@@ -175,7 +168,7 @@ function _ensureChartJS(cb) {
 	document.head.appendChild(s1);
 }
 
-// ── Data load ────────────────────────────────────────────────────────────────
+// ── Data load ─────────────────────────────────────────────────────────────────
 function _load() {
 	var selectedDate = $("#od-date-input").val() || frappe.datetime.get_today();
 
@@ -221,39 +214,50 @@ function _render(data, selectedDate) {
 		(d.getMonth() + 1).toString().padStart(2, "0") + "-" +
 		d.getFullYear();
 
+	// ── Build chart data arrays ───────────────────────────────────────────
+	// Labels are arrays of strings — Chart.js renders each array element
+	// on a separate line, giving us horizontal wrapped text with no rotation.
 	var labels = [], inputVals = [], outputVals = [], pendingVals = [], wipVals = [];
 
-	// KNITTING — two bars for each shift
+	// KNITTING — two separate bar groups, one per shift
 	var kn = data["KNITTING"] || {};
-	labels.push("KNITTING\n(1st Shift \u00b7 " + selDay + ")");
+	labels.push(["KNITTING", "(1st Shift)", selDay]);
 	inputVals.push(null); outputVals.push(kn.shift1 || 0); pendingVals.push(null); wipVals.push(null);
 
-	labels.push("KNITTING\n(2nd Shift \u00b7 " + prevLabel + ")");
+	labels.push(["KNITTING", "(2nd Shift)", prevLabel]);
 	inputVals.push(null); outputVals.push(kn.shift2 || 0); pendingVals.push(null); wipVals.push(null);
 
-	// All other sections — data is already aggregated by the backend
+	// All other sections
 	OD_SECTIONS.forEach(function (section) {
 		if (section === "KNITTING") return;
 		var key = OD_SECTION_KEY_MAP[section];
 		var t = data[key] || {};
-		labels.push(section);
-		inputVals.push(t.input      != null ? t.input      : 0);
-		outputVals.push(t.output    != null ? t.output     : 0);
-		pendingVals.push(t.pending_in != null ? t.pending_in : 0);
-		wipVals.push(t.wip          != null ? t.wip        : 0);
+
+		// Split multi-word section names onto two lines for compactness
+		var parts = section.split(" ");
+		var labelArr = parts.length > 1
+			? [parts.slice(0, Math.ceil(parts.length / 2)).join(" "),
+			   parts.slice(Math.ceil(parts.length / 2)).join(" ")]
+			: [section];
+
+		labels.push(labelArr);
+		inputVals.push(t.input       != null ? t.input       : 0);
+		outputVals.push(t.output     != null ? t.output      : 0);
+		pendingVals.push(t.pending_in != null ? t.pending_in  : 0);
+		wipVals.push(t.wip           != null ? t.wip         : 0);
 	});
 
 	_drawChart(labels, inputVals, outputVals, pendingVals, wipVals);
 }
 
-
+// ── Draw / update chart ───────────────────────────────────────────────────────
 function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 	$("#od-loading").hide();
 	$("#od-chart").show();
 
-	var ctx = document.getElementById("od-chart").getContext("2d");
-	var fontSize = 10;
+	var ctx      = document.getElementById("od-chart").getContext("2d");
 	var barThick = 28;
+	var fontSize = 10;
 
 	var datasets = [
 		{
@@ -295,7 +299,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 		align: "top",
 		offset: 2,
 		color: "#374151",
-		font: { size: fontSize, weight: "600", family: "\'Segoe UI\', system-ui, sans-serif" },
+		font: { size: fontSize, weight: "600", family: "'Segoe UI', system-ui, sans-serif" },
 		formatter: function (val) {
 			if (val === null || val === undefined) return "";
 			if (val === 0) return "0";
@@ -318,7 +322,7 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 			responsive: true,
 			maintainAspectRatio: false,
 			animation: { duration: 600 },
-			layout: { padding: { top: 24, right: 16, bottom: 8, left: 8 } },
+			layout: { padding: { top: 24, right: 16, bottom: 0, left: 8 } },
 			plugins: {
 				legend: { display: false },
 				tooltip: {
@@ -329,6 +333,11 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					borderWidth: 1,
 					padding: 10,
 					callbacks: {
+						// Join array labels back to a single string for the tooltip title
+						title: function (items) {
+							var lbl = items[0].label;
+							return Array.isArray(lbl) ? lbl.join(" ") : lbl;
+						},
 						label: function (ctx) {
 							if (ctx.raw === null) return null;
 							return " " + ctx.dataset.label + ": " + Number(ctx.raw).toLocaleString("en-IN");
@@ -342,23 +351,25 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 				x: {
 					grid: { display: false },
 					ticks: {
-						color: "#374151",
-						font: { size: 10.5, weight: "600", family: "\'Segoe UI\', system-ui, sans-serif" },
-						maxRotation: 45,
-						minRotation: 45,
+						// ── Horizontal wrapped labels ──────────────────────────────
+						// maxRotation: 0 keeps text upright.
+						// Chart.js natively renders array labels as multi-line text,
+						// so passing label arrays (built in _render) gives wrapping
+						// without any rotation.
+						maxRotation: 0,
+						minRotation: 0,
 						autoSkip: false,
+						color: "#374151",
+						font: { size: 10.5, weight: "600", family: "'Segoe UI', system-ui, sans-serif" },
 					},
 					border: { display: false },
 				},
 				y: {
 					beginAtZero: true,
-					grid: {
-						color: "rgba(0,0,0,0.06)",
-						drawTicks: false,
-					},
+					grid: { color: "rgba(0,0,0,0.06)", drawTicks: false },
 					ticks: {
 						color: "#6b7280",
-						font: { size: 10, family: "\'Segoe UI\', system-ui, sans-serif" },
+						font: { size: 10, family: "'Segoe UI', system-ui, sans-serif" },
 						padding: 8,
 						callback: function (v) { return Number(v).toLocaleString("en-IN"); },
 					},
