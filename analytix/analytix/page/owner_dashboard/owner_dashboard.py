@@ -3,21 +3,32 @@
 #
 # Owner Dashboard — optimised backend
 #
-# Fix: EMBROIDERY (and any other non-applicable cell) was showing inflated
-# "Ready for Input" values because _get_applicable_cells() returned a global
-# set (cells that exist in ANY work order's pcflo rows), not filtered by
-# whether scans actually passed through that cell.
+# The WIP / Pending In values must exactly match the shopfloor_performance
+# dashboard. The shopfloor computes these per (style, colour, size) using
+# per-style applicable_cells from the Cut Kit operation map (pcflo), then
+# sums across styles. The global aggregation done here must produce the same
+# result, which requires:
 #
-# The corrected approach:
-#   1. After fetching cumulative IN/OUT maps, derive applicable_set from
-#      scan data itself: a cell is applicable iff it has cum_in > 0 OR
-#      cum_out > 0.  This is equivalent to what shopfloor_performance.py
-#      does via the per-style applicable_cells flag.
-#   2. Patch non-applicable cells' cum_out to their nearest applicable
-#      predecessor's cum_out — exactly what shopfloor_performance.py does
-#      in its "Patch cum_out for non-applicable cells" block — so the WIP
-#      chain skips them cleanly instead of leaking a large predecessor
-#      cum_out into pending_in.
+#   1. applicable_set  — from pcflo (cells that have at least one configured
+#                         operation), NOT from scan data.  Scan-data detection
+#                         fails for cells like PRODUCTION where items skip the
+#                         first_operation scan entirely.
+#
+#   2. cum_in / cum_out — use EXACT same first_operation / last_operation
+#                         scan query as shopfloor (with MENDING IN/OUT special
+#                         case, tabItem + tabSales Order joins included),
+#                         aggregated globally across all styles/sizes.
+#
+#   3. cum_out patching — non-applicable cells must have their cum_out set to
+#                         their nearest applicable predecessor's cum_out, so
+#                         the next applicable cell computes the correct
+#                         pending_in.  Without this, a non-applicable cell
+#                         with 0 cum_in leaks the predecessor's cum_out as a
+#                         huge pending_in for the following cell.
+#
+#   4. predecessor walk — when computing pending_in, walk back to the nearest
+#                         cell that is IN applicable_set (including KNITTING),
+#                         not just the nearest with scan data.
 
 import frappe
 from datetime import date as _date
@@ -38,7 +49,10 @@ CELL_ORDER = [
 
 CELL_LIST_SQL = ", ".join(f"'{c}'" for c in CELL_ORDER)
 
-# Shared JOIN block reused across cell queries
+# ── Shared JOIN block ─────────────────────────────────────────────────────────
+# Identical to shopfloor_performance._get_cell_op_map_for_period, including
+# the tabItem and tabSales Order joins that were missing from the original
+# owner dashboard (their absence could skew counts).
 _SCAN_JOINS = f"""
     FROM `tabItem Scan Log` isl
     INNER JOIN `tabProduction Item` pi
@@ -50,6 +64,8 @@ _SCAN_JOINS = f"""
         FROM `tabTracking Order Bundle Configuration`
         WHERE parentfield = 'bundle_configurations'
     ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+    INNER JOIN `tabItem` itm
+        ON itm.name = tor.item
     INNER JOIN `tabPhysical Cell` pc
         ON pc.name = isl.physical_cell
     INNER JOIN `tabTracking Component` tc
@@ -57,6 +73,8 @@ _SCAN_JOINS = f"""
     INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
         ON pcflo.parent = tbc.work_order
         AND pcflo.physical_cell = pc.name
+    INNER JOIN `tabSales Order` so
+        ON so.name = tbc.sales_order
     WHERE isl.log_status = 'Completed'
       AND pc.cell_name IN ({CELL_LIST_SQL})
       AND (
@@ -67,24 +85,24 @@ _SCAN_JOINS = f"""
 
 
 def _op_case(op_label, field):
+    """MENDING uses named operations; all other cells use pcflo first/last."""
     return f"CASE WHEN pc.cell_name = 'MENDING' THEN '{op_label}' ELSE pcflo.{field} END"
 
 
 @frappe.whitelist()
 def get_owner_dashboard_data(date=None):
     """
-    Returns a dict keyed by cell_name with four values needed by the chart:
-        { cell_name: { input, output, pending_in, wip } }
-    Plus KNITTING breakdown:
-        { "KNITTING": { shift1, shift2, output, input: None, ... } }
+    Returns a dict keyed by cell_name:
+        { cell_name: { input, output, pending_in, wip, applicable } }
+    KNITTING also carries: { shift1, shift2 }
     """
     if not date:
         date = _date.today().isoformat()
 
     params = {"date": date}
 
-    # ── 1. Daily INPUT per section (first_operation scans, selected date) ─
-    daily_in = _run(f"""
+    # ── Daily IN / OUT (selected date) ───────────────────────────────────
+    daily_in_rows = _run(f"""
         SELECT pc.cell_name, COALESCE(SUM(pi.quantity), 0) AS qty
         {_SCAN_JOINS}
           AND isl.operation = {_op_case('MENDING IN', 'first_operation')}
@@ -92,8 +110,7 @@ def get_owner_dashboard_data(date=None):
         GROUP BY pc.cell_name
     """, params)
 
-    # ── 2. Daily OUTPUT per section (last_operation scans, selected date) ─
-    daily_out = _run(f"""
+    daily_out_rows = _run(f"""
         SELECT pc.cell_name, COALESCE(SUM(pi.quantity), 0) AS qty
         {_SCAN_JOINS}
           AND isl.operation = {_op_case('MENDING OUT', 'last_operation')}
@@ -101,75 +118,61 @@ def get_owner_dashboard_data(date=None):
         GROUP BY pc.cell_name
     """, params)
 
-    # ── 3. Cumulative INPUT per section (all time, for pending_in / wip) ──
-    cum_in = _run(f"""
+    # ── Cumulative IN / OUT (all time) ───────────────────────────────────
+    cum_in_rows = _run(f"""
         SELECT pc.cell_name, COALESCE(SUM(pi.quantity), 0) AS qty
         {_SCAN_JOINS}
           AND isl.operation = {_op_case('MENDING IN', 'first_operation')}
         GROUP BY pc.cell_name
     """, {})
 
-    # ── 4. Cumulative OUTPUT per section (all time, for wip) ─────────────
-    cum_out = _run(f"""
+    cum_out_rows = _run(f"""
         SELECT pc.cell_name, COALESCE(SUM(pi.quantity), 0) AS qty
         {_SCAN_JOINS}
           AND isl.operation = {_op_case('MENDING OUT', 'last_operation')}
         GROUP BY pc.cell_name
     """, {})
 
-    # ── 5-6. KNITTING daily shifts ────────────────────────────────────────
+    # ── KNITTING shifts ───────────────────────────────────────────────────
     knitting_shift1     = _knitting_shift(date, shift=1)
     knitting_shift2     = _knitting_shift(date, shift=2)
-
-    # ── 7-8. KNITTING cumulative shifts (for WIP chain) ───────────────────
     knitting_shift1_cum = _knitting_shift(None, shift=1)
     knitting_shift2_cum = _knitting_shift(None, shift=2)
 
-    # ── Build mutable lookup dicts ────────────────────────────────────────
-    d_in  = {r["cell_name"]: int(r["qty"]) for r in daily_in}
-    d_out = {r["cell_name"]: int(r["qty"]) for r in daily_out}
-    c_in  = {r["cell_name"]: int(r["qty"]) for r in cum_in}
-    c_out = {r["cell_name"]: int(r["qty"]) for r in cum_out}
+    # ── Applicable cells from pcflo ───────────────────────────────────────
+    applicable_set = _get_applicable_cells_global()
+    applicable_set.add("KNITTING")  # always applicable (shift-map driven)
 
-    # KNITTING cumulative output comes from shift totals, not last_operation scans
+    # ── Mutable lookup dicts ──────────────────────────────────────────────
+    d_in  = {r["cell_name"]: int(r["qty"]) for r in daily_in_rows}
+    d_out = {r["cell_name"]: int(r["qty"]) for r in daily_out_rows}
+    c_in  = {r["cell_name"]: int(r["qty"]) for r in cum_in_rows}
+    c_out = {r["cell_name"]: int(r["qty"]) for r in cum_out_rows}
+
+    # KNITTING cumulative output = shift totals (not pcflo last_operation scans)
     knitting_cum = knitting_shift1_cum + knitting_shift2_cum
     c_out["KNITTING"] = knitting_cum
 
-    # ── Derive applicable set from scan data ──────────────────────────────
-    # A cell is applicable iff garments have actually been scanned through it
-    # (cum_in > 0 or cum_out > 0).  This matches the per-style applicable_cells
-    # logic in shopfloor_performance.py and avoids EMBROIDERY (or any optional
-    # cell) incorrectly appearing applicable when no styles use it.
-    # KNITTING is always included because its output is tracked via shift maps.
-    applicable_set = {
-        cell for cell in CELL_ORDER
-        if c_in.get(cell, 0) > 0 or c_out.get(cell, 0) > 0
-    }
-    applicable_set.add("KNITTING")
-
-    # ── Patch non-applicable cells' cum_out ───────────────────────────────
-    # For any cell not in applicable_set, set its cum_out to its nearest
-    # applicable predecessor's cum_out.  This ensures the WIP chain skips
-    # non-applicable cells rather than computing a huge pending_in against
-    # their zero cum_in (e.g. EMBROIDERY: pending_in = SEWING.cum_out − 0).
-    # Mirrors the "Patch cum_out for non-applicable cells" block in
-    # shopfloor_performance.py.
+    # ── Patch non-applicable cells' cum_out ──────────────────────────────
+    # Mirrors shopfloor_performance.py "Patch cum_out for non-applicable cells".
+    # Sets each non-applicable cell's cum_out to its nearest applicable
+    # predecessor's cum_out so that the following applicable cell sees the
+    # correct predecessor value when computing pending_in.
     for i, cell in enumerate(CELL_ORDER):
         if i == 0 or cell in applicable_set:
             continue
-        # Walk back to nearest applicable predecessor
         for j in range(i - 1, -1, -1):
             pred = CELL_ORDER[j]
-            if pred in applicable_set:
+            if pred in applicable_set or j == 0:
                 c_out[cell] = c_out.get(pred, 0)
                 break
 
-    # ── Compute section results ───────────────────────────────────────────
+    # ── Build result ──────────────────────────────────────────────────────
     result = {}
 
     for i, cell in enumerate(CELL_ORDER):
+
         if i == 0:
-            # KNITTING — output = daily shifts; no input/pending/wip concept
             result[cell] = {
                 "input":      None,
                 "output":     knitting_shift1 + knitting_shift2,
@@ -177,6 +180,7 @@ def get_owner_dashboard_data(date=None):
                 "shift2":     knitting_shift2,
                 "pending_in": None,
                 "wip":        None,
+                "applicable": True,
             }
             continue
 
@@ -185,21 +189,24 @@ def get_owner_dashboard_data(date=None):
 
         if cell not in applicable_set:
             result[cell] = {
-                "input": inp, "output": out,
-                "pending_in": 0, "wip": 0, "applicable": False,
+                "input":      inp,
+                "output":     out,
+                "pending_in": 0,
+                "wip":        0,
+                "applicable": False,
             }
             continue
 
-        # Nearest applicable predecessor's (patched) cumulative output
+        # Nearest applicable predecessor (including KNITTING)
         prev_cum_out = 0
         for j in range(i - 1, -1, -1):
             pred = CELL_ORDER[j]
-            if pred == "KNITTING" or pred in applicable_set:
+            if pred in applicable_set:
                 prev_cum_out = c_out.get(pred, 0)
                 break
 
-        cur_cum_out = c_out.get(cell, 0)
         cur_cum_in  = c_in.get(cell, 0)
+        cur_cum_out = c_out.get(cell, 0)
 
         result[cell] = {
             "input":      inp,
@@ -219,15 +226,18 @@ def _run(sql, params):
 
 
 def _knitting_shift(date, shift):
-    """Total KNITTING output for shift 1 (10:00-20:00) or shift 2 (20:00-10:00).
-    If date is None, returns the all-time cumulative total."""
+    """
+    Total KNITTING output for shift 1 (10:00–20:00) or shift 2 (20:00–10:00).
+    date=None returns all-time cumulative.
+    Query is identical to shopfloor_performance._get_knitting_shift_map_for_period.
+    """
     time_cond = (
         "TIME(isl.logged_time) >= '10:00:00' AND TIME(isl.logged_time) < '20:00:00'"
         if shift == 1
         else "(TIME(isl.logged_time) >= '20:00:00' OR TIME(isl.logged_time) < '10:00:00')"
     )
     date_cond = "AND DATE(isl.logged_time) = %(date)s" if date else ""
-    params    = {"date": date} if date else {}
+    p         = {"date": date} if date else {}
 
     rows = frappe.db.sql(f"""
         SELECT COALESCE(SUM(pi.quantity), 0) AS qty
@@ -235,10 +245,11 @@ def _knitting_shift(date, shift):
         INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
         INNER JOIN (
-            SELECT DISTINCT parent, work_order, size
+            SELECT DISTINCT parent, sales_order, work_order, size
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc        ON pc.name = isl.physical_cell
         INNER JOIN `tabTracking Component` tc   ON tc.name = pi.component AND tc.is_main = 1
         INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
@@ -252,6 +263,30 @@ def _knitting_shift(date, shift):
               isl.status IN ('Counted', 'Activated', 'Pass')
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
           )
-    """, params, as_dict=True)
+    """, p, as_dict=True)
 
     return int(rows[0].qty) if rows else 0
+
+
+def _get_applicable_cells_global():
+    """
+    Returns the set of cell_names that have at least one pcflo row across ALL
+    work orders — the union of all per-style applicable_cells sets used by
+    shopfloor_performance._get_applicable_cells_map().
+
+    Uses pcflo (Cut Kit operation map) as the source of truth, not scan data,
+    because some cells (e.g. PRODUCTION) may have 0 first_operation scans yet
+    still be applicable.
+    """
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT pc.cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND pc.cell_name IN ({CELL_LIST_SQL})
+    """, as_dict=True)
+    return {r["cell_name"] for r in rows}
