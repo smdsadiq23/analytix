@@ -344,8 +344,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 					ticks: {
 						color: "#374151",
 						font: { size: 10.5, weight: "600", family: "\'Segoe UI\', system-ui, sans-serif" },
-						maxRotation: 120,
-						minRotation: 120,
+						maxRotation: 45,
+						minRotation: 45,
 						autoSkip: false,
 					},
 					border: { display: false },
