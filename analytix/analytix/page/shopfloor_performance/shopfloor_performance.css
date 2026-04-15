@@ -88,7 +88,7 @@ html, body {
 
 .pd-header-right {
 	display: flex;
-	align-items: flex-end; /* 👈 aligns button with input field */
+	align-items: flex-end;
 	gap: 12px;
 }
 
@@ -261,7 +261,6 @@ html, body {
 	font-style: normal;
 }
 
-/* SVG data-uri icons using CSS pseudo-content */
 .pd-icon-input::before {
 	content: "";
 	display: block;
@@ -432,6 +431,7 @@ html, body {
 	from { opacity: 0; }
 	to   { opacity: 1; }
 }
+
 .pd-modal-box {
 	display: flex;
 	flex-direction: column;
@@ -441,7 +441,7 @@ html, body {
 	border: 1px solid rgba(59,130,246,0.25);
 	background: #1e2a45;
 	box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-	overflow: hidden;
+	overflow: hidden; /* KEY: prevents box itself from scrolling */
 	animation: pd-modal-pop-in 0.2s ease;
 }
 @keyframes pd-modal-pop-in {
@@ -457,7 +457,7 @@ html, body {
 	padding: 14px 18px;
 	border-bottom: 1px solid rgba(255,255,255,0.07);
 	background: rgba(255,255,255,0.03);
-	flex-shrink: 0;
+	flex-shrink: 0; /* KEY: header never shrinks or scrolls away */
 }
 .pd-detail-title-wrap {
 	display: flex;
@@ -468,8 +468,9 @@ html, body {
 
 /* ── Modal body ───────────────────────────────────────────────── */
 .pd-detail-body {
-	overflow-y: auto;
+	overflow-y: auto;  /* KEY: only the body scrolls */
 	flex: 1;
+	min-height: 0;     /* KEY: allows flex child to shrink below content size */
 	padding: 0;
 }
 .pd-detail-empty {
