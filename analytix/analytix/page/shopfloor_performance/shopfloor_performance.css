@@ -407,6 +407,21 @@ html, body {
 	transform: translateY(-2px);
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   MODAL POPUP — STICKY COLUMN + FROZEN SUMMARY BAR FIX
+
+   Flex column layout of .pd-modal-box:
+     .pd-modal-box                 ← NO overflow (border-radius only)
+       .pd-detail-header           ← flex-shrink:0  — always visible (title + close)
+       .pd-popup-summary-bar       ← flex-shrink:0  — always visible (total badges)  ← NEW
+       .pd-detail-body             ← flex:1, overflow:auto  — THE scroll container
+         .pd-popup-table-wrap      ← NO overflow (must not create new scroll context)
+           .pd-popup-table
+             thead tr              ← position:sticky; top:0
+             th:first-child        ← position:sticky; left:0; z-index:5
+             td:first-child        ← position:sticky; left:0; z-index:2
+═══════════════════════════════════════════════════════════════════ */
+
 /* ── Modal overlay ────────────────────────────────────────────── */
 .pd-modal-overlay {
 	position: fixed !important;
@@ -426,15 +441,7 @@ html, body {
 	to   { opacity: 1; }
 }
 
-/*
-   STICKY COLUMN FIX — same principle as production_dashboard.css:
-   .pd-modal-box     → NO overflow (border-radius only, no overflow:hidden)
-   .pd-detail-header → flex-shrink:0, own solid background
-   .pd-detail-body   → overflow-x:auto + overflow-y:auto  ← THE scroll container
-   .pd-popup-table-wrap → NO overflow (must not create new scroll context)
-   .pd-popup-th / .pd-popup-td with class pd-popup-sticky
-                     → position:sticky; left:0
-*/
+/* NO overflow here — overflow:hidden traps position:sticky children */
 .pd-modal-box {
 	display: flex;
 	flex-direction: column;
@@ -444,7 +451,6 @@ html, body {
 	border: 1px solid rgba(59,130,246,0.25);
 	background: #1e2a45;
 	box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-	/* NO overflow:hidden — it traps position:sticky children */
 	animation: pd-modal-pop-in 0.2s ease;
 }
 @keyframes pd-modal-pop-in {
@@ -452,16 +458,16 @@ html, body {
 	to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* ── Modal header — fixed, never scrolls ──────────────────────── */
+/* ── Frozen header — title + close ───────────────────────────── */
 .pd-detail-header {
 	display: flex;
 	align-items: center;
 	gap: 16px;
 	padding: 14px 18px;
 	border-bottom: 1px solid rgba(255,255,255,0.07);
-	background: #1e2a45;           /* solid — sits above scroll body */
+	background: #1e2a45;
 	border-radius: 14px 14px 0 0;
-	flex-shrink: 0;
+	flex-shrink: 0;               /* never shrinks — always visible */
 	position: relative;
 	z-index: 10;
 }
@@ -472,42 +478,30 @@ html, body {
 	flex: 1;
 }
 
-/* ── Modal body — THE one scroll container ────────────────────── */
-.pd-detail-body {
-	flex: 1;
-	min-height: 0;
-	overflow-x: auto;
-	overflow-y: auto;
-	padding: 0;
-	border-radius: 0 0 14px 14px;
-}
-.pd-detail-empty {
-	text-align: center;
-	color: #94a3b8;
-	padding: 32px 0;
-	margin: 0;
-	font-size: 13px;
-}
+/* ── Frozen summary bar — totals row ─────────────────────────── */
+/*
+   KEY FIX: .pd-popup-summary-bar is a direct flex child of .pd-modal-box,
+   sitting between .pd-detail-header and .pd-detail-body.
+   It must NOT be inside .pd-detail-body (the scroll container).
 
-/* ── Badge / title / summary / close ─────────────────────────── */
-.pd-popup-section-badge {
-	background: #3b82f6;
-	color: #fff;
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.06em;
-	padding: 3px 10px;
-	border-radius: 20px;
-	text-transform: uppercase;
-}
-.pd-popup-title {
-	color: #e2e8f0;
-	font-size: 15px;
-	font-weight: 600;
-}
-.pd-popup-summary {
+   JS should build the modal structure as:
+     <div class="pd-modal-box">
+       <div class="pd-detail-header">…title + close…</div>
+       <div class="pd-popup-summary-bar">…amber + orange totals…</div>  ← outside scroll
+       <div class="pd-detail-body">                                      ← scroll starts here
+         <div class="pd-popup-table-wrap">…</div>
+       </div>
+     </div>
+*/
+.pd-popup-summary-bar {
 	display: flex;
 	gap: 10px;
+	padding: 10px 18px;
+	border-bottom: 1px solid rgba(255,255,255,0.07);
+	background: #1e2a45;          /* solid — matches box bg */
+	flex-shrink: 0;               /* never shrinks — always visible */
+	position: relative;
+	z-index: 9;
 }
 .pd-popup-summary-item {
 	text-align: center;
@@ -530,6 +524,40 @@ html, body {
 	margin-top: 2px;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+}
+
+/* ── Modal body — THE one scroll container ────────────────────── */
+.pd-detail-body {
+	flex: 1;
+	min-height: 0;
+	overflow-x: auto;
+	overflow-y: auto;
+	padding: 0;
+	border-radius: 0 0 14px 14px;
+}
+.pd-detail-empty {
+	text-align: center;
+	color: #94a3b8;
+	padding: 32px 0;
+	margin: 0;
+	font-size: 13px;
+}
+
+/* ── Badge / title / close ────────────────────────────────────── */
+.pd-popup-section-badge {
+	background: #3b82f6;
+	color: #fff;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	padding: 3px 10px;
+	border-radius: 20px;
+	text-transform: uppercase;
+}
+.pd-popup-title {
+	color: #e2e8f0;
+	font-size: 15px;
+	font-weight: 600;
 }
 .pd-popup-close {
 	background: rgba(255,255,255,0.06);
@@ -581,7 +609,7 @@ html, body {
 	font-weight: 600;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
-	background: #1b2740;           /* solid — required for sticky */
+	background: #1b2740;          /* solid — required for sticky */
 	border-bottom: 1px solid rgba(255,255,255,0.07);
 	white-space: nowrap;
 }
@@ -590,7 +618,7 @@ html, body {
 .pd-popup-th:first-child {
 	position: sticky;
 	left: 0;
-	z-index: 5;                    /* above other sticky header cells */
+	z-index: 5;                   /* above other sticky header cells */
 	background: #1b2740;
 }
 .pd-popup-th:first-child::after {
@@ -633,7 +661,7 @@ html, body {
 	position: sticky;
 	left: 0;
 	z-index: 2;
-	background: #1e2a45;           /* matches .pd-modal-box base bg */
+	background: #1e2a45;          /* matches .pd-modal-box base bg */
 }
 .pd-popup-td:first-child::after {
 	content: "";
@@ -644,13 +672,13 @@ html, body {
 	pointer-events: none;
 }
 .pd-popup-table tbody tr:hover .pd-popup-td:first-child {
-	background: #253352;           /* slightly lighter on hover */
+	background: #253352;          /* slightly lighter on hover */
 }
 
 .pd-popup-style  { color: #e2e8f0; font-weight: 600; }
 .pd-popup-colour { color: #94a3b8; }
 .pd-popup-buyer  { color: #94a3b8; }
-.pd-popup-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.pd-popup-num    { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .pd-popup-val-amber  { color: #fbbf24; }
 .pd-popup-val-orange { color: #fb923c; }
 .pd-popup-val-zero   { color: #475569; }

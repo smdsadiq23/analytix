@@ -231,10 +231,7 @@ function _aggregateTotals(rows) {
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
 
-			// Card WIP = pending_in + actual_wip (total material not yet out
-			// of this cell). The popup splits these into two columns.
-			// Summing pre-computed per-style values from Python is correct even
-			// when a cell (e.g. EMBROIDERY) is only applicable for some styles.
+			// Card WIP = pending_in + actual_wip
 			if (c["pending_in"] != null) {
 				totals[key].wip += c["pending_in"];
 			}
@@ -277,15 +274,15 @@ function _aggregateTotals(rows) {
 }
 
 function _buildKnittingCard(section, t, rows) {
-    // ── Previous day label for Shift 2 ───────────────────────────────────
-    var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
-    var prevDate     = new Date(selectedDate);
-    prevDate.setDate(prevDate.getDate() - 1);
-    var pd = prevDate.getDate().toString().padStart(2, "0");
-    var pm = (prevDate.getMonth() + 1).toString().padStart(2, "0");
-    var py = prevDate.getFullYear();
-    var prevDateLabel = pd + "-" + pm + "-" + py;
-    // ─────────────────────────────────────────────────────────────────────
+	// ── Previous day label for Shift 2 ───────────────────────────────────
+	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
+	var prevDate     = new Date(selectedDate);
+	prevDate.setDate(prevDate.getDate() - 1);
+	var pd = prevDate.getDate().toString().padStart(2, "0");
+	var pm = (prevDate.getMonth() + 1).toString().padStart(2, "0");
+	var py = prevDate.getFullYear();
+	var prevDateLabel = pd + "-" + pm + "-" + py;
+	// ─────────────────────────────────────────────────────────────────────
 
 	var shift1    = t.shift1    || 0;
 	var shift2    = t.shift2    || 0;
@@ -494,23 +491,25 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			</div>`;
 	}
 
+	/*
+	 * KEY FIX — modal structure:
+	 *   .pd-modal-box
+	 *     .pd-detail-header        ← frozen: title + close button
+	 *     .pd-popup-summary-bar    ← frozen: total Pending In + Actual WIP badges
+	 *     .pd-detail-body          ← scroll container: table only
+	 *
+	 * Previously the summary badges were INSIDE .pd-detail-body, causing them
+	 * to scroll out of view. Moving them above .pd-detail-body as a direct
+	 * flex child of .pd-modal-box freezes them in place.
+	 */
 	var $overlay = $(`
 		<div id="pd-modal-overlay" class="pd-modal-overlay">
 			<div class="pd-modal-box">
+
 				<div class="pd-detail-header">
 					<div class="pd-detail-title-wrap">
 						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
 						<span class="pd-popup-title">Style-wise Breakdown</span>
-					</div>
-					<div class="pd-popup-summary">
-						<div class="pd-popup-summary-item pd-popup-summary-amber">
-							<div class="pd-popup-summary-val">${_n(totalPending)}</div>
-							<div class="pd-popup-summary-lbl">Total Pending In</div>
-						</div>
-						<div class="pd-popup-summary-item pd-popup-summary-orange">
-							<div class="pd-popup-summary-val">${_n(totalWip)}</div>
-							<div class="pd-popup-summary-lbl">Total Actual WIP</div>
-						</div>
 					</div>
 					<button class="pd-popup-close" id="pd-detail-close" title="Close">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -518,9 +517,22 @@ function _showDrilldown(sectionLabel, sectionKey) {
 						</svg>
 					</button>
 				</div>
+
+				<div class="pd-popup-summary-bar">
+					<div class="pd-popup-summary-item pd-popup-summary-amber">
+						<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+						<div class="pd-popup-summary-lbl">Total Pending In</div>
+					</div>
+					<div class="pd-popup-summary-item pd-popup-summary-orange">
+						<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+						<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+					</div>
+				</div>
+
 				<div class="pd-detail-body">
 					${tableHtml}
 				</div>
+
 			</div>
 		</div>
 	`);
