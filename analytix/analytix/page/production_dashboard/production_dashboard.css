@@ -380,8 +380,19 @@
 
 	.pd-sizewise-body {
 		overflow-y: auto;
-		padding: 16px 22px 22px;
+		overflow-x: auto;
+		padding: 0;
 		flex: 1;
+	}
+	.pd-sizewise-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 24px;
+		padding: 16px 22px 16px;
+	}
+	.pd-sw-table-wrap {
+		overflow-x: visible;
+		padding: 0 0 22px 0;
 	}
 	.pd-sizewise-loading {
 		display: flex;
@@ -433,13 +444,7 @@
 		font-size: 13px;
 	}
 
-	/* ── Meta info bar ────────────────────────────────────────────────────────── */
-	.pd-sizewise-meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 24px;
-		padding: 10px 4px 16px;
-	}
+	
 	.pd-sw-meta-item { display: flex; flex-direction: column; }
 	.pd-sw-meta-lbl  {
 		font-size: 10px;
@@ -455,10 +460,7 @@
 		margin-top: 2px;
 	}
 
-	/* ── Size-wise table ──────────────────────────────────────────────────────── */
-	.pd-sw-table-wrap {
-		overflow-x: auto;
-	}
+	
 	.pd-sw-table {
 		width: 100%;
 		border-collapse: collapse;
