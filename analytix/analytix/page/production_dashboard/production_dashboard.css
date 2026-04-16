@@ -335,20 +335,17 @@
 	}
 
 	/* ═══════════════════════════════════════════════════════════════════
-	   SIZE-WISE POPUP — sticky SECTION column
+	   SIZE-WISE POPUP
 
-	   RULE: position:sticky only works when the scrolling ancestor
-	   is a direct ancestor with overflow:auto/scroll.
-
-	   Hierarchy:
-	     .pd-sizewise-box          ← NO overflow (border-radius only)
-	       .pd-sizewise-header     ← flex-shrink:0, never scrolls
-	       .pd-sizewise-body       ← overflow-x:auto + overflow-y:auto  ← THE scroll container
-	         .pd-sizewise-meta     ← normal flow, scrolls with body
-	         .pd-sw-table-wrap     ← NO overflow (must not create new scroll context)
+	   Layout hierarchy (flex column):
+	     .pd-sizewise-box              ← flex column, NO overflow
+	       .pd-sizewise-header         ← frozen, flex-shrink:0
+	       .pd-sizewise-meta           ← FROZEN meta strip, flex-shrink:0  ← KEY FIX
+	       .pd-sizewise-body           ← flex:1, overflow:auto — only this scrolls
+	         .pd-sw-table-wrap         ← no overflow (don't trap sticky)
 	           .pd-sw-table
-	             th.pd-sw-th-section   ← sticky left:0  ✓
-	             td.pd-sw-section      ← sticky left:0  ✓
+	             th.pd-sw-th-section   ← sticky left:0
+	             td.pd-sw-section      ← sticky left:0
 	═══════════════════════════════════════════════════════════════════ */
 
 	.pd-sizewise-overlay {
@@ -398,7 +395,35 @@
 	}
 	.pd-sizewise-title-wrap { display: flex; align-items: center; gap: 10px; }
 
-	/* THE one scroll container for the popup content */
+	/* ── FROZEN meta strip — sits between header and scroll body ─────── */
+	.pd-sizewise-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 24px;
+		padding: 14px 22px;
+		flex-shrink: 0;                                    /* never shrinks */
+		background: #0f172a;                               /* match box bg  */
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08); /* visual sep   */
+		position: relative;
+		z-index: 9;                                        /* above table content */
+	}
+
+	.pd-sw-meta-item { display: flex; flex-direction: column; }
+	.pd-sw-meta-lbl {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		color: #64748b;
+		text-transform: uppercase;
+	}
+	.pd-sw-meta-val {
+		font-size: 13px;
+		font-weight: 700;
+		color: #e2e8f0;
+		margin-top: 2px;
+	}
+
+	/* THE one scroll container — only the table scrolls */
 	.pd-sizewise-body {
 		flex: 1;
 		min-height: 0;
@@ -413,27 +438,6 @@
 		gap: 10px;
 		color: #94a3b8;
 		padding: 40px;
-	}
-
-	.pd-sizewise-meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 24px;
-		padding: 14px 22px;
-	}
-	.pd-sw-meta-item { display: flex; flex-direction: column; }
-	.pd-sw-meta-lbl {
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.06em;
-		color: #64748b;
-		text-transform: uppercase;
-	}
-	.pd-sw-meta-val {
-		font-size: 13px;
-		font-weight: 700;
-		color: #e2e8f0;
-		margin-top: 2px;
 	}
 
 	/* NO overflow-x here — must not create a new scroll context */
@@ -474,8 +478,8 @@
 		min-width: 150px;
 		position: sticky;
 		left: 0;
-		z-index: 5;                /* above other sticky header cells */
-		background: #131e34;       /* must exactly match .pd-sw-thead-row bg */
+		z-index: 5;
+		background: #131e34;
 	}
 	.pd-sw-th-section::after {
 		content: "";
@@ -521,7 +525,6 @@
 		pointer-events: none;
 	}
 
-	/* solid bg per row variant — no transparency, prevents bleed-through */
 	.pd-sw-row-in  .pd-sw-section { background: #111827; }
 	.pd-sw-row-out .pd-sw-section { background: #0f172a; }
 	.pd-sw-row:hover .pd-sw-section { background: #1c2a42; }
@@ -630,4 +633,4 @@
 		color: #94a3b8;
 		padding: 32px 0;
 		font-size: 13px;
-	} 
+	}

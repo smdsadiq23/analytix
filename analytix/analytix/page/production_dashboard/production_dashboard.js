@@ -263,6 +263,10 @@ function _showStyleSizewise(style, colour) {
 						</svg>
 					</button>
 				</div>
+				<!-- ▼ meta strip is a flex sibling of body — NOT inside it -->
+				<div class="pd-sizewise-meta pd-sizewise-meta-loading">
+					<span style="color:#64748b;font-size:12px;">Loading&hellip;</span>
+				</div>
 				<div class="pd-sizewise-body pd-sizewise-loading">
 					<div class="tvd-spinner"></div> Loading&hellip;
 				</div>
@@ -286,7 +290,9 @@ function _showStyleSizewise(style, colour) {
 		callback: function (r) {
 			var d = r.message;
 			if (!d) {
-				$("#tvd-sizewise-overlay .pd-sizewise-body").html('<p class="pd-detail-empty">No data found.</p>');
+				// Clear loading states on both zones
+				$("#tvd-sizewise-overlay .pd-sizewise-meta").html('<span style="color:#64748b;font-size:12px;">No data found.</span>');
+				$("#tvd-sizewise-overlay .pd-sizewise-body").removeClass("pd-sizewise-loading").html('<p class="pd-detail-empty">No data found.</p>');
 				return;
 			}
 			_renderSizewisePopup(d);
@@ -298,16 +304,14 @@ function _renderSizewisePopup(d) {
 	var sizes = d.sizes || [];
 	var cells = d.cells || [];
 
-	// ── Meta row ──────────────────────────────────────────────────────────
+	// ── Meta strip — injected into the frozen zone above .pd-sizewise-body ──
 	var metaHtml = `
-		<div class="pd-sizewise-meta">
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">BUYER</span><span class="pd-sw-meta-val">${_e(d.buyer)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">SEASON</span><span class="pd-sw-meta-val">${_e(d.season)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">STYLE</span><span class="pd-sw-meta-val">${_e(d.style)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">DELIVERY DATE</span><span class="pd-sw-meta-val">${_e(d.delivery_date)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">ORDER QTY</span><span class="pd-sw-meta-val">${_n(d.order_qty)}</span></span>
-			<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">PLANNED QTY</span><span class="pd-sw-meta-val">${_n(d.planned_qty)}</span></span>
-		</div>`;
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">BUYER</span><span class="pd-sw-meta-val">${_e(d.buyer)}</span></span>
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">SEASON</span><span class="pd-sw-meta-val">${_e(d.season)}</span></span>
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">STYLE</span><span class="pd-sw-meta-val">${_e(d.style)}</span></span>
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">DELIVERY DATE</span><span class="pd-sw-meta-val">${_e(d.delivery_date)}</span></span>
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">ORDER QTY</span><span class="pd-sw-meta-val">${_n(d.order_qty)}</span></span>
+		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">PLANNED QTY</span><span class="pd-sw-meta-val">${_n(d.planned_qty)}</span></span>`;
 
 	// ── Table header ──────────────────────────────────────────────────────
 	var thead = '<tr class="pd-sw-thead-row"><th class="pd-sw-th pd-sw-th-section">SECTION</th>';
@@ -352,7 +356,16 @@ function _renderSizewisePopup(d) {
 		tbody += "</tr>";
 	});
 
-	var bodyHtml = metaHtml + `
+	// ── Update title ──────────────────────────────────────────────────────
+	$("#tvd-sizewise-overlay .pd-popup-title").text("Size-Wise: " + d.style);
+
+	// ── Inject meta into the frozen strip (flex sibling above body) ───────
+	$("#tvd-sizewise-overlay .pd-sizewise-meta")
+		.removeClass("pd-sizewise-meta-loading")
+		.html(metaHtml);
+
+	// ── Inject table into the scroll body only ────────────────────────────
+	var tableHtml = `
 		<div class="pd-sw-table-wrap">
 			<table class="pd-sw-table">
 				<thead>${thead}</thead>
@@ -360,6 +373,7 @@ function _renderSizewisePopup(d) {
 			</table>
 		</div>`;
 
-	$("#tvd-sizewise-overlay .pd-popup-title").text("Size-Wise: " + d.style);
-	$("#tvd-sizewise-overlay .pd-sizewise-body").removeClass("pd-sizewise-loading").html(bodyHtml);
+	$("#tvd-sizewise-overlay .pd-sizewise-body")
+		.removeClass("pd-sizewise-loading")
+		.html(tableHtml);
 }
