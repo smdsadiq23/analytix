@@ -109,7 +109,6 @@ var _timer    = null;
 var _lastData = [];   // raw rows — kept for drill-down
 
 // ── Timer helpers ─────────────────────────────────────────────────────────────
-// Always clear before setting so re-navigation never stacks two intervals.
 function _startTimer() {
 	_stopTimer();
 	_timer = setInterval(function() { _load(); }, 60000);
@@ -217,7 +216,11 @@ function _aggregateTotals(rows) {
 	var totals = {};
 	SECTIONS.forEach(function(section) {
 		var key = SECTION_KEY_MAP[section];
-		totals[key] = { input: 0, output: 0, cum_out: 0, wip: 0, rejection: 0, mtd: 0, ytd: 0 };
+		totals[key] = {
+			input: 0, output: 0, cum_out: 0, wip: 0,
+			rejection: 0, mtd: 0, ytd: 0,
+			is_outsourced: false,
+		};
 	});
 
 	rows.forEach(function(r) {
@@ -231,15 +234,19 @@ function _aggregateTotals(rows) {
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
 
-			// Card WIP = pending_in + actual_wip (total material not yet out
-			// of this cell). The popup splits these into two columns.
-			// Summing pre-computed per-style values from Python is correct even
-			// when a cell (e.g. EMBROIDERY) is only applicable for some styles.
+			// Card WIP = pending_in + actual_wip.
+			// For outsourced cells both are 0 from Python, so the sum is
+			// naturally 0 — no special handling needed here.
 			if (c["pending_in"] != null) {
 				totals[key].wip += c["pending_in"];
 			}
 			if (c["actual_wip"] != null) {
 				totals[key].wip += c["actual_wip"];
+			}
+
+			// Mark section as outsourced if any style row says so
+			if (c["is_outsourced"]) {
+				totals[key].is_outsourced = true;
 			}
 		});
 	});
@@ -277,15 +284,15 @@ function _aggregateTotals(rows) {
 }
 
 function _buildKnittingCard(section, t, rows) {
-    // ── Previous day label for Shift 2 ───────────────────────────────────
-    var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
-    var prevDate     = new Date(selectedDate);
-    prevDate.setDate(prevDate.getDate() - 1);
-    var pd = prevDate.getDate().toString().padStart(2, "0");
-    var pm = (prevDate.getMonth() + 1).toString().padStart(2, "0");
-    var py = prevDate.getFullYear();
-    var prevDateLabel = pd + "-" + pm + "-" + py;
-    // ─────────────────────────────────────────────────────────────────────
+	// ── Previous day label for Shift 2 ───────────────────────────────────
+	var selectedDate = $("#pd-date-input").val() || frappe.datetime.get_today();
+	var prevDate     = new Date(selectedDate);
+	prevDate.setDate(prevDate.getDate() - 1);
+	var pd = prevDate.getDate().toString().padStart(2, "0");
+	var pm = (prevDate.getMonth() + 1).toString().padStart(2, "0");
+	var py = prevDate.getFullYear();
+	var prevDateLabel = pd + "-" + pm + "-" + py;
+	// ─────────────────────────────────────────────────────────────────────
 
 	var shift1    = t.shift1    || 0;
 	var shift2    = t.shift2    || 0;
@@ -351,17 +358,44 @@ function _buildKnittingCard(section, t, rows) {
 }
 
 function _buildSectionCard(section, key, t) {
-	var input     = t.input     || 0;
-	var output    = t.output    || 0;
-	var wip       = t.wip       || 0;
-	var rejection = t.rejection || 0;
-	var mtd       = t.mtd       || 0;
-	var ytd       = t.ytd       || 0;
+	var input        = t.input        || 0;
+	var output       = t.output       || 0;
+	var wip          = t.wip          || 0;
+	var rejection    = t.rejection    || 0;
+	var mtd          = t.mtd          || 0;
+	var ytd          = t.ytd          || 0;
+	var isOutsourced = !!t.is_outsourced;
+
+	// For outsourced sections WIP is suppressed (always 0 from Python).
+	// We still show the row but with a muted "Outsourced" label instead of a value.
+	var wipHtml;
+	if (isOutsourced) {
+		wipHtml = `
+			<div class="pd-row">
+				<div class="pd-row-label">
+					<span class="pd-icon pd-icon-wip"></span>
+					WIP
+				</div>
+				<div class="pd-row-val pd-val-muted">
+					<span class="pd-outsourced-tag" title="Outsourced process — WIP not tracked">Outsourced</span>
+				</div>
+			</div>`;
+	} else {
+		wipHtml = `
+			<div class="pd-row">
+				<div class="pd-row-label">
+					<span class="pd-icon pd-icon-wip"></span>
+					WIP
+				</div>
+				<div class="pd-row-val pd-val-orange">${_n(wip)}</div>
+			</div>`;
+	}
 
 	return `
-		<div class="pd-card pd-card-clickable" data-section-key="${_e(key)}" data-section-label="${_e(section)}">
+		<div class="pd-card pd-card-clickable${isOutsourced ? " pd-card-outsourced" : ""}" data-section-key="${_e(key)}" data-section-label="${_e(section)}">
 			<div class="pd-card-header">
 				<span class="pd-card-title">${_e(section)}</span>
+				${isOutsourced ? '<span class="pd-card-badge pd-badge-outsourced" title="Outsourced process">OS</span>' : ""}
 			</div>
 			<div class="pd-card-body">
 				<div class="pd-row">
@@ -378,13 +412,7 @@ function _buildSectionCard(section, key, t) {
 					</div>
 					<div class="pd-row-val pd-val-green">${_n(output)}</div>
 				</div>
-				<div class="pd-row">
-					<div class="pd-row-label">
-						<span class="pd-icon pd-icon-wip"></span>
-						WIP
-					</div>
-					<div class="pd-row-val pd-val-orange">${_n(wip)}</div>
-				</div>
+				${wipHtml}
 				<div class="pd-row">
 					<div class="pd-row-label">
 						<span class="pd-icon pd-icon-rejection"></span>
@@ -434,20 +462,36 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	$("#pd-grid .pd-card").removeClass("pd-card-active");
 	$("#pd-grid .pd-card[data-section-key='" + sectionKey + "']").addClass("pd-card-active");
 
+	// Determine if this section is outsourced (check first row that has the cell)
+	var sectionIsOutsourced = false;
+	for (var i = 0; i < _lastData.length; i++) {
+		var cellData = (_lastData[i].cells || {})[sectionKey];
+		if (cellData && cellData["is_outsourced"]) {
+			sectionIsOutsourced = true;
+			break;
+		}
+	}
+
 	var styleRows = _lastData.map(function(r) {
 		var cells     = r.cells || {};
 		var cell      = cells[sectionKey] || {};
 		var pendingIn = cell["pending_in"] != null ? cell["pending_in"] : 0;
 		var actualWip = cell["actual_wip"] != null ? cell["actual_wip"] : 0;
 		return {
-			style:     r.style  || "",
-			colour:    r.colour || "",
-			buyer:     r.buyer  || "",
-			pendingIn: pendingIn,
-			actualWip: actualWip,
+			style:        r.style  || "",
+			colour:       r.colour || "",
+			buyer:        r.buyer  || "",
+			pendingIn:    pendingIn,
+			actualWip:    actualWip,
+			isOutsourced: !!cell["is_outsourced"],
 		};
 	}).filter(function(r) {
-		return r.pendingIn > 0 || r.actualWip > 0;
+		// For outsourced sections, still show all styles (with 0 WIP)
+		// so the user can see what styles go through this process.
+		// For in-house sections, only show rows with actual WIP/pending.
+		return sectionIsOutsourced
+			? true
+			: (r.pendingIn > 0 || r.actualWip > 0);
 	});
 
 	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
@@ -457,9 +501,20 @@ function _showDrilldown(sectionLabel, sectionKey) {
 
 	var tableHtml;
 	if (!styleRows.length) {
-		tableHtml = '<p class="pd-detail-empty">No pending or WIP data for this section.</p>';
+		tableHtml = '<p class="pd-detail-empty">No data for this section.</p>';
 	} else {
 		var tbody = styleRows.map(function(r) {
+			if (r.isOutsourced) {
+				// Outsourced row — show style/colour/buyer but suppress WIP columns
+				return `<tr class="pd-popup-row-outsourced">
+					<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
+					<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
+					<td class="pd-popup-td pd-popup-buyer">${_e(r.buyer)}</td>
+					<td class="pd-popup-td pd-popup-num pd-popup-val-zero" colspan="2">
+						<span class="pd-outsourced-tag" title="Outsourced — WIP not tracked">Outsourced</span>
+					</td>
+				</tr>`;
+			}
 			var piCls  = r.pendingIn > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
 			var wipCls = r.actualWip > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
 			return `<tr>
@@ -494,6 +549,30 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			</div>`;
 	}
 
+	// Summary: show outsourced notice instead of totals if section is outsourced
+	var summaryHtml;
+	if (sectionIsOutsourced) {
+		summaryHtml = `
+			<div class="pd-popup-summary">
+				<div class="pd-popup-summary-item pd-popup-summary-outsourced">
+					<div class="pd-popup-summary-val">—</div>
+					<div class="pd-popup-summary-lbl">Outsourced Process</div>
+				</div>
+			</div>`;
+	} else {
+		summaryHtml = `
+			<div class="pd-popup-summary">
+				<div class="pd-popup-summary-item pd-popup-summary-amber">
+					<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+					<div class="pd-popup-summary-lbl">Total Pending In</div>
+				</div>
+				<div class="pd-popup-summary-item pd-popup-summary-orange">
+					<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+					<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+				</div>
+			</div>`;
+	}
+
 	var $overlay = $(`
 		<div id="pd-modal-overlay" class="pd-modal-overlay">
 			<div class="pd-modal-box">
@@ -501,17 +580,9 @@ function _showDrilldown(sectionLabel, sectionKey) {
 					<div class="pd-detail-title-wrap">
 						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
 						<span class="pd-popup-title">Style-wise Breakdown</span>
+						${sectionIsOutsourced ? '<span class="pd-outsourced-tag" title="Outsourced process — WIP not tracked">Outsourced</span>' : ""}
 					</div>
-					<div class="pd-popup-summary">
-						<div class="pd-popup-summary-item pd-popup-summary-amber">
-							<div class="pd-popup-summary-val">${_n(totalPending)}</div>
-							<div class="pd-popup-summary-lbl">Total Pending In</div>
-						</div>
-						<div class="pd-popup-summary-item pd-popup-summary-orange">
-							<div class="pd-popup-summary-val">${_n(totalWip)}</div>
-							<div class="pd-popup-summary-lbl">Total Actual WIP</div>
-						</div>
-					</div>
+					${summaryHtml}
 					<button class="pd-popup-close" id="pd-detail-close" title="Close">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
 							<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>

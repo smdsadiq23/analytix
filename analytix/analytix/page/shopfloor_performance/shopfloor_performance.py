@@ -31,24 +31,8 @@ def get_dashboard_data(date=None):
     if not order_map:
         return []
 
-    applicable_cells_map = _get_applicable_cells_map()
-
-    # ── Optimised: 21 queries → 7 ─────────────────────────────────────────
-    #
-    # Old approach fired one SQL per (op_type × period), totalling 14 heavy
-    # scan-log queries plus 3 date-log queries = 17 scan queries.
-    #
-    # New approach: each of the three scan JOIN templates is executed ONCE,
-    # with conditional aggregation (SUM + CASE WHEN) returning all periods
-    # in a single pass over the scan log table.
-    #
-    # Query map (old count → new count):
-    #   cell first/last × daily/cum/mtd/ytd  (8 queries) → 1 (_get_cell_all_periods)
-    #   knitting shifts × 2 shifts × daily/cum/mtd/ytd   (8 queries) → 1 (_get_knitting_all_periods)
-    #   cell date maps (first_in, first_out, last_out)    (3 queries) → 1 (_get_cell_date_maps)
-    #   order_map, applicable_cells, knitting_first, min_logged_time unchanged (4)
-    #
-    # Total: 21 → 7 queries.
+    applicable_cells_map  = _get_applicable_cells_map()
+    outsourced_cells_map  = _get_outsourced_cells_map()
 
     cell_maps       = _get_cell_all_periods(date)
     knitting_maps   = _get_knitting_all_periods(date)
@@ -104,6 +88,7 @@ def get_dashboard_data(date=None):
         "knitting_shift1_cum":         0,
         "knitting_shift2_cum":         0,
         "applicable_cells":            set(),
+        "outsourced_cells":            set(),
     })
 
     for (style, colour, size), info in order_map.items():
@@ -114,6 +99,11 @@ def get_dashboard_data(date=None):
         sku_cells = applicable_cells_map.get((style, colour, size), set())
         agg[key]["applicable_cells"] |= sku_cells
         agg[key]["applicable_cells"].add("KNITTING")
+
+        # Union outsourced cells across all sizes for this style/colour group.
+        # Since outsourced = style-level per cell, the union is a safety net.
+        sku_outsourced = outsourced_cells_map.get((style, colour, size), set())
+        agg[key]["outsourced_cells"] |= sku_outsourced
 
         d = info.delivery_date
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
@@ -197,8 +187,21 @@ def get_dashboard_data(date=None):
 
         knitting_cum     = b["knitting_shift1_cum"] + b["knitting_shift2_cum"]
         applicable_cells = b["applicable_cells"] or set(CELL_ORDER)
+        outsourced_cells = b["outsourced_cells"]
 
         cells = {}
+
+        # ── WIP chain state ───────────────────────────────────────────────
+        # prev_out_cum tracks the cumulative OUT of the last IN-HOUSE cell.
+        # It is NOT updated when an outsourced cell is processed, so that the
+        # next in-house cell's pending_in correctly skips over outsourced cells.
+        #
+        # Example — CUTTING(IH) → LINKING(OS) → SEWING(IH):
+        #   After CUTTING : prev_out_cum = CUTTING_cum_out
+        #   LINKING  (OS) : pending_in=0, actual_wip=0; prev_out_cum unchanged
+        #   SEWING   (IH) : pending_in = CUTTING_cum_out − SEWING_cum_in  ✓
+        prev_out_cum = 0
+
         for i, cell in enumerate(CELL_ORDER):
             cell_in      = b["cell_in"].get(cell, 0)
             cell_out     = b["cell_out"].get(cell, 0)
@@ -208,28 +211,35 @@ def get_dashboard_data(date=None):
             cell_in_cum  = b["cell_in_cum"].get(cell, 0)
             pct          = round((cell_out / order_qty) * 100) if order_qty else 0
 
+            is_outsourced = cell in outsourced_cells
+
             if i == 0:
+                # KNITTING — first cell, no WIP concept
                 actual_wip = None
                 pending_in = None
+                # KNITTING is always in-house; set prev_out_cum to knitting_cum
+                prev_out_cum = knitting_cum
+
             elif cell not in applicable_cells:
+                # Cell not applicable for this style — pass-through cum_out,
+                # WIP is not meaningful
                 actual_wip = None
                 pending_in = None
+                # Do not update prev_out_cum — non-applicable cells are
+                # transparent to the WIP chain
+
+            elif is_outsourced:
+                # Outsourced cell — suppress WIP entirely.
+                # Do NOT advance prev_out_cum so the next in-house cell's
+                # pending_in still references the last in-house cell's OUT.
+                actual_wip = 0
+                pending_in = 0
+
             else:
-                prev_applicable = None
-                for j in range(i - 1, -1, -1):
-                    if CELL_ORDER[j] in applicable_cells:
-                        prev_applicable = CELL_ORDER[j]
-                        break
-
-                if prev_applicable == "KNITTING":
-                    prev_out_cum = knitting_cum
-                elif prev_applicable:
-                    prev_out_cum = b["cell_out_cum"].get(prev_applicable, 0)
-                else:
-                    prev_out_cum = 0
-
-                actual_wip = max(0, cell_in_cum - cell_out_cum)
-                pending_in = max(0, prev_out_cum - cell_in_cum)
+                # In-house cell — normal WIP chain calculation
+                actual_wip   = max(0, cell_in_cum - cell_out_cum)
+                pending_in   = max(0, prev_out_cum - cell_in_cum)
+                prev_out_cum = cell_out_cum   # advance the chain reference
 
             wip = actual_wip
 
@@ -245,21 +255,22 @@ def get_dashboard_data(date=None):
                 days = (today - first_ref).days if first_ref else None
 
             cells[cell] = {
-                "in":         cell_in,
-                "out":        cell_out,
-                "cum_out":    cell_out_cum,
-                "cum_in":     cell_in_cum,
-                "pending_in": pending_in,
-                "actual_wip": actual_wip,
-                "mtd":        cell_out_mtd,
-                "ytd":        cell_out_ytd,
-                "wip":        wip,
-                "pct":        pct,
-                "days":       days,
-                "applicable": (i == 0) or (cell in applicable_cells),
+                "in":           cell_in,
+                "out":          cell_out,
+                "cum_out":      cell_out_cum,
+                "cum_in":       cell_in_cum,
+                "pending_in":   pending_in,
+                "actual_wip":   actual_wip,
+                "mtd":          cell_out_mtd,
+                "ytd":          cell_out_ytd,
+                "wip":          wip,
+                "pct":          pct,
+                "days":         days,
+                "applicable":   (i == 0) or (cell in applicable_cells),
+                "is_outsourced": is_outsourced,
             }
 
-        # Patch cum_out for non-applicable cells
+        # Patch cum_out for non-applicable cells (pass-through from predecessor)
         for i, cell in enumerate(CELL_ORDER):
             if i == 0 or cell in applicable_cells:
                 continue
@@ -337,21 +348,8 @@ def _get_cell_all_periods(date):
       cum_in,   cum_out     — first/last operation scans all time
       mtd_out               — last operation scans month-to-date
       ytd_out               — last operation scans year-to-date
-
-    The key insight: every call shared the same JOIN structure; only the
-    date condition and first/last operation field differed.  We compute both
-    first_operation (IN) and last_operation (OUT) in one pass, and apply
-    date filters as CASE WHEN conditions inside SUM().
     """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
-
-    # For MENDING, first_op = 'MENDING IN', last_op = 'MENDING OUT'.
-    # For all other cells, first_op/last_op come from pcflo.
-    # We need to match the scan's operation against both first and last
-    # simultaneously, so we use two separate indicator expressions:
-    #   is_first = (isl.operation = first_op_for_this_cell)
-    #   is_last  = (isl.operation = last_op_for_this_cell)
-    # then SUM(pi.quantity * is_first * date_filter) etc.
 
     rows = frappe.db.sql(f"""
         SELECT
@@ -605,10 +603,7 @@ def _get_knitting_all_periods(date):
 
 def _get_cell_date_maps():
     """
-    Replaces 3 separate date-map queries with one query returning:
-      first_in  — MIN(logged_time) for first_operation scans per (sku, cell)
-      first_out — MIN(logged_time) for last_operation  scans per (sku, cell)
-      last_out  — MAX(logged_time) for last_operation  scans per (sku, cell)
+    Returns first_in, first_out, last_out date maps per (style, colour, size, cell).
     """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
 
@@ -775,6 +770,53 @@ def _get_applicable_cells_map():
         WHERE tbc.parentfield = 'bundle_configurations'
           AND pc.cell_name IN ({cell_list})
     """, as_dict=True)
+    result = defaultdict(set)
+    for r in rows:
+        result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
+def _get_outsourced_cells_map():
+    """
+    Returns {(style, colour, size) -> set(cell_names)} for cells where
+    any operation is marked production_type = 'Outsourced' in the
+    Cut Kit Operations child table (parentfield = 'custom_operations_list').
+
+    Path: cko.operation → pcflo.first_operation OR pcflo.last_operation
+          → pcflo.physical_cell → pc.cell_name
+
+    Both first_operation and last_operation are checked so that any operation
+    belonging to a cell (whether the entry or exit op) correctly resolves to
+    its parent cell.
+
+    Since the operation sequence is defined at the style level, all work orders
+    for the same style share the same outsourced/in-house designation per cell.
+    A DISTINCT query is therefore sufficient.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabCut Kit Operations` cko   ON cko.parent = tbc.work_order
+                                                AND cko.parentfield = 'custom_operations_list'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+                                                AND (
+                                                    pcflo.first_operation = cko.operation
+                                                    OR pcflo.last_operation = cko.operation
+                                                )
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND cko.production_type = 'Outsourced'
+          AND pc.cell_name IN ({cell_list})
+    """, as_dict=True)
+
     result = defaultdict(set)
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
