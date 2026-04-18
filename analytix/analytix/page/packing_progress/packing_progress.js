@@ -152,11 +152,19 @@ function _ppd_render(rows) {
 		var orderQty   = parseInt(r.order_qty)   || 0;
 		var plannedQty = parseInt(r.planned_qty)  || 0;
 
-		// ── Pending qty per cell: max(0, planned_qty − cell_out) ────────────
+		// ── Pending qty per cell ─────────────────────────────────────────────
+		// The backend always returns all 11 cells, but a cell that is NOT part
+		// of this style's operation route will have both in=0 AND out=0.
+		// We treat that as "not applicable" and render "—" (null sentinel).
+		// Only applicable cells contribute to the TOTAL pending sum.
 		var totalPending = 0;
 		var opPendings = PPD_OPS.map(function (op) {
-			var c       = cellData[op.key] || {};
-			var out     = parseInt(c["out"] || 0);
+			var c   = cellData[op.key] || {};
+			var inn = parseInt(c["in"]  || 0);
+			var out = parseInt(c["out"] || 0);
+			if (inn === 0 && out === 0) {
+				return null; // not applicable for this style
+			}
 			var pending = Math.max(0, plannedQty - out);
 			totalPending += pending;
 			return pending;
@@ -185,9 +193,15 @@ function _ppd_render(rows) {
 
 		// ── 11 pending columns ───────────────────────────────────────────────
 		opPendings.forEach(function (pending) {
-			var cls     = pending === 0 ? "op-pending op-zero" : "op-pending";
-			var display = pending === 0 ? "&#8212;" : _ppd_n(pending);
-			html += '<td class="td-op"><span class="' + cls + '">' + display + "</span></td>";
+			if (pending === null) {
+				// Not applicable for this style — show a dim dash
+				html += '<td class="td-op"><span class="op-na">&#8212;</span></td>';
+			} else if (pending === 0) {
+				// Applicable and fully complete — green dash
+				html += '<td class="td-op"><span class="op-pending op-zero">&#8212;</span></td>';
+			} else {
+				html += '<td class="td-op"><span class="op-pending">' + _ppd_n(pending) + "</span></td>";
+			}
 		});
 
 		// ── TOTAL pending ────────────────────────────────────────────────────
