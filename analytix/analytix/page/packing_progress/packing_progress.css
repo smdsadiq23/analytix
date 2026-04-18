@@ -1,0 +1,327 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Packing Progress Dashboard  —  analytix / packing_progress
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Strip Frappe chrome + layout constraints ────────────────────── */
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    width: 100% !important;
+}
+
+.page-content,
+.page-body,
+.layout-main-section,
+.layout-main-section-wrapper {
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow-x: hidden !important;
+    background: #0d1117 !important;
+}
+
+/* ── Root ────────────────────────────────────────────────────────── */
+.ppd-root {
+    width: 100vw !important;
+    max-width: none !important;
+    height: 100vh;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 20px 10px !important;
+    box-sizing: border-box !important;
+    overflow: hidden;
+    margin: 0 !important;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────── */
+.ppd-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+.ppd-brand { display: flex; align-items: center; gap: 12px; }
+.ppd-brand-icon { flex-shrink: 0; }
+.ppd-brand-title {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: #e6edf3;
+    line-height: 1.15;
+}
+.ppd-brand-sub {
+    font-size: 0.78rem;
+    color: #8b949e;
+    margin-top: 1px;
+}
+.ppd-clock { text-align: right; }
+#ppd-time {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #00d4aa;
+    letter-spacing: 1px;
+    line-height: 1.1;
+}
+#ppd-date {
+    font-size: 0.76rem;
+    color: #8b949e;
+    margin-top: 2px;
+}
+
+/* ── Table scroll wrapper ────────────────────────────────────────── */
+.ppd-scroll {
+    flex: 1;
+    width: 100% !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-radius: 8px;
+    border: 1px solid #21262d;
+    min-height: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    scroll-behavior: smooth;
+}
+
+/* ── Table base ──────────────────────────────────────────────────── */
+.ppd-table {
+    width: 100% !important;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+    table-layout: fixed;
+    white-space: nowrap;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* ── Header row ──────────────────────────────────────────────────── */
+.ppd-head {
+    background: #161b22;
+    border-bottom: 2px solid #21262d;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.ppd-table thead th {
+    padding: 10px 4px 8px;
+    text-align: center;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    vertical-align: bottom;
+    line-height: 1.4;
+    color: #00d4aa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Column widths ───────────────────────────────────────────────── */
+.th-buyer      { width: 6%;    text-align: left !important;  color: #00d4aa !important; }
+.th-season     { width: 4.5%;                                 color: #00d4aa !important; }
+.th-style      { width: 6%;    text-align: left !important;  color: #00d4aa !important; padding-left: 8px; }
+.th-colour     { width: 4%;    text-align: left !important;  color: #00d4aa !important; }
+.th-delivery   { width: 4%;                                   color: #00d4aa !important; }
+.th-qty        { width: 3.2%;                                 color: #00d4aa !important; }
+.th-op         { width: 4%;                                   color: #f0c040 !important; }
+.th-total      { width: 4%;                                   color: #f0c040 !important; }
+.th-rej        { width: 3%;                                   color: #f85149 !important; }
+.th-packed     { width: 5.5%;                                 color: #00d4aa !important; }
+
+/* ── Sub-header label (Pending) ──────────────────────────────────── */
+.th-sub {
+    display: block;
+    font-size: 0.5rem;
+    font-weight: 400;
+    color: #888a8c !important;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+/* ── Body rows ───────────────────────────────────────────────────── */
+.ppd-row { border-bottom: 1px solid #1c2128; }
+.ppd-row:nth-child(odd)  { background: #0d1117; }
+.ppd-row:nth-child(even) { background: #0f1318; }
+.ppd-row:hover           { background: #161b22; }
+
+.ppd-table tbody td {
+    padding: 10px 4px;
+    vertical-align: middle;
+    color: #c9d1d9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Identity cells ──────────────────────────────────────────────── */
+.td-buyer    { text-align: left;   color: #c9d1d9; font-size: 0.75rem; }
+.td-season   { text-align: center; }
+.td-style    { font-weight: 700; font-size: 0.78rem; color: #e6edf3; text-align: left; padding-left: 8px; }
+.td-colour   { text-align: left; }
+.td-delivery { text-align: center; color: #8b949e; font-size: 0.72rem; }
+.td-qty      { text-align: center; font-weight: 600; color: #e6edf3; padding-right: 6px; }
+
+/* ── Colour badge ────────────────────────────────────────────────── */
+.colour-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    letter-spacing: 0.02em;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Season badge ────────────────────────────────────────────────── */
+.szn {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.szn-spring  { background: #2d1f52; color: #c084fc; border: 1px solid #7c3aed44; }
+.szn-summer  { background: #2d1f52; color: #c084fc; border: 1px solid #7c3aed44; }
+.szn-winter  { background: #0c1e35; color: #79c0ff; border: 1px solid #388bfd44; }
+.szn-fall    { background: #2d1800; color: #ffa657; border: 1px solid #ffa65744; }
+.szn-default { background: #21262d; color: #8b949e; border: 1px solid #30363d;   }
+
+/* ── Operation pending cell ──────────────────────────────────────── */
+.td-op {
+    text-align: center;
+    padding: 6px 3px;
+    border-left: 1px solid #1c2128;
+}
+
+/* Pending qty — amber/orange gradient based on level */
+.op-pending {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f0c040;
+    line-height: 1.2;
+}
+.op-pending.op-zero   { color: #4fbe79; }   /* zero pending = green */
+.op-pending.op-dash   { color: #4a5568; }   /* no data = dim grey  */
+
+/* Total pending */
+.td-total {
+    text-align: center;
+    padding: 6px 3px;
+    border-left: 2px solid #f0c04033;
+}
+.total-val {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #f0c040;
+}
+
+/* REJ QTY */
+.td-rej {
+    text-align: center;
+    padding: 6px 4px;
+    border-left: 1px solid #f8514933;
+}
+.rej-val {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f85149;
+}
+.rej-zero { color: #4a5568; }
+
+/* ── Packed Progress circle ──────────────────────────────────────── */
+.td-packed {
+    text-align: center;
+    border-left: 2px solid #00d4aa33;
+    padding: 6px 4px;
+}
+.packed-wrap {
+    position: relative;
+    display: inline-block;
+    width: 52px;
+    height: 52px;
+}
+.packed-svg {
+    width: 52px;
+    height: 52px;
+    transform: rotate(-90deg);
+}
+.packed-bg   { fill: none; stroke: #21262d; stroke-width: 4; }
+.packed-ring { fill: none; stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
+.packed-ring.pk-done { stroke: #4fbe79; }
+.packed-ring.pk-mid  { stroke: #f0c040; }
+.packed-ring.pk-low  { stroke: #f85149; }
+.packed-label {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+}
+.packed-pct {
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+}
+.packed-pct.pk-done { color: #4fbe79; }
+.packed-pct.pk-mid  { color: #f0c040; }
+.packed-pct.pk-low  { color: #f85149; }
+.packed-counts {
+    font-size: 0.52rem;
+    color: #6e7681;
+    white-space: nowrap;
+    margin-top: 2px;
+    display: block;
+    line-height: 1.2;
+}
+
+/* ── Loading / error ─────────────────────────────────────────────── */
+.ppd-state {
+    text-align: center;
+    padding: 60px 20px !important;
+    color: #8b949e;
+    font-size: 0.95rem;
+}
+.ppd-spinner {
+    display: inline-block;
+    width: 15px; height: 15px;
+    border: 2px solid #30363d;
+    border-top-color: #00d4aa;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+.ppd-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    flex-shrink: 0;
+    padding: 0 4px;
+}
+#ppd-updated {
+    font-size: 0.72rem;
+    color: #4a5568;
+}
+.ppd-refresh-note {
+    font-size: 0.7rem;
+    color: #4a5568;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
