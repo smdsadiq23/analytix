@@ -561,10 +561,17 @@ def _get_outsourced_cells_map():
         INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
         INNER JOIN `tabItem` itm                 ON itm.name = tor.item
         INNER JOIN `tabCut Kit Operations` cko   ON cko.parent = tbc.work_order
-        INNER JOIN `tabPhysical Cell` pc         ON pc.name = cko.physical_cell
+                                                AND cko.parentfield = 'custom_operations_list'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                ON pcflo.parent = tbc.work_order
+                                                AND (
+                                                    pcflo.first_operation = cko.operation
+                                                    OR pcflo.last_operation = cko.operation
+                                                )
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
         WHERE tbc.parentfield = 'bundle_configurations'
-          AND cko.production_type  = 'Outsourced'
-          AND pc.cell_name IN ({cell_list})
+        AND cko.production_type = 'Outsourced'
+        AND pc.cell_name IN ({cell_list})
     """, as_dict=True)
 
     result = defaultdict(set)
