@@ -226,7 +226,7 @@ function _ppd_render(rows) {
 		html += '</svg>';
 		html += '<div class="packed-label">';
 		html += '<span class="packed-pct ' + pkClass + '">' + packedPct + "%</span>";
-		html += '<span class="packed-counts">' + _ppd_n(packingOut) + " / " + _ppd_n(orderQty) + "</span>";
+		html += '<span class="packed-counts">' + _ppd_n(packingOut) + "</span>";
 		html += '</div></div></td>';
 
 		html += "</tr>";
