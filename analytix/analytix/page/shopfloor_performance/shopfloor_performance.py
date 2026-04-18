@@ -33,6 +33,7 @@ def get_dashboard_data(date=None):
 
     applicable_cells_map  = _get_applicable_cells_map()
     outsourced_cells_map  = _get_outsourced_cells_map()
+    cell_sequence_map     = _get_cell_sequence_map()
 
     cell_maps       = _get_cell_all_periods(date)
     knitting_maps   = _get_knitting_all_periods(date)
@@ -89,6 +90,7 @@ def get_dashboard_data(date=None):
         "knitting_shift2_cum":         0,
         "applicable_cells":            set(),
         "outsourced_cells":            set(),
+        "cell_sequence":               [],    # ordered list of cells per actual route
     })
 
     for (style, colour, size), info in order_map.items():
@@ -104,6 +106,14 @@ def get_dashboard_data(date=None):
         # Since outsourced = style-level per cell, the union is a safety net.
         sku_outsourced = outsourced_cells_map.get((style, colour, size), set())
         agg[key]["outsourced_cells"] |= sku_outsourced
+
+        # Merge per-SKU cell sequence into the group sequence.
+        # Since all work orders for the same (style, season) share the same
+        # route, we just take the first non-empty sequence we find.
+        if not agg[key]["cell_sequence"]:
+            sku_seq = cell_sequence_map.get((style, colour, size), [])
+            if sku_seq:
+                agg[key]["cell_sequence"] = sku_seq
 
         d = info.delivery_date
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
@@ -189,6 +199,13 @@ def get_dashboard_data(date=None):
         applicable_cells = b["applicable_cells"] or set(CELL_ORDER)
         outsourced_cells = b["outsourced_cells"]
 
+        # Use the actual per-style cell sequence from the work order route.
+        # Falls back to CELL_ORDER if no sequence was found (safety net).
+        # KNITTING is prepended if not already present — it is always first.
+        route = b["cell_sequence"] or CELL_ORDER
+        if route and route[0] != "KNITTING":
+            route = ["KNITTING"] + [c for c in route if c != "KNITTING"]
+
         cells = {}
 
         # ── WIP chain state ───────────────────────────────────────────────
@@ -196,13 +213,15 @@ def get_dashboard_data(date=None):
         # It is NOT updated when an outsourced cell is processed, so that the
         # next in-house cell's pending_in correctly skips over outsourced cells.
         #
-        # Example — CUTTING(IH) → LINKING(OS) → SEWING(IH):
-        #   After CUTTING : prev_out_cum = CUTTING_cum_out
-        #   LINKING  (OS) : pending_in=0, actual_wip=0; prev_out_cum unchanged
-        #   SEWING   (IH) : pending_in = CUTTING_cum_out − SEWING_cum_in  ✓
+        # We iterate over `route` (the actual per-style cell sequence derived
+        # from tabCut Kit Operations ordered by idx) rather than the hardcoded
+        # CELL_ORDER.  This ensures that non-standard routes (e.g. CUTTING →
+        # EMBROIDERY → LINKING instead of CUTTING → LINKING → EMBROIDERY) get
+        # correct WIP attribution — each cell's pending_in references its true
+        # predecessor in the actual process map.
         prev_out_cum = 0
 
-        for i, cell in enumerate(CELL_ORDER):
+        for i, cell in enumerate(route):
             cell_in      = b["cell_in"].get(cell, 0)
             cell_out     = b["cell_out"].get(cell, 0)
             cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
@@ -221,8 +240,7 @@ def get_dashboard_data(date=None):
                 prev_out_cum = knitting_cum
 
             elif cell not in applicable_cells:
-                # Cell not applicable for this style — pass-through cum_out,
-                # WIP is not meaningful
+                # Cell not applicable for this style — WIP not meaningful
                 actual_wip = None
                 pending_in = None
                 # Do not update prev_out_cum — non-applicable cells are
@@ -270,12 +288,24 @@ def get_dashboard_data(date=None):
                 "is_outsourced": is_outsourced,
             }
 
-        # Patch cum_out for non-applicable cells (pass-through from predecessor)
-        for i, cell in enumerate(CELL_ORDER):
+        # Ensure all CELL_ORDER cells exist in the dict (for downstream consumers
+        # that reference cells by key regardless of route order).
+        for cell in CELL_ORDER:
+            if cell not in cells:
+                cells[cell] = {
+                    "in": 0, "out": 0, "cum_out": 0, "cum_in": 0,
+                    "pending_in": None, "actual_wip": None,
+                    "mtd": 0, "ytd": 0, "wip": None, "pct": 0,
+                    "days": None, "applicable": False, "is_outsourced": False,
+                }
+
+        # Patch cum_out for non-applicable cells (pass-through from predecessor
+        # in route order so the chain remains consistent).
+        for i, cell in enumerate(route):
             if i == 0 or cell in applicable_cells:
                 continue
             for j in range(i - 1, -1, -1):
-                pred = CELL_ORDER[j]
+                pred = route[j]
                 if pred in applicable_cells or j == 0:
                     cells[cell]["cum_out"] = cells[pred]["cum_out"]
                     break
@@ -820,4 +850,55 @@ def _get_outsourced_cells_map():
     result = defaultdict(set)
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
+def _get_cell_sequence_map():
+    """
+    Returns {(style, colour, size) → [cell_name, ...]} where the list is the
+    actual ordered sequence of physical cells for that SKU, derived from
+    tabCut Kit Operations ordered by idx.
+
+    Multiple operations belonging to the same physical cell collapse to a
+    single entry (order-preserving dedup) — what matters for WIP chain
+    calculation is the cell sequence, not individual operations.
+
+    This replaces the hardcoded CELL_ORDER walk so that non-standard routes
+    (e.g. CUTTING → EMBROIDERY → LINKING) get correct WIP attribution.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name,
+            MIN(cko.idx)             AS min_idx
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabCut Kit Operations` cko   ON cko.parent     = tbc.work_order
+                                                AND cko.parentfield = 'custom_operations_list'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+                                                AND (
+                                                    pcflo.first_operation = cko.operation
+                                                    OR pcflo.last_operation = cko.operation
+                                                )
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND pc.cell_name IN ({cell_list})
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+        ORDER BY itm.custom_style_master, itm.custom_colour_name, tbc.size, min_idx
+    """, as_dict=True)
+
+    # Build ordered lists per (style, colour, size), deduplicating cells
+    # while preserving the order determined by MIN(idx).
+    result = {}
+    for r in rows:
+        key = (r.style, r.colour, r.size)
+        if key not in result:
+            result[key] = []
+        if r.cell_name not in result[key]:
+            result[key].append(r.cell_name)
     return result
