@@ -103,7 +103,7 @@ frappe.pages["packing-progress"].on_page_hide = function () {
 
 var _ppd_timer = null;
 
-// Full cell list — mirrors CELLS in production_dashboard.js exactly
+// Full cell list in pipeline order
 const PPD_OPS = [
 	{ label: "KNITTING",    key: "KNITTING"    },
 	{ label: "MENDING",     key: "MENDING"     },
@@ -131,7 +131,9 @@ function _ppd_tick() {
 
 function _ppd_load() {
 	frappe.call({
-		method: "analytix.analytix.page.production_dashboard.production_dashboard.get_dashboard_data",
+		// Dedicated endpoint — both filters (packing started, not fully packed)
+		// and outsourced flags are handled server-side in packing_progress.py.
+		method: "analytix.analytix.page.packing_progress.packing_progress.get_packing_progress_data",
 		freeze: false,
 		callback: function (r) {
 			if (r.exc) { _ppd_setState("&#9888; Failed to load data. Check server logs."); return; }
@@ -144,43 +146,61 @@ function _ppd_load() {
 }
 
 function _ppd_render(rows) {
-	if (!rows.length) { _ppd_setState("No production data found."); return; }
+	if (!rows.length) { _ppd_setState("No styles currently in packing."); return; }
 
 	var html = "";
 	rows.forEach(function (r) {
 		var cellData   = r.cells || {};
-		var orderQty   = parseInt(r.order_qty)   || 0;
-		var plannedQty = parseInt(r.planned_qty)  || 0;
+		var orderQty   = parseInt(r.order_qty)  || 0;
+		var plannedQty = parseInt(r.planned_qty) || 0;
 
-		// ── Pending qty per cell ─────────────────────────────────────────────
-		// The backend always returns all 11 cells, but a cell that is NOT part
-		// of this style's operation route will have both in=0 AND out=0.
-		// We treat that as "not applicable" and render "—" (null sentinel).
-		// Only applicable cells contribute to the TOTAL pending sum.
+		// ── Pending qty per cell ──────────────────────────────────────────
+		//
+		// Three states per cell:
+		//
+		//   null    — not applicable for this style (in=0 AND out=0 AND NOT outsourced)
+		//             → dim "—", NOT counted in totalPending
+		//
+		//   "OS"    — outsourced cell (is_outsourced = true)
+		//             → muted "OS" badge, NOT counted in totalPending
+		//             Checked BEFORE the in=0/out=0 guard because an outsourced
+		//             cell may have no scans and would otherwise be misread as
+		//             non-applicable.
+		//
+		//   number  — in-house applicable cell
+		//             → pending = max(0, planned_qty - out), counted in totalPending
+		//
 		var totalPending = 0;
 		var opPendings = PPD_OPS.map(function (op) {
 			var c   = cellData[op.key] || {};
 			var inn = parseInt(c["in"]  || 0);
 			var out = parseInt(c["out"] || 0);
-			if (inn === 0 && out === 0) {
-				return null; // not applicable for this style
+
+			if (c["is_outsourced"]) {
+				return "OS";
 			}
+
+			if (inn === 0 && out === 0) {
+				return null;
+			}
+
 			var pending = Math.max(0, plannedQty - out);
 			totalPending += pending;
 			return pending;
 		});
 
-		// ── REJ QTY ──────────────────────────────────────────────────────────
+		// ── REJ QTY ──────────────────────────────────────────────────────
 		var rejQty = parseInt(r.rej_qty || 0);
 
-		// ── Packed progress: PACKING OUT / order_qty × 100 ──────────────────
+		// ── Packed progress: PACKING OUT / order_qty × 100 ───────────────
 		var packingOut = parseInt(((cellData["PACKING"] || {})["out"]) || 0);
 		var packedPct  = orderQty ? Math.round((packingOut / orderQty) * 100) : 0;
 		packedPct = Math.min(packedPct, 100);
 		var pkClass = packedPct >= 100 ? "pk-done" : packedPct >= 50 ? "pk-mid" : "pk-low";
 
-		// SVG circle r=18, circ = 2π×18 ≈ 113.1
-		var circ = 113.1, offset = (circ - (packedPct / 100) * circ).toFixed(1);
+		// SVG circle r=18, circumference = 2π×18 ≈ 113.1
+		var circ   = 113.1;
+		var offset = (circ - (packedPct / 100) * circ).toFixed(1);
 
 		html += '<tr class="ppd-row">';
 		html += '<td class="td-buyer">'    + _ppd_e(r.buyer) + "</td>";
@@ -191,31 +211,34 @@ function _ppd_render(rows) {
 		html += '<td class="td-qty">'      + _ppd_n(r.order_qty)   + "</td>";
 		html += '<td class="td-qty">'      + _ppd_n(r.planned_qty) + "</td>";
 
-		// ── 11 pending columns ───────────────────────────────────────────────
+		// ── 11 pending columns ────────────────────────────────────────────
 		opPendings.forEach(function (pending) {
 			if (pending === null) {
-				// Not applicable for this style — show a dim dash
+				// Not applicable for this style — dim dash
 				html += '<td class="td-op"><span class="op-na">&#8212;</span></td>';
+			} else if (pending === "OS") {
+				// Outsourced process — muted badge, excluded from total
+				html += '<td class="td-op"><span class="op-outsourced" title="Outsourced process">OS</span></td>';
 			} else if (pending === 0) {
-				// Applicable and fully complete — green dash
+				// In-house, fully complete — green dash
 				html += '<td class="td-op"><span class="op-pending op-zero">&#8212;</span></td>';
 			} else {
 				html += '<td class="td-op"><span class="op-pending">' + _ppd_n(pending) + "</span></td>";
 			}
 		});
 
-		// ── TOTAL pending ────────────────────────────────────────────────────
+		// ── TOTAL pending (in-house cells only) ───────────────────────────
 		html += '<td class="td-total"><span class="total-val">'
 			+ (totalPending === 0 ? "&#8212;" : _ppd_n(totalPending))
 			+ "</span></td>";
 
-		// ── REJ QTY ──────────────────────────────────────────────────────────
+		// ── REJ QTY ──────────────────────────────────────────────────────
 		var rejCls = rejQty === 0 ? "rej-val rej-zero" : "rej-val";
 		html += '<td class="td-rej"><span class="' + rejCls + '">'
 			+ (rejQty === 0 ? "&#8212;" : _ppd_n(rejQty))
 			+ "</span></td>";
 
-		// ── Packed progress circle ────────────────────────────────────────────
+		// ── Packed progress circle ────────────────────────────────────────
 		html += '<td class="td-packed">';
 		html += '<div class="packed-wrap">';
 		html += '<svg class="packed-svg" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">';
