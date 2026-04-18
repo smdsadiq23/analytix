@@ -10,7 +10,7 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 	// Full-viewport takeover
 	$("header.navbar").hide();
 	$(".page-body").css({ "padding": "0", "margin": "0" });
-	$(".layout-main-section-wrapper").css({ "padding": "0", "margin": "0" });
+	$(".layout-main-section-wrapper").css({ "padding": "0", "margin": "" });
 	$(".layout-main-section").css({ "padding": "0", "margin": "0", "max-width": "100%" });
 	$(wrapper).css({ "padding": "0", "margin": "0" });
 	$(wrapper).find(".page-content").css({ "padding": "0", "margin": "0" });
@@ -323,34 +323,50 @@ function _renderSizewisePopup(d) {
 	// ── Table body ────────────────────────────────────────────────────────
 	var tbody = "";
 	cells.forEach(function (cell) {
-		// IN row
+		var isOutsourced = !!cell.is_outsourced;
+
+		// ── IN row ────────────────────────────────────────────────────────
 		var inTotDeviation = cell.total_in - d.order_qty;
 		var inDevStr  = inTotDeviation >= 0 ? "+" + _n(inTotDeviation) : _n(inTotDeviation);
 		var inBalCls  = cell.in_balance_pct >= 100 ? "pd-sw-bal-green" : cell.in_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
-		tbody += '<tr class="pd-sw-row pd-sw-row-in">';
-		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">IN</span></td>';
+		tbody += '<tr class="pd-sw-row pd-sw-row-in' + (isOutsourced ? " pd-sw-row-outsourced" : "") + '">';
+		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">IN</span>';
+		if (isOutsourced) { tbody += ' <span class="pd-sw-outsourced-badge" title="Outsourced — WIP not tracked">OS</span>'; }
+		tbody += '</td>';
 		sizes.forEach(function (sz) {
 			var s  = (cell.in_by_size || {})[sz] || { qty: 0, pct: 0 };
 			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
 			tbody += '<td class="pd-sw-td"><div class="pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + "%</span></div></td>";
 		});
-		tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_pending > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-pending">' + _n(cell.wip_pending) + "</span>" : '<span class="pd-sw-wip-zero">—</span>') + "</td>";
+		// WIP column: outsourced → show "—" with a muted title; in-house → existing logic
+		if (isOutsourced) {
+			tbody += '<td class="pd-sw-td pd-sw-wip"><span class="pd-sw-wip-zero pd-sw-outsourced-wip" title="Outsourced process — WIP not tracked">—</span></td>';
+		} else {
+			tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_pending > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-pending">' + _n(cell.wip_pending) + "</span>" : '<span class="pd-sw-wip-zero">—</span>') + "</td>";
+		}
 		tbody += '<td class="pd-sw-td pd-sw-completed"><span class="pd-sw-total">' + _n(cell.total_in) + '</span><span class="pd-sw-deviation">' + inDevStr + "</span></td>";
 		tbody += '<td class="pd-sw-td pd-sw-balance"><span class="pd-sw-bal ' + inBalCls + '">' + cell.in_balance_pct + "%</span></td>";
 		tbody += "</tr>";
 
-		// OUT row
+		// ── OUT row ───────────────────────────────────────────────────────
 		var outTotDeviation = cell.total_out - d.order_qty;
 		var outDevStr  = outTotDeviation >= 0 ? "+" + _n(outTotDeviation) : _n(outTotDeviation);
 		var outBalCls  = cell.out_balance_pct >= 100 ? "pd-sw-bal-green" : cell.out_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
-		tbody += '<tr class="pd-sw-row pd-sw-row-out">';
-		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">OUT</span></td>';
+		tbody += '<tr class="pd-sw-row pd-sw-row-out' + (isOutsourced ? " pd-sw-row-outsourced" : "") + '">';
+		tbody += '<td class="pd-sw-td pd-sw-section">' + _e(cell.cell) + ' <span class="pd-sw-dir">OUT</span>';
+		if (isOutsourced) { tbody += ' <span class="pd-sw-outsourced-badge" title="Outsourced — WIP not tracked">OS</span>'; }
+		tbody += '</td>';
 		sizes.forEach(function (sz) {
 			var s  = (cell.out_by_size || {})[sz] || { qty: 0, pct: 0 };
 			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
 			tbody += '<td class="pd-sw-td"><div class="pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + "%</span></div></td>";
 		});
-		tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_actual > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-actual">' + _n(cell.wip_actual) + "</span>" : '<span class="pd-sw-wip-zero">—</span>') + "</td>";
+		// WIP column: outsourced → "—"; in-house → wip_actual
+		if (isOutsourced) {
+			tbody += '<td class="pd-sw-td pd-sw-wip"><span class="pd-sw-wip-zero pd-sw-outsourced-wip" title="Outsourced process — WIP not tracked">—</span></td>';
+		} else {
+			tbody += '<td class="pd-sw-td pd-sw-wip">' + (cell.wip_actual > 0 ? '<span class="pd-sw-wip-val pd-sw-wip-actual">' + _n(cell.wip_actual) + "</span>" : '<span class="pd-sw-wip-zero">—</span>') + "</td>";
+		}
 		tbody += '<td class="pd-sw-td pd-sw-completed"><span class="pd-sw-total">' + _n(cell.total_out) + '</span><span class="pd-sw-deviation">' + outDevStr + "</span></td>";
 		tbody += '<td class="pd-sw-td pd-sw-balance"><span class="pd-sw-bal ' + outBalCls + '">' + cell.out_balance_pct + "%</span></td>";
 		tbody += "</tr>";

@@ -535,11 +535,55 @@ def _get_applicable_cells_map():
     return result
 
 
+def _get_outsourced_cells_map():
+    """
+    Returns {(style, colour, size) → set(cell_names)} for cells where
+    production_type = 'Outsourced' in the Cut Kit Operations child table.
+
+    The Cut Kit Operations child table lives under the Work Order doctype
+    (tbc.work_order = Work Order name).  Each row has:
+        physical_cell   — links to tabPhysical Cell
+        production_type — 'Outsourced' or 'In-House'
+
+    Since the operation sequence (and therefore production_type per cell)
+    is mapped at the style level, all work orders for the same style will
+    share the same outsourced/in-house designation per cell.  A DISTINCT
+    query is therefore sufficient — no aggregation needed.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabCut Kit Operations` cko   ON cko.parent = tbc.work_order
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = cko.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND cko.production_type  = 'Outsourced'
+          AND pc.cell_name IN ({cell_list})
+    """, as_dict=True)
+
+    result = defaultdict(set)
+    for r in rows:
+        result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
 @frappe.whitelist()
 def get_style_sizewise_data(style, colour):
     """
     Returns cumulative size-wise IN / OUT data for every applicable cell
     of the given (style, colour).  Drives the size-wise popup.
+
+    WIP rules:
+      - Outsourced cells: wip_pending = 0, wip_actual = 0
+      - The prev_total_out chain reference is only advanced by in-house cells,
+        so that the next in-house cell's wip_pending correctly skips over any
+        outsourced cells in between.
     """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
 
@@ -594,6 +638,14 @@ def get_style_sizewise_data(style, colour):
     applicable_cells = set()
     for size in sizes_info:
         applicable_cells |= applicable_cells_map.get((style, colour, size), set())
+
+    # ── Outsourced cells for this style/colour ────────────────────────────
+    # Union across all sizes (outsourced = style-level per cell, so the
+    # result is the same for every size — the union is a safety net).
+    outsourced_cells_map = _get_outsourced_cells_map()
+    outsourced_cells = set()
+    for size in sizes_info:
+        outsourced_cells |= outsourced_cells_map.get((style, colour, size), set())
 
     # ── Cumulative IN / OUT per (style, colour, size, cell) ───────────────
     scan_rows = frappe.db.sql(f"""
@@ -654,12 +706,24 @@ def get_style_sizewise_data(style, colour):
                 scan_map[key]["out"] += int(r.qty)
 
     # ── Build per-cell rows ───────────────────────────────────────────────
+    #
+    # prev_total_out tracks the OUT qty of the last IN-HOUSE cell only.
+    # It is NOT updated when an outsourced cell is processed, so that the
+    # next in-house cell's wip_pending correctly skips over outsourced cells.
+    #
+    # Example — CUTTING(IH) → LINKING(OS) → SEWING(IH):
+    #   After CUTTING  : prev_total_out = CUTTING_OUT
+    #   LINKING (OS)   : wip_pending=0, wip_actual=0; prev_total_out unchanged
+    #   SEWING  (IH)   : wip_pending = CUTTING_OUT − SEWING_IN  ✓
+    #
     prev_total_out = 0
     cell_rows = []
 
     for cell in CELL_ORDER:
         if cell not in applicable_cells:
             continue
+
+        is_outsourced = cell in outsourced_cells
 
         in_by_size = {}
         out_by_size = {}
@@ -680,13 +744,24 @@ def get_style_sizewise_data(style, colour):
             total_in  += qty_in
             total_out += qty_out
 
-        wip_pending = max(0, prev_total_out - total_in)
-        wip_actual  = max(0, total_in - total_out)
+        if is_outsourced:
+            # Outsourced cell: suppress WIP entirely.
+            # Do NOT advance prev_total_out so the next in-house cell's
+            # wip_pending still references the last in-house cell's OUT.
+            wip_pending = 0
+            wip_actual  = 0
+        else:
+            # In-house cell: normal WIP chain calculation.
+            wip_pending    = max(0, prev_total_out - total_in)
+            wip_actual     = max(0, total_in - total_out)
+            prev_total_out = total_out   # advance the chain reference
+
         in_balance_pct  = round(total_in  / total_order_qty * 100) if total_order_qty else 0
         out_balance_pct = round(total_out / total_order_qty * 100) if total_order_qty else 0
 
         cell_rows.append({
             "cell":            cell,
+            "is_outsourced":   is_outsourced,
             "in_by_size":      in_by_size,
             "out_by_size":     out_by_size,
             "total_in":        total_in,
@@ -696,7 +771,6 @@ def get_style_sizewise_data(style, colour):
             "in_balance_pct":  in_balance_pct,
             "out_balance_pct": out_balance_pct,
         })
-        prev_total_out = total_out
 
     return {
         "style":         style,
