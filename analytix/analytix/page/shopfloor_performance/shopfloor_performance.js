@@ -219,7 +219,6 @@ function _aggregateTotals(rows) {
 		totals[key] = {
 			input: 0, output: 0, cum_out: 0, wip: 0,
 			rejection: 0, mtd: 0, ytd: 0,
-			is_outsourced: false,
 		};
 	});
 
@@ -234,19 +233,13 @@ function _aggregateTotals(rows) {
 			totals[key].mtd     += (c["mtd"]     || 0);
 			totals[key].ytd     += (c["ytd"]     || 0);
 
-			// Card WIP = pending_in + actual_wip.
-			// For outsourced cells both are 0 from Python, so the sum is
-			// naturally 0 — no special handling needed here.
+			// Sum WIP for all styles — outsourced styles already return 0
+			// from Python so they contribute nothing without special casing.
 			if (c["pending_in"] != null) {
 				totals[key].wip += c["pending_in"];
 			}
 			if (c["actual_wip"] != null) {
 				totals[key].wip += c["actual_wip"];
-			}
-
-			// Mark section as outsourced if any style row says so
-			if (c["is_outsourced"]) {
-				totals[key].is_outsourced = true;
 			}
 		});
 	});
@@ -358,44 +351,17 @@ function _buildKnittingCard(section, t, rows) {
 }
 
 function _buildSectionCard(section, key, t) {
-	var input        = t.input        || 0;
-	var output       = t.output       || 0;
-	var wip          = t.wip          || 0;
-	var rejection    = t.rejection    || 0;
-	var mtd          = t.mtd          || 0;
-	var ytd          = t.ytd          || 0;
-	var isOutsourced = !!t.is_outsourced;
-
-	// For outsourced sections WIP is suppressed (always 0 from Python).
-	// We still show the row but with a muted "Outsourced" label instead of a value.
-	var wipHtml;
-	if (isOutsourced) {
-		wipHtml = `
-			<div class="pd-row">
-				<div class="pd-row-label">
-					<span class="pd-icon pd-icon-wip"></span>
-					WIP
-				</div>
-				<div class="pd-row-val pd-val-muted">
-					<span class="pd-outsourced-tag" title="Outsourced process — WIP not tracked">Outsourced</span>
-				</div>
-			</div>`;
-	} else {
-		wipHtml = `
-			<div class="pd-row">
-				<div class="pd-row-label">
-					<span class="pd-icon pd-icon-wip"></span>
-					WIP
-				</div>
-				<div class="pd-row-val pd-val-orange">${_n(wip)}</div>
-			</div>`;
-	}
+	var input     = t.input     || 0;
+	var output    = t.output    || 0;
+	var wip       = t.wip       || 0;
+	var rejection = t.rejection || 0;
+	var mtd       = t.mtd       || 0;
+	var ytd       = t.ytd       || 0;
 
 	return `
-		<div class="pd-card pd-card-clickable${isOutsourced ? " pd-card-outsourced" : ""}" data-section-key="${_e(key)}" data-section-label="${_e(section)}">
+		<div class="pd-card pd-card-clickable" data-section-key="${_e(key)}" data-section-label="${_e(section)}">
 			<div class="pd-card-header">
 				<span class="pd-card-title">${_e(section)}</span>
-				${isOutsourced ? '<span class="pd-card-badge pd-badge-outsourced" title="Outsourced process">OS</span>' : ""}
 			</div>
 			<div class="pd-card-body">
 				<div class="pd-row">
@@ -412,7 +378,13 @@ function _buildSectionCard(section, key, t) {
 					</div>
 					<div class="pd-row-val pd-val-green">${_n(output)}</div>
 				</div>
-				${wipHtml}
+				<div class="pd-row">
+					<div class="pd-row-label">
+						<span class="pd-icon pd-icon-wip"></span>
+						WIP
+					</div>
+					<div class="pd-row-val pd-val-orange">${_n(wip)}</div>
+				</div>
 				<div class="pd-row">
 					<div class="pd-row-label">
 						<span class="pd-icon pd-icon-rejection"></span>
@@ -462,16 +434,6 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	$("#pd-grid .pd-card").removeClass("pd-card-active");
 	$("#pd-grid .pd-card[data-section-key='" + sectionKey + "']").addClass("pd-card-active");
 
-	// Determine if this section is outsourced (check first row that has the cell)
-	var sectionIsOutsourced = false;
-	for (var i = 0; i < _lastData.length; i++) {
-		var cellData = (_lastData[i].cells || {})[sectionKey];
-		if (cellData && cellData["is_outsourced"]) {
-			sectionIsOutsourced = true;
-			break;
-		}
-	}
-
 	var styleRows = _lastData.map(function(r) {
 		var cells     = r.cells || {};
 		var cell      = cells[sectionKey] || {};
@@ -486,18 +448,15 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			isOutsourced: !!cell["is_outsourced"],
 		};
 	}).filter(function(r) {
-		// For outsourced sections, still show all styles (with 0 WIP)
-		// so the user can see what styles go through this process.
-		// For in-house sections, only show rows with actual WIP/pending.
-		return sectionIsOutsourced
-			? true
-			: (r.pendingIn > 0 || r.actualWip > 0);
+		// Show rows with WIP/pending, outsourced rows, filtering out truly zero in-house rows
+		return r.isOutsourced || r.pendingIn > 0 || r.actualWip > 0;
 	});
 
 	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
 
-	var totalPending = styleRows.reduce(function(s, r) { return s + (r.pendingIn || 0); }, 0);
-	var totalWip     = styleRows.reduce(function(s, r) { return s + (r.actualWip || 0); }, 0);
+	// Totals only from in-house styles
+	var totalPending = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.pendingIn || 0) : 0); }, 0);
+	var totalWip     = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.actualWip || 0) : 0); }, 0);
 
 	var tableHtml;
 	if (!styleRows.length) {
@@ -505,7 +464,6 @@ function _showDrilldown(sectionLabel, sectionKey) {
 	} else {
 		var tbody = styleRows.map(function(r) {
 			if (r.isOutsourced) {
-				// Outsourced row — show style/colour/buyer but suppress WIP columns
 				return `<tr class="pd-popup-row-outsourced">
 					<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
 					<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
@@ -549,29 +507,17 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			</div>`;
 	}
 
-	// Summary: show outsourced notice instead of totals if section is outsourced
-	var summaryHtml;
-	if (sectionIsOutsourced) {
-		summaryHtml = `
-			<div class="pd-popup-summary">
-				<div class="pd-popup-summary-item pd-popup-summary-outsourced">
-					<div class="pd-popup-summary-val">—</div>
-					<div class="pd-popup-summary-lbl">Outsourced Process</div>
-				</div>
-			</div>`;
-	} else {
-		summaryHtml = `
-			<div class="pd-popup-summary">
-				<div class="pd-popup-summary-item pd-popup-summary-amber">
-					<div class="pd-popup-summary-val">${_n(totalPending)}</div>
-					<div class="pd-popup-summary-lbl">Total Pending In</div>
-				</div>
-				<div class="pd-popup-summary-item pd-popup-summary-orange">
-					<div class="pd-popup-summary-val">${_n(totalWip)}</div>
-					<div class="pd-popup-summary-lbl">Total Actual WIP</div>
-				</div>
-			</div>`;
-	}
+	var summaryHtml = `
+		<div class="pd-popup-summary">
+			<div class="pd-popup-summary-item pd-popup-summary-amber">
+				<div class="pd-popup-summary-val">${_n(totalPending)}</div>
+				<div class="pd-popup-summary-lbl">Total Pending In</div>
+			</div>
+			<div class="pd-popup-summary-item pd-popup-summary-orange">
+				<div class="pd-popup-summary-val">${_n(totalWip)}</div>
+				<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+			</div>
+		</div>`;
 
 	var $overlay = $(`
 		<div id="pd-modal-overlay" class="pd-modal-overlay">
@@ -580,7 +526,6 @@ function _showDrilldown(sectionLabel, sectionKey) {
 					<div class="pd-detail-title-wrap">
 						<span class="pd-popup-section-badge">${_e(sectionLabel)}</span>
 						<span class="pd-popup-title">Style-wise Breakdown</span>
-						${sectionIsOutsourced ? '<span class="pd-outsourced-tag" title="Outsourced process — WIP not tracked">Outsourced</span>' : ""}
 					</div>
 					${summaryHtml}
 					<button class="pd-popup-close" id="pd-detail-close" title="Close">
