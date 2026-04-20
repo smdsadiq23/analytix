@@ -113,8 +113,8 @@ def get_packing_progress_data():
         cells = {}
         for cell in CELL_ORDER:
             cells[cell] = {
-                "in":           b["cell_in"].get(cell, 0),
-                "out":          b["cell_out"].get(cell, 0),
+                "in":            b["cell_in"].get(cell, 0),
+                "out":           b["cell_out"].get(cell, 0),
                 "is_outsourced": cell in outsourced_cells,
             }
 
@@ -122,15 +122,21 @@ def get_packing_progress_data():
         if b["delivery_date"]:
             delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
 
+        # ── First scan date (earliest logged_time across all sizes) ───────
+        first_scan_date = ""
+        if b["min_logged_time"]:
+            first_scan_date = formatdate(b["min_logged_time"], "dd-mm-yyyy")
+
         result.append({
-            "style":         style,
-            "buyer":         buyer,
-            "colour":        colour,
-            "season":        season,
-            "delivery_date": delivery_date,
-            "order_qty":     order_qty,
-            "planned_qty":   planned_qty,
-            "cells":         cells,
+            "style":           style,
+            "buyer":           buyer,
+            "colour":          colour,
+            "season":          season,
+            "delivery_date":   delivery_date,
+            "order_qty":       order_qty,
+            "planned_qty":     planned_qty,
+            "cells":           cells,
+            "first_scan_date": first_scan_date,
         })
 
     return result

@@ -214,6 +214,24 @@ html, body {
 .op-pending.op-zero   { color: #4fbe79; }   /* zero pending = green */
 .op-pending.op-dash   { color: #4a5568; }   /* no data = dim grey  */
 
+/* Not-applicable dash */
+.op-na {
+    color: #4a5568;
+    font-size: 0.82rem;
+}
+
+/* Outsourced badge */
+.op-outsourced {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: #6e7681;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 1px 4px;
+    letter-spacing: 0.04em;
+}
+
 /* Total pending */
 .td-total {
     text-align: center;
@@ -243,7 +261,8 @@ html, body {
 .td-packed {
     text-align: center;
     border-left: 2px solid #00d4aa33;
-    padding: 6px 4px;
+    padding: 6px 4px 8px;   /* extra bottom padding for the date line */
+    vertical-align: middle;
 }
 .packed-wrap {
     position: relative;
@@ -284,6 +303,17 @@ html, body {
     margin-top: 2px;
     display: block;
     line-height: 1.2;
+}
+
+/* ── First scan date (below the packed circle) ───────────────────── */
+.packed-scan-date {
+    display: block;
+    font-size: 0.55rem;
+    color: #4a5568;
+    text-align: center;
+    margin-top: 5px;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
 }
 
 /* ── Loading / error ─────────────────────────────────────────────── */

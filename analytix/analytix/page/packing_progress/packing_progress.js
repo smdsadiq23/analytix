@@ -265,7 +265,11 @@ function _ppd_render(rows) {
 		html += '<div class="packed-label">';
 		html += '<span class="packed-pct ' + pkClass + '">' + packedPct + "%</span>";
 		html += '<span class="packed-counts">' + _ppd_n(packingOut) + "</span>";
-		html += '</div></div></td>';
+		html += '</div></div>';
+		// First scan date shown below the circle
+		var fsd = r.first_scan_date || "";
+		html += '<div class="packed-scan-date">' + _ppd_e(fsd) + "</div>";
+		html += '</td>';
 
 		html += "</tr>";
 	});
