@@ -209,12 +209,13 @@ function _ppd_render(rows) {
 		// ── Packed progress: PACKING OUT / order_qty × 100 ───────────────
 		var packingOut = parseInt(((cellData["PACKING"] || {})["out"]) || 0);
 		var packedPct  = orderQty ? Math.round((packingOut / orderQty) * 100) : 0;
-		packedPct = Math.min(packedPct, 100);
 		var pkClass = packedPct >= 100 ? "pk-done" : packedPct >= 50 ? "pk-mid" : "pk-low";
 
 		// SVG circle r=18, circumference = 2π×18 ≈ 113.1
-		var circ   = 113.1;
-		var offset = (circ - (packedPct / 100) * circ).toFixed(1);
+		// Ring is capped at full circle when pct > 100; label shows real value.
+		var circ    = 113.1;
+		var ringPct = Math.min(packedPct, 100);
+		var offset  = (circ - (ringPct / 100) * circ).toFixed(1);
 
 		html += '<tr class="ppd-row">';
 		html += '<td class="td-buyer">'    + _ppd_e(r.buyer) + "</td>";
