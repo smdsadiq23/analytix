@@ -168,10 +168,12 @@ function _ppd_render(rows) {
 		//             non-applicable.
 		//
 		//   number  — in-house applicable cell
-		//             → pending = max(0, planned_qty - out), counted in totalPending
+		//             → pending = prev_cell_out - this_cell_out
+		//                (first cell uses plannedQty as the starting stock)
+		//             → counted in totalPending
 		//
 		var totalPending = 0;
-		var opPendings = PPD_OPS.map(function (op) {
+		var opPendings = PPD_OPS.map(function (op, idx) {
 			var c   = cellData[op.key] || {};
 			var inn = parseInt(c["in"]  || 0);
 			var out = parseInt(c["out"] || 0);
@@ -184,7 +186,19 @@ function _ppd_render(rows) {
 				return null;
 			}
 
-			var pending = Math.max(0, plannedQty - out);
+			// pending = previous cell's OUT minus this cell's OUT
+			// For the first cell (KNITTING) there is no predecessor,
+			// so plannedQty is used as the upstream quantity.
+			var prevOut;
+			if (idx === 0) {
+				prevOut = plannedQty;
+			} else {
+				var prevKey  = PPD_OPS[idx - 1].key;
+				var prevCell = cellData[prevKey] || {};
+				prevOut = parseInt(prevCell["out"] || 0);
+			}
+
+			var pending = Math.max(0, prevOut - out);
 			totalPending += pending;
 			return pending;
 		});
