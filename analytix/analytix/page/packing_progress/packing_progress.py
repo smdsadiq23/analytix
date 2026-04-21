@@ -21,6 +21,10 @@ CELL_ORDER = [
     "PACKING",
 ]
 
+# Cells that have only an OUT operation — no IN scan exists.
+# These must never be treated as "not applicable" just because cell_in = 0.
+NO_IN_CELLS = {"KNITTING", "PRODUCTION", "FINAL CHECK"}
+
 
 @frappe.whitelist()
 def get_packing_progress_data():
@@ -36,8 +40,11 @@ def get_packing_progress_data():
 
     Each cell dict contains:
       in            — cumulative qty that completed the first operation of the cell
+                      (0 for NO_IN_CELLS — only OUT matters for those)
       out           — cumulative qty that completed the last operation of the cell
       is_outsourced — True if this cell is outsourced for this style
+      no_in         — True if this cell has no IN operation (KNITTING, PRODUCTION,
+                      FINAL CHECK) so the JS pending logic can handle it correctly
     """
     order_map            = _get_order_map()
     if not order_map:
@@ -116,6 +123,7 @@ def get_packing_progress_data():
                 "in":            b["cell_in"].get(cell, 0),
                 "out":           b["cell_out"].get(cell, 0),
                 "is_outsourced": cell in outsourced_cells,
+                "no_in":         cell in NO_IN_CELLS,
             }
 
         delivery_date = ""
@@ -172,7 +180,11 @@ def _get_order_map():
 
 
 def _get_min_logged_time_map():
-    """Earliest isl.logged_time per (style, colour, size) — used for row sorting."""
+    """
+    Earliest isl.logged_time per (style, colour, size) scoped to the
+    PACKING cell's first operation (i.e. the PACKING IN scan).
+    Used for both row sorting and the first_scan_date column.
+    """
     rows = frappe.db.sql("""
         SELECT
             itm.custom_style_master  AS style,
@@ -183,13 +195,23 @@ def _get_min_logged_time_map():
         INNER JOIN `tabProduction Item` pi  ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor  ON tor.name = pi.tracking_order
         INNER JOIN (
-            SELECT DISTINCT parent, sales_order, size
+            SELECT DISTINCT parent, sales_order, work_order, size
             FROM `tabTracking Order Bundle Configuration`
             WHERE parentfield = 'bundle_configurations'
         ) tbc                               ON tbc.parent = tor.name
                                            AND tbc.size   = pi.size
         INNER JOIN `tabItem` itm            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc    ON pc.name = isl.physical_cell
+                                           AND pc.cell_name = 'PACKING'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                            ON pcflo.parent        = tbc.work_order
+                                           AND pcflo.physical_cell  = pc.name
         WHERE isl.log_status = 'Completed'
+          AND isl.operation  = pcflo.first_operation
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
     """, as_dict=True)
     return {(r.style, r.colour, r.size): r.min_logged_time for r in rows}

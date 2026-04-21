@@ -156,16 +156,19 @@ function _ppd_render(rows) {
 
 		// ── Pending qty per cell ──────────────────────────────────────────
 		//
-		// Three states per cell:
-		//
-		//   null    — not applicable for this style (in=0 AND out=0 AND NOT outsourced)
-		//             → dim "—", NOT counted in totalPending
+		// Four states per cell:
 		//
 		//   "OS"    — outsourced cell (is_outsourced = true)
 		//             → muted "OS" badge, NOT counted in totalPending
-		//             Checked BEFORE the in=0/out=0 guard because an outsourced
-		//             cell may have no scans and would otherwise be misread as
-		//             non-applicable.
+		//             Checked FIRST before any other guard.
+		//
+		//   null    — not applicable for this style:
+		//             in=0 AND out=0 AND NOT outsourced AND NOT a no_in cell
+		//             → dim "—", NOT counted in totalPending
+		//             NOTE: no_in cells (KNITTING, PRODUCTION, FINAL CHECK)
+		//             have no IN scan by design — they must never be treated
+		//             as N/A based on inn===0. Only out===0 determines N/A
+		//             for these cells.
 		//
 		//   number  — in-house applicable cell
 		//             → pending = prev_cell_out - this_cell_out
@@ -174,21 +177,31 @@ function _ppd_render(rows) {
 		//
 		var totalPending = 0;
 		var opPendings = PPD_OPS.map(function (op, idx) {
-			var c   = cellData[op.key] || {};
-			var inn = parseInt(c["in"]  || 0);
-			var out = parseInt(c["out"] || 0);
+			var c      = cellData[op.key] || {};
+			var inn    = parseInt(c["in"]  || 0);
+			var out    = parseInt(c["out"] || 0);
+			var noIn   = !!c["no_in"];   // KNITTING, PRODUCTION, FINAL CHECK
 
+			// 1. Outsourced — always shown as OS regardless of scan counts
 			if (c["is_outsourced"]) {
 				return "OS";
 			}
 
-			if (inn === 0 && out === 0) {
-				return null;
+			// 2. Not applicable — only when BOTH in and out are zero.
+			//    For no_in cells inn is always 0 by design, so only out
+			//    is checked; this prevents PRODUCTION (out=0, in=0) from
+			//    being silently dropped and collapsing the pending chain
+			//    for all downstream cells.
+			if (noIn) {
+				if (out === 0) return null;
+			} else {
+				if (inn === 0 && out === 0) return null;
 			}
 
-			// pending = previous cell's OUT minus this cell's OUT
-			// For the first cell (KNITTING) there is no predecessor,
-			// so plannedQty is used as the upstream quantity.
+			// 3. In-house applicable cell — compute pending
+			//    pending = previous cell's OUT minus this cell's OUT.
+			//    For the first cell (KNITTING) there is no predecessor,
+			//    so plannedQty is used as the upstream quantity.
 			var prevOut;
 			if (idx === 0) {
 				prevOut = plannedQty;
