@@ -131,8 +131,6 @@ function _ppd_tick() {
 
 function _ppd_load() {
 	frappe.call({
-		// Dedicated endpoint — both filters (packing started, not fully packed)
-		// and outsourced flags are handled server-side in packing_progress.py.
 		method: "analytix.analytix.page.packing_progress.packing_progress.get_packing_progress_data",
 		freeze: false,
 		callback: function (r) {
@@ -143,6 +141,53 @@ function _ppd_load() {
 			$("#ppd-updated").text("Last updated: " + h + ":" + m + " " + ap);
 		},
 	});
+}
+
+/**
+ * _ppd_isNullCell
+ * Returns true if a cell should be treated as N/A for this style —
+ * i.e. it has no scans and is not outsourced.
+ *
+ * Purely data-driven — no cell names hardcoded:
+ *   - Outsourced cells are never null (they render as "OS").
+ *   - no_in cells (flagged server-side for cells with no IN operation
+ *     by design) are null only when out === 0.
+ *   - Normal cells are null when both in === 0 and out === 0.
+ */
+function _ppd_isNullCell(c) {
+	if (c["is_outsourced"]) return false;
+	var out = parseInt(c["out"] || 0);
+	var inn = parseInt(c["in"]  || 0);
+	if (c["no_in"]) return out === 0;
+	return inn === 0 && out === 0;
+}
+
+/**
+ * _ppd_getPrevOut
+ * Walks backwards from idx-1 to find the OUT qty of the nearest upstream
+ * cell that is both in-house (not outsourced) and applicable (not null/N/A).
+ *
+ * This is the key to correct pending calculation when OS or N/A cells sit
+ * between two in-house cells — e.g. EMBROIDERY=OS between SEWING and
+ * PRODUCTION means PRODUCTION's pending should reference SEWING's OUT,
+ * not EMBROIDERY's OUT (which is 0).
+ *
+ * Fully dynamic — driven by is_outsourced / no_in / in / out flags from
+ * the server. No cell names are referenced here.
+ */
+function _ppd_getPrevOut(cellData, idx, plannedQty) {
+	if (idx === 0) return plannedQty;
+	for (var i = idx - 1; i >= 0; i--) {
+		var prevCell = cellData[PPD_OPS[i].key] || {};
+		// Skip outsourced cells — not part of in-house flow
+		if (prevCell["is_outsourced"]) continue;
+		// Skip N/A cells — no meaningful OUT for this style
+		if (_ppd_isNullCell(prevCell)) continue;
+		// Nearest valid upstream in-house cell found
+		return parseInt(prevCell["out"] || 0);
+	}
+	// No valid predecessor — use plannedQty as origin
+	return plannedQty;
 }
 
 function _ppd_render(rows) {
@@ -162,55 +207,28 @@ function _ppd_render(rows) {
 		//             → muted "OS" badge, NOT counted in totalPending
 		//             Checked FIRST before any other guard.
 		//
-		//   null    — not applicable for this style:
-		//             in=0 AND out=0 AND NOT outsourced AND NOT a no_in cell
+		//   null    — not applicable for this style (see _ppd_isNullCell)
 		//             → dim "—", NOT counted in totalPending
-		//             NOTE: no_in cells (KNITTING, PRODUCTION, FINAL CHECK)
-		//             have no IN scan by design — they must never be treated
-		//             as N/A based on inn===0. Only out===0 determines N/A
-		//             for these cells.
 		//
 		//   number  — in-house applicable cell
-		//             → pending = prev_cell_out - this_cell_out
-		//                (first cell uses plannedQty as the starting stock)
+		//             → pending = nearest upstream in-house OUT - this OUT
+		//                (_ppd_getPrevOut walks back past OS/null cells)
 		//             → counted in totalPending
 		//
 		var totalPending = 0;
 		var opPendings = PPD_OPS.map(function (op, idx) {
-			var c      = cellData[op.key] || {};
-			var inn    = parseInt(c["in"]  || 0);
-			var out    = parseInt(c["out"] || 0);
-			var noIn   = !!c["no_in"];   // KNITTING, PRODUCTION, FINAL CHECK
+			var c = cellData[op.key] || {};
 
-			// 1. Outsourced — always shown as OS regardless of scan counts
-			if (c["is_outsourced"]) {
-				return "OS";
-			}
+			// 1. Outsourced — render as OS, excluded from pending chain
+			if (c["is_outsourced"]) return "OS";
 
-			// 2. Not applicable — only when BOTH in and out are zero.
-			//    For no_in cells inn is always 0 by design, so only out
-			//    is checked; this prevents PRODUCTION (out=0, in=0) from
-			//    being silently dropped and collapsing the pending chain
-			//    for all downstream cells.
-			if (noIn) {
-				if (out === 0) return null;
-			} else {
-				if (inn === 0 && out === 0) return null;
-			}
+			// 2. Not applicable — no data for this style
+			if (_ppd_isNullCell(c)) return null;
 
-			// 3. In-house applicable cell — compute pending
-			//    pending = previous cell's OUT minus this cell's OUT.
-			//    For the first cell (KNITTING) there is no predecessor,
-			//    so plannedQty is used as the upstream quantity.
-			var prevOut;
-			if (idx === 0) {
-				prevOut = plannedQty;
-			} else {
-				var prevKey  = PPD_OPS[idx - 1].key;
-				var prevCell = cellData[prevKey] || {};
-				prevOut = parseInt(prevCell["out"] || 0);
-			}
-
+			// 3. In-house applicable — compute pending dynamically.
+			//    Walk back to nearest non-OS, non-null predecessor for prevOut.
+			var prevOut = _ppd_getPrevOut(cellData, idx, plannedQty);
+			var out     = parseInt(c["out"] || 0);
 			var pending = Math.max(0, prevOut - out);
 			totalPending += pending;
 			return pending;
@@ -225,7 +243,6 @@ function _ppd_render(rows) {
 		var pkClass = packedPct >= 100 ? "pk-done" : packedPct >= 50 ? "pk-mid" : "pk-low";
 
 		// SVG circle r=18, circumference = 2π×18 ≈ 113.1
-		// Ring is capped at full circle when pct > 100; label shows real value.
 		var circ    = 113.1;
 		var ringPct = Math.min(packedPct, 100);
 		var offset  = (circ - (ringPct / 100) * circ).toFixed(1);
@@ -242,13 +259,10 @@ function _ppd_render(rows) {
 		// ── 11 pending columns ────────────────────────────────────────────
 		opPendings.forEach(function (pending) {
 			if (pending === null) {
-				// Not applicable for this style — dim dash
 				html += '<td class="td-op"><span class="op-na">&#8212;</span></td>';
 			} else if (pending === "OS") {
-				// Outsourced process — muted badge, excluded from total
 				html += '<td class="td-op"><span class="op-outsourced" title="Outsourced process">OS</span></td>';
 			} else if (pending === 0) {
-				// In-house, fully complete — green dash
 				html += '<td class="td-op"><span class="op-pending op-zero">&#8212;</span></td>';
 			} else {
 				html += '<td class="td-op"><span class="op-pending">' + _ppd_n(pending) + "</span></td>";
@@ -279,7 +293,6 @@ function _ppd_render(rows) {
 		html += '<span class="packed-pct ' + pkClass + '">' + packedPct + "%</span>";
 		html += '<span class="packed-counts">' + _ppd_n(packingOut) + "</span>";
 		html += '</div></div>';
-		// First scan date shown below the circle
 		var fsd = r.first_scan_date || "";
 		html += '<div class="packed-scan-date">' + _ppd_e(fsd) + "</div>";
 		html += '</td>';

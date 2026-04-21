@@ -21,8 +21,8 @@ CELL_ORDER = [
     "PACKING",
 ]
 
-# Cells that have only an OUT operation — no IN scan exists.
-# These must never be treated as "not applicable" just because cell_in = 0.
+# Cells that have only an OUT operation — no IN scan exists by design.
+# These must never be treated as N/A just because cell_in = 0.
 NO_IN_CELLS = {"KNITTING", "PRODUCTION", "FINAL CHECK"}
 
 
@@ -40,11 +40,12 @@ def get_packing_progress_data():
 
     Each cell dict contains:
       in            — cumulative qty that completed the first operation of the cell
-                      (0 for NO_IN_CELLS — only OUT matters for those)
+                      (always 0 for no_in cells — only OUT matters for those)
       out           — cumulative qty that completed the last operation of the cell
       is_outsourced — True if this cell is outsourced for this style
-      no_in         — True if this cell has no IN operation (KNITTING, PRODUCTION,
-                      FINAL CHECK) so the JS pending logic can handle it correctly
+      no_in         — True if this cell has no IN operation by design
+                      (KNITTING, PRODUCTION, FINAL CHECK) so the JS pending
+                      logic never treats them as N/A based on inn===0 alone
     """
     order_map            = _get_order_map()
     if not order_map:
@@ -79,7 +80,6 @@ def get_packing_progress_data():
         if lt and (agg[key]["min_logged_time"] is None or lt < agg[key]["min_logged_time"]):
             agg[key]["min_logged_time"] = lt
 
-        # Union outsourced cells across sizes — outsourced is style-level per cell
         agg[key]["outsourced_cells"] |= outsourced_cells_map.get((style, colour, size), set())
 
         for cell in CELL_ORDER:
@@ -89,7 +89,6 @@ def get_packing_progress_data():
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
 
-    # Sort by earliest logged_time ascending
     sorted_keys = sorted(
         agg.keys(),
         key=lambda k: (
@@ -130,7 +129,6 @@ def get_packing_progress_data():
         if b["delivery_date"]:
             delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
 
-        # ── First scan date (earliest logged_time across all sizes) ───────
         first_scan_date = ""
         if b["min_logged_time"]:
             first_scan_date = formatdate(b["min_logged_time"], "dd-mm-yyyy")
@@ -180,11 +178,6 @@ def _get_order_map():
 
 
 def _get_min_logged_time_map():
-    """
-    Earliest isl.logged_time per (style, colour, size) scoped to the
-    PACKING cell's first operation (i.e. the PACKING IN scan).
-    Used for both row sorting and the first_scan_date column.
-    """
     rows = frappe.db.sql("""
         SELECT
             itm.custom_style_master  AS style,
@@ -218,17 +211,6 @@ def _get_min_logged_time_map():
 
 
 def _get_cell_op_map(op_type="last"):
-    """
-    Returns cumulative qty per (style, colour, size, cell_name) for either
-    the first (IN) or last (OUT) operation of each physical cell.
-
-    op_type = "first"  →  cell IN  (first_operation)
-    op_type = "last"   →  cell OUT (last_operation)
-
-    MENDING uses hardcoded operation names:
-        first → 'MENDING IN'
-        last  → 'MENDING OUT'
-    """
     op_field   = "first_operation" if op_type == "first" else "last_operation"
     mending_op = "MENDING IN"      if op_type == "first" else "MENDING OUT"
     cell_list  = ", ".join([f"'{c}'" for c in CELL_ORDER])
@@ -274,18 +256,6 @@ def _get_cell_op_map(op_type="last"):
 
 
 def _get_outsourced_cells_map():
-    """
-    Returns {(style, colour, size) → set(cell_names)} for cells where
-    any operation is marked production_type = 'Outsourced' in the
-    Cut Kit Operations child table (parentfield = 'custom_operations_list').
-
-    Path: cko.operation → pcflo.first_operation OR pcflo.last_operation
-          → pcflo.physical_cell → pc.cell_name
-
-    Since the operation sequence is defined at the style level, all work orders
-    for the same style share the same outsourced/in-house designation per cell.
-    A DISTINCT query is therefore sufficient.
-    """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
     rows = frappe.db.sql(f"""
         SELECT DISTINCT
