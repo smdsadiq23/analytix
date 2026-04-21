@@ -133,7 +133,7 @@ def get_data(filters):
             SELECT
                 sales_order,
                 colour,
-                SUM(fabric_ordered)                                                            AS fabric_ordered,
+                MAX(fabric_ordered)                                                            AS fabric_ordered,
                 SUM(fabric_issued)                                                             AS fabric_issued,
                 SUM(folding)                                                                   AS folding,
                 AVG(file_consumption)                                                          AS file_consumption,
