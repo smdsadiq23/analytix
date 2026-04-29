@@ -127,9 +127,10 @@ function _closeOdModal() {
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-var _timer     = null;
-var _chartInst = null;
-var _lastData  = null;   // raw API response — kept for drilldown popups
+var _timer       = null;
+var _chartInst   = null;
+var _lastData    = null;   // raw API response — kept for drilldown popups
+var _sectionKeys = [];     // maps bar index → { key, label } for click drilldown
 
 // ── Timer helpers ─────────────────────────────────────────────────────────────
 // Always clear before setting so re-navigation never stacks two intervals.
@@ -346,8 +347,6 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 		},
 		clip: false,
 	};
-
-	var _sectionKeys = [];   // parallel to chart labels — maps bar index → { key, label }
 
 	if (_chartInst) {
 		_chartInst.data.labels   = labels;
