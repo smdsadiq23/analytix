@@ -64,6 +64,10 @@ frappe.pages["owner-dashboard"].on_page_load = function (wrapper) {
 						<span class="od-legend-item"><span class="od-legend-dot" style="background:#22c55e"></span>Output</span>
 						<span class="od-legend-item"><span class="od-legend-dot" style="background:#ef4444"></span>Ready for Input</span>
 						<span class="od-legend-item"><span class="od-legend-dot" style="background:#8b5cf6"></span>WIP</span>
+						<span class="od-legend-hint">
+							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+							Click Input or Output bar for style breakdown
+						</span>
 					</div>
 				</div>
 				<div class="od-canvas-wrap" id="od-canvas-wrap">
@@ -114,11 +118,18 @@ frappe.pages["owner-dashboard"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ padding: "", margin: "" });
 	$(".layout-main-section").css({ padding: "", margin: "", "max-width": "" });
 	_stopTimer();
+	_closeOdModal();
 };
+
+function _closeOdModal() {
+	$("#od-modal-overlay").remove();
+	$(document).off("keydown.oddetail");
+}
 
 // ── State ─────────────────────────────────────────────────────────────────────
 var _timer     = null;
 var _chartInst = null;
+var _lastData  = null;   // raw API response — kept for drilldown popups
 
 // ── Timer helpers ─────────────────────────────────────────────────────────────
 // Always clear before setting so re-navigation never stacks two intervals.
@@ -184,6 +195,9 @@ function _ensureChartJS(cb) {
 function _load() {
 	var selectedDate = $("#od-date-input").val() || frappe.datetime.get_today();
 
+	// Close any open modal on reload
+	_closeOdModal();
+
 	$("#od-refresh-btn").addClass("loading");
 
 	// Only show the loading spinner on the very first load (no chart yet).
@@ -221,6 +235,8 @@ function _render(data, selectedDate) {
 		}
 		return;
 	}
+
+	_lastData = data;   // store for drilldown popups
 
 	var d = new Date(selectedDate + "T00:00:00");
 	var dayStr = d.getDate() + _ordinal(d.getDate()) + " " + _monthName(d.getMonth()) + " Production";
@@ -331,6 +347,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 		clip: false,
 	};
 
+	var _sectionKeys = [];   // parallel to chart labels — maps bar index → { key, label }
+
 	if (_chartInst) {
 		_chartInst.data.labels   = labels;
 		_chartInst.data.datasets = datasets;
@@ -346,6 +364,18 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 			maintainAspectRatio: false,
 			animation: { duration: 600 },
 			layout: { padding: { top: 24, right: 16, bottom: 0, left: 8 } },
+			onClick: function (evt, elements) {
+				if (!elements || !elements.length) return;
+				var el         = elements[0];
+				var barIdx     = el.index;
+				var datasetIdx = el.datasetIndex;
+				// Dataset 0 = Input, 1 = Output
+				var metricType = datasetIdx === 0 ? "input" : datasetIdx === 1 ? "output" : null;
+				if (!metricType) return;
+				var info = _sectionKeys[barIdx];
+				if (!info || !info.key) return;
+				_showOdDrilldown(info.label, info.key, metricType);
+			},
 			plugins: {
 				legend: { display: false },
 				tooltip: {
@@ -398,6 +428,16 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 			},
 		},
 	});
+
+	// Build _sectionKeys after creating chart — mirrors label array order
+	// KNITTING Shift 1, KNITTING Shift 2, then each other section
+	_sectionKeys = [];
+	_sectionKeys.push({ key: null, label: "KNITTING" });  // Shift 1 — no input drilldown
+	_sectionKeys.push({ key: null, label: "KNITTING" });  // Shift 2 — no input drilldown
+	OD_SECTIONS.forEach(function (section) {
+		if (section === "KNITTING") return;
+		_sectionKeys.push({ key: OD_SECTION_KEY_MAP[section], label: section });
+	});
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -408,4 +448,116 @@ function _ordinal(n) {
 function _monthName(m) {
 	return ["January","February","March","April","May","June",
 		"July","August","September","October","November","December"][m];
+}
+function _odE(s) {
+	return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function _odN(v) {
+	if (v === null || v === undefined || v === "") return "0";
+	return Number(v).toLocaleString("en-IN");
+}
+
+// ── Drilldown popup ───────────────────────────────────────────────────────────
+function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
+	if (!_lastData || !sectionKey) return;
+
+	// Toggle: clicking same metric on same section closes the popup
+	var $existing = $("#od-modal-overlay");
+	if ($existing.length &&
+		$existing.data("active-key") === sectionKey &&
+		$existing.data("active-metric") === metricType) {
+		_closeOdModal();
+		return;
+	}
+	$existing.remove();
+
+	var cellData  = _lastData[sectionKey] || {};
+	var drilldown = cellData.drilldown    || [];
+	var isInput   = metricType === "input";
+
+	// Filter: only rows with qty > 0 for the clicked metric
+	var rows = drilldown.filter(function(r) {
+		return isInput ? r.input_qty > 0 : r.output_qty > 0;
+	});
+
+	rows.sort(function(a, b) {
+		return isInput
+			? (b.input_qty  - a.input_qty)
+			: (b.output_qty - a.output_qty);
+	});
+
+	var totalQty = rows.reduce(function(s, r) {
+		return s + (isInput ? r.input_qty : r.output_qty);
+	}, 0);
+
+	var metricLabel = isInput ? "Input" : "Output";
+	var badgeColor  = isInput ? "od-popup-th-cyan" : "od-popup-th-green";
+	var valColor    = isInput ? "od-popup-val-cyan" : "od-popup-val-green";
+	var summaryMod  = isInput ? "od-popup-summary-cyan" : "od-popup-summary-green";
+
+	var tableHtml;
+	if (!rows.length) {
+		tableHtml = '<p class="od-detail-empty">No ' + metricLabel.toLowerCase() + ' data for this section today.</p>';
+	} else {
+		var tbody = rows.map(function(r) {
+			var qty = isInput ? r.input_qty : r.output_qty;
+			return '<tr>' +
+				'<td class="od-popup-td od-popup-style">'  + _odE(r.style)  + '</td>' +
+				'<td class="od-popup-td od-popup-colour">' + _odE(r.colour) + '</td>' +
+				'<td class="od-popup-td od-popup-buyer">'  + _odE(r.buyer)  + '</td>' +
+				'<td class="od-popup-td od-popup-num ' + valColor + '">' + _odN(qty) + '</td>' +
+			'</tr>';
+		}).join("");
+
+		tableHtml = '<div class="od-popup-table-wrap">' +
+			'<table class="od-popup-table">' +
+				'<thead><tr>' +
+					'<th class="od-popup-th">Style</th>' +
+					'<th class="od-popup-th">Colour</th>' +
+					'<th class="od-popup-th">Buyer</th>' +
+					'<th class="od-popup-th od-popup-num">' +
+						'<span class="od-popup-th-badge ' + badgeColor + '">' + metricLabel + ' Qty</span>' +
+					'</th>' +
+				'</tr></thead>' +
+				'<tbody>' + tbody + '</tbody>' +
+			'</table>' +
+		'</div>';
+	}
+
+	var summaryHtml = '<div class="od-popup-summary">' +
+		'<div class="od-popup-summary-item ' + summaryMod + '">' +
+			'<div class="od-popup-summary-val">' + _odN(totalQty) + '</div>' +
+			'<div class="od-popup-summary-lbl">Total ' + metricLabel + '</div>' +
+		'</div>' +
+	'</div>';
+
+	var $overlay = $('<div id="od-modal-overlay" class="od-modal-overlay">' +
+		'<div class="od-modal-box">' +
+			'<div class="od-detail-header">' +
+				'<div class="od-detail-title-wrap">' +
+					'<span class="od-popup-section-badge">' + _odE(sectionLabel) + '</span>' +
+					'<span class="od-popup-title">' + metricLabel + ' — Style-wise Breakdown</span>' +
+				'</div>' +
+				summaryHtml +
+				'<button class="od-popup-close" id="od-detail-close" title="Close">' +
+					'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">' +
+						'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
+					'</svg>' +
+				'</button>' +
+			'</div>' +
+			'<div class="od-detail-body">' + tableHtml + '</div>' +
+		'</div>' +
+	'</div>');
+
+	$overlay.data("active-key",    sectionKey);
+	$overlay.data("active-metric", metricType);
+	$("body").append($overlay);
+
+	$overlay.on("click", function(e) {
+		if ($(e.target).is("#od-modal-overlay")) { _closeOdModal(); }
+	});
+	$("#od-detail-close").on("click", function() { _closeOdModal(); });
+	$(document).off("keydown.oddetail").on("keydown.oddetail", function(e) {
+		if (e.key === "Escape") { _closeOdModal(); }
+	});
 }

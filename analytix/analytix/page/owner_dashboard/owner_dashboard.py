@@ -109,6 +109,10 @@ def get_owner_dashboard_data(date=None):
     daily_in_map  = _sku_cell_map(op_type="first", date_cond="DATE(isl.logged_time) = %(date)s", params=params)
     daily_out_map = _sku_cell_map(op_type="last",  date_cond="DATE(isl.logged_time) = %(date)s", params=params)
 
+    # ── Per-style drilldown maps (style+colour+buyer grouped, daily) ──────
+    drilldown_in_map  = _sku_cell_map_with_buyer(op_type="first", date_cond="DATE(isl.logged_time) = %(date)s", params=params)
+    drilldown_out_map = _sku_cell_map_with_buyer(op_type="last",  date_cond="DATE(isl.logged_time) = %(date)s", params=params)
+
     # ── Cumulative IN / OUT per SKU per cell (all time) ───────────────────
     cum_in_map  = _sku_cell_map(op_type="first", date_cond="1=1", params={})
     cum_out_map = _sku_cell_map(op_type="last",  date_cond="1=1", params={})
@@ -195,6 +199,23 @@ def get_owner_dashboard_data(date=None):
     # ── Build result dict ─────────────────────────────────────────────────
     result = {}
 
+    # Build per-cell drilldown lists from drilldown maps
+    # Collect all (style, colour) keys seen across both maps
+    all_style_colour_cells = set(drilldown_in_map.keys()) | set(drilldown_out_map.keys())
+    drilldown_by_cell = defaultdict(dict)  # cell → { (style,colour): {style, colour, buyer, input_qty, output_qty} }
+
+    for (style, colour, cell) in all_style_colour_cells:
+        in_data  = drilldown_in_map.get((style, colour, cell),  {"qty": 0, "buyer": ""})
+        out_data = drilldown_out_map.get((style, colour, cell), {"qty": 0, "buyer": ""})
+        buyer = in_data["buyer"] or out_data["buyer"] or ""
+        drilldown_by_cell[cell][(style, colour)] = {
+            "style":      style,
+            "colour":     colour,
+            "buyer":      buyer,
+            "input_qty":  in_data["qty"],
+            "output_qty": out_data["qty"],
+        }
+
     for i, cell in enumerate(CELL_ORDER):
         if i == 0:
             result[cell] = {
@@ -205,8 +226,13 @@ def get_owner_dashboard_data(date=None):
                 "pending_in": None,
                 "wip":        None,
                 "applicable": True,
+                "drilldown":  [],
             }
             continue
+
+        # Build sorted drilldown list for this cell
+        cell_rows = list(drilldown_by_cell.get(cell, {}).values())
+        cell_rows.sort(key=lambda r: -(r["input_qty"] + r["output_qty"]))
 
         result[cell] = {
             "input":      total_daily_in.get(cell, 0),
@@ -214,6 +240,7 @@ def get_owner_dashboard_data(date=None):
             "pending_in": total_pending.get(cell, 0),
             "wip":        total_wip.get(cell, 0),
             "applicable": True,  # always True for display; zero means none
+            "drilldown":  cell_rows,
         }
 
     return result
@@ -243,6 +270,38 @@ def _sku_cell_map(op_type, date_cond, params):
     """, params, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): int(r.qty) for r in rows}
+
+
+def _sku_cell_map_with_buyer(op_type, date_cond, params):
+    """
+    Returns {(style, colour, cell_name): {qty, buyer}}
+    Used to build per-style drilldown breakdown for the popup.
+    Groups by style+colour (not size) and sums qty; buyer comes from SO.
+    """
+    op_field   = "first_operation" if op_type == "first" else "last_operation"
+    mending_op = "MENDING IN"      if op_type == "first" else "MENDING OUT"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            so.custom_brand          AS buyer,
+            pc.cell_name             AS cell_name,
+            COALESCE(SUM(pi.quantity), 0) AS qty
+        {_SCAN_JOINS}
+          AND isl.operation = {_op_case(mending_op, op_field)}
+          AND {date_cond}
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, so.custom_brand, pc.cell_name
+    """, params, as_dict=True)
+
+    result = {}
+    for r in rows:
+        key = (r.style or "", r.colour or "", r.cell_name or "")
+        result[key] = {
+            "qty":   int(r.qty),
+            "buyer": r.buyer or "",
+        }
+    return result
 
 
 def _knitting_shift(date, shift):
