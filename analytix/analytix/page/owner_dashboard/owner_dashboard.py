@@ -199,21 +199,62 @@ def get_owner_dashboard_data(date=None):
     # ── Build result dict ─────────────────────────────────────────────────
     result = {}
 
+    # ── Per-style pending_in and wip (computed alongside totals above) ────
+    # We need a second pass through all_skus to capture per-(style,colour,cell)
+    # pending/wip so the drilldown popup can show them.
+    style_colour_pending = defaultdict(lambda: defaultdict(int))  # (style,colour) → cell → qty
+    style_colour_wip     = defaultdict(lambda: defaultdict(int))
+
+    for sku in all_skus:
+        style, colour, size = sku
+        applicable = applicable_map.get(sku, set()) | {"KNITTING"}
+        sku_cum_out = {}
+        if "KNITTING" in applicable:
+            sku_cum_out["KNITTING"] = knitting_shift_cum.get(sku, 0)
+        for cell in CELL_ORDER[1:]:
+            sku_cum_out[cell] = cum_out_map.get((style, colour, size, cell), 0)
+        for i, cell in enumerate(CELL_ORDER):
+            if i == 0 or cell not in applicable:
+                continue
+            prev_cum_out = 0
+            for j in range(i - 1, -1, -1):
+                pred = CELL_ORDER[j]
+                if pred in applicable:
+                    prev_cum_out = sku_cum_out.get(pred, 0)
+                    break
+            cur_cum_in  = cum_in_map.get((style, colour, size, cell), 0)
+            cur_cum_out = sku_cum_out.get(cell, 0)
+            style_colour_pending[(style, colour)][cell] += max(0, prev_cum_out - cur_cum_in)
+            style_colour_wip[(style, colour)][cell]     += max(0, cur_cum_in  - cur_cum_out)
+
     # Build per-cell drilldown lists from drilldown maps
     # Collect all (style, colour) keys seen across both maps
     all_style_colour_cells = set(drilldown_in_map.keys()) | set(drilldown_out_map.keys())
-    drilldown_by_cell = defaultdict(dict)  # cell → { (style,colour): {style, colour, buyer, input_qty, output_qty} }
+
+    # Also include styles that have pending/wip even if no daily scan today
+    for (style, colour), cell_dict in style_colour_pending.items():
+        for cell in cell_dict:
+            all_style_colour_cells.add((style, colour, cell))
+    for (style, colour), cell_dict in style_colour_wip.items():
+        for cell in cell_dict:
+            all_style_colour_cells.add((style, colour, cell))
+
+    drilldown_by_cell = defaultdict(dict)  # cell → { (style,colour): row }
 
     for (style, colour, cell) in all_style_colour_cells:
         in_data  = drilldown_in_map.get((style, colour, cell),  {"qty": 0, "buyer": ""})
         out_data = drilldown_out_map.get((style, colour, cell), {"qty": 0, "buyer": ""})
         buyer = in_data["buyer"] or out_data["buyer"] or ""
+        pending_qty = style_colour_pending.get((style, colour), {}).get(cell, 0)
+        wip_qty     = style_colour_wip.get((style, colour), {}).get(cell, 0)
         drilldown_by_cell[cell][(style, colour)] = {
-            "style":      style,
-            "colour":     colour,
-            "buyer":      buyer,
-            "input_qty":  in_data["qty"],
-            "output_qty": out_data["qty"],
+            "style":       style,
+            "colour":      colour,
+            "buyer":       buyer,
+            "input_qty":   in_data["qty"],
+            "output_qty":  out_data["qty"],
+            "pending_qty": pending_qty,
+            "wip_qty":     wip_qty,
         }
 
     for i, cell in enumerate(CELL_ORDER):
@@ -232,14 +273,14 @@ def get_owner_dashboard_data(date=None):
 
         # Build sorted drilldown list for this cell
         cell_rows = list(drilldown_by_cell.get(cell, {}).values())
-        cell_rows.sort(key=lambda r: -(r["input_qty"] + r["output_qty"]))
+        cell_rows.sort(key=lambda r: -(r["input_qty"] + r["output_qty"] + r["pending_qty"] + r["wip_qty"]))
 
         result[cell] = {
             "input":      total_daily_in.get(cell, 0),
             "output":     total_daily_out.get(cell, 0),
             "pending_in": total_pending.get(cell, 0),
             "wip":        total_wip.get(cell, 0),
-            "applicable": True,  # always True for display; zero means none
+            "applicable": True,
             "drilldown":  cell_rows,
         }
 

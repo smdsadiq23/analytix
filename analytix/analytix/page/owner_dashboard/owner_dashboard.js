@@ -368,8 +368,9 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 				var el         = elements[0];
 				var barIdx     = el.index;
 				var datasetIdx = el.datasetIndex;
-				// Dataset 0 = Input, 1 = Output
-				var metricType = datasetIdx === 0 ? "input" : datasetIdx === 1 ? "output" : null;
+				// Dataset 0=Input, 1=Output, 2=Ready for Input, 3=WIP
+				var metricMap  = { 0: "input", 1: "output", 2: "pending_in", 3: "wip" };
+				var metricType = metricMap[datasetIdx];
 				if (!metricType) return;
 				var info = _sectionKeys[barIdx];
 				if (!info || !info.key) return;
@@ -460,7 +461,7 @@ function _odN(v) {
 function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
 	if (!_lastData || !sectionKey) return;
 
-	// Toggle: clicking same metric on same section closes the popup
+	// Toggle: clicking same metric+section closes the popup
 	var $existing = $("#od-modal-overlay");
 	if ($existing.length &&
 		$existing.data("active-key") === sectionKey &&
@@ -472,70 +473,69 @@ function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
 
 	var cellData  = _lastData[sectionKey] || {};
 	var drilldown = cellData.drilldown    || [];
-	var isInput   = metricType === "input";
 
-	// Filter: only rows with qty > 0 for the clicked metric
-	var rows = drilldown.filter(function(r) {
-		return isInput ? r.input_qty > 0 : r.output_qty > 0;
-	});
+	// ── Per-metric config ─────────────────────────────────────────────────
+	var METRIC = {
+		"input":      { label: "Input",          qtyField: "input_qty",   thBadge: "od-popup-th-cyan",   valCls: "od-popup-val-cyan",   sumCls: "od-popup-summary-cyan",   sumTotal: cellData.input      || 0 },
+		"output":     { label: "Output",          qtyField: "output_qty",  thBadge: "od-popup-th-green",  valCls: "od-popup-val-green",  sumCls: "od-popup-summary-green",  sumTotal: cellData.output     || 0 },
+		"pending_in": { label: "Ready for Input", qtyField: "pending_qty", thBadge: "od-popup-th-red",    valCls: "od-popup-val-red",    sumCls: "od-popup-summary-red",    sumTotal: cellData.pending_in || 0 },
+		"wip":        { label: "WIP",             qtyField: "wip_qty",     thBadge: "od-popup-th-purple", valCls: "od-popup-val-purple", sumCls: "od-popup-summary-purple", sumTotal: cellData.wip        || 0 },
+	};
 
-	rows.sort(function(a, b) {
-		return isInput
-			? (b.input_qty  - a.input_qty)
-			: (b.output_qty - a.output_qty);
-	});
+	var cfg = METRIC[metricType];
+	if (!cfg) return;
 
-	var totalQty = rows.reduce(function(s, r) {
-		return s + (isInput ? r.input_qty : r.output_qty);
-	}, 0);
-
-	var metricLabel = isInput ? "Input" : "Output";
-	var badgeColor  = isInput ? "od-popup-th-cyan" : "od-popup-th-green";
-	var valColor    = isInput ? "od-popup-val-cyan" : "od-popup-val-green";
-	var summaryMod  = isInput ? "od-popup-summary-cyan" : "od-popup-summary-green";
+	// For pending_in / wip the drilldown data comes from the Python
+	// per-style breakdown — for now show input breakdown as the closest proxy
+	// (same style list that contributed to those totals).
+	var rows = drilldown.filter(function(r) { return r[cfg.qtyField] > 0; });
+	rows.sort(function(a, b) { return b[cfg.qtyField] - a[cfg.qtyField]; });
 
 	var tableHtml;
 	if (!rows.length) {
-		tableHtml = '<p class="od-detail-empty">No ' + metricLabel.toLowerCase() + ' data for this section today.</p>';
+		tableHtml = '<p class="od-detail-empty">No data for this section today.</p>';
 	} else {
 		var tbody = rows.map(function(r) {
-			var qty = isInput ? r.input_qty : r.output_qty;
+			var qty = r[cfg.qtyField];
+			var valCls = qty > 0 ? cfg.valCls : "od-popup-val-zero";
 			return '<tr>' +
 				'<td class="od-popup-td od-popup-style">'  + _odE(r.style)  + '</td>' +
 				'<td class="od-popup-td od-popup-colour">' + _odE(r.colour) + '</td>' +
 				'<td class="od-popup-td od-popup-buyer">'  + _odE(r.buyer)  + '</td>' +
-				'<td class="od-popup-td od-popup-num ' + valColor + '">' + _odN(qty) + '</td>' +
+				'<td class="od-popup-td od-popup-num ' + valCls + '">' + _odN(qty) + '</td>' +
 			'</tr>';
 		}).join("");
 
-		tableHtml = '<div class="od-popup-table-wrap">' +
-			'<table class="od-popup-table">' +
-				'<thead><tr>' +
-					'<th class="od-popup-th">Style</th>' +
-					'<th class="od-popup-th">Colour</th>' +
-					'<th class="od-popup-th">Buyer</th>' +
-					'<th class="od-popup-th od-popup-num">' +
-						'<span class="od-popup-th-badge ' + badgeColor + '">' + metricLabel + ' Qty</span>' +
-					'</th>' +
-				'</tr></thead>' +
-				'<tbody>' + tbody + '</tbody>' +
-			'</table>' +
-		'</div>';
+		tableHtml =
+			'<div class="od-popup-table-wrap">' +
+				'<table class="od-popup-table">' +
+					'<thead><tr>' +
+						'<th class="od-popup-th">Style</th>' +
+						'<th class="od-popup-th">Colour</th>' +
+						'<th class="od-popup-th">Buyer</th>' +
+						'<th class="od-popup-th od-popup-num">' +
+							'<span class="od-popup-th-badge ' + cfg.thBadge + '">' + cfg.label + ' Qty</span>' +
+						'</th>' +
+					'</tr></thead>' +
+					'<tbody>' + tbody + '</tbody>' +
+				'</table>' +
+			'</div>';
 	}
 
-	var summaryHtml = '<div class="od-popup-summary">' +
-		'<div class="od-popup-summary-item ' + summaryMod + '">' +
-			'<div class="od-popup-summary-val">' + _odN(totalQty) + '</div>' +
-			'<div class="od-popup-summary-lbl">Total ' + metricLabel + '</div>' +
-		'</div>' +
-	'</div>';
+	var summaryHtml =
+		'<div class="od-popup-summary">' +
+			'<div class="od-popup-summary-item ' + cfg.sumCls + '">' +
+				'<div class="od-popup-summary-val">' + _odN(cfg.sumTotal) + '</div>' +
+				'<div class="od-popup-summary-lbl">Total ' + cfg.label + '</div>' +
+			'</div>' +
+		'</div>';
 
 	var $overlay = $('<div id="od-modal-overlay" class="od-modal-overlay">' +
 		'<div class="od-modal-box">' +
 			'<div class="od-detail-header">' +
 				'<div class="od-detail-title-wrap">' +
 					'<span class="od-popup-section-badge">' + _odE(sectionLabel) + '</span>' +
-					'<span class="od-popup-title">' + metricLabel + ' — Style-wise Breakdown</span>' +
+					'<span class="od-popup-title">' + cfg.label + ' — Style-wise Breakdown</span>' +
 				'</div>' +
 				summaryHtml +
 				'<button class="od-popup-close" id="od-detail-close" title="Close">' +
