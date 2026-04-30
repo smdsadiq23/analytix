@@ -259,6 +259,7 @@ def get_owner_dashboard_data(date=None):
 
     for i, cell in enumerate(CELL_ORDER):
         if i == 0:
+            knitting_drilldown = _knitting_drilldown(date)   # ← new helper call
             result[cell] = {
                 "input":      None,
                 "output":     knitting_shift1 + knitting_shift2,
@@ -267,7 +268,7 @@ def get_owner_dashboard_data(date=None):
                 "pending_in": None,
                 "wip":        None,
                 "applicable": True,
-                "drilldown":  [],
+                "drilldown":  knitting_drilldown,
             }
             continue
 
@@ -288,6 +289,59 @@ def get_owner_dashboard_data(date=None):
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
+def _knitting_drilldown(date):
+    """
+    Returns per-(style, colour, buyer) KNITTING output for the given date,
+    sorted descending by output_qty. Used by the drilldown popup.
+    """
+    date_cond = "AND DATE(isl.logged_time) = %(date)s" if date else ""
+    p = {"date": date} if date else {}
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            so.custom_brand          AS buyer,
+            COALESCE(SUM(pi.quantity), 0) AS output_qty
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi      ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor      ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc        ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc   ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+            ON pcflo.parent = tbc.work_order AND pcflo.physical_cell = pc.name
+        INNER JOIN `tabSales Order` so          ON so.name = tbc.sales_order
+        WHERE pc.cell_name = 'KNITTING'
+          AND isl.log_status = 'Completed'
+          AND isl.operation = pcflo.last_operation
+          {date_cond}
+          AND (
+              isl.status IN ('Counted', 'Activated', 'Pass')
+              OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')
+          )
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, so.custom_brand
+        ORDER BY output_qty DESC
+    """, p, as_dict=True)
+
+    return [
+        {
+            "style":       r.style  or "",
+            "colour":      r.colour or "",
+            "buyer":       r.buyer  or "",
+            "input_qty":   0,
+            "output_qty":  int(r.output_qty),
+            "pending_qty": 0,
+            "wip_qty":     0,
+        }
+        for r in rows
+    ]
 
 def _sku_cell_map(op_type, date_cond, params):
     """

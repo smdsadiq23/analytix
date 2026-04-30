@@ -432,8 +432,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 	// Build _sectionKeys after creating chart — mirrors label array order
 	// KNITTING Shift 1, KNITTING Shift 2, then each other section
 	_sectionKeys = [];
-	_sectionKeys.push({ key: null, label: "KNITTING" });  // Shift 1 — no input drilldown
-	_sectionKeys.push({ key: null, label: "KNITTING" });  // Shift 2 — no input drilldown
+	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (1st Shift)" });
+	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (2nd Shift)" });
 	OD_SECTIONS.forEach(function (section) {
 		if (section === "KNITTING") return;
 		_sectionKeys.push({ key: OD_SECTION_KEY_MAP[section], label: section });
