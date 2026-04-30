@@ -125,7 +125,8 @@ def get_owner_dashboard_data(date=None):
     knitting_shift_cum  = _knitting_shift_sku_map(None)  # cumulative per SKU
 
     # ── Applicable cells per SKU (from pcflo) ────────────────────────────
-    applicable_map = _get_applicable_cells_map()  # (style,colour,size) → set of cell names
+    applicable_map  = _get_applicable_cells_map()  # (style,colour,size) → set of cell names
+    style_buyer_map = _get_style_buyer_map()        # (style,colour) → buyer (cumulative fallback)
 
     # ── Collect all SKUs ──────────────────────────────────────────────────
     all_skus = set()
@@ -244,7 +245,7 @@ def get_owner_dashboard_data(date=None):
     for (style, colour, cell) in all_style_colour_cells:
         in_data  = drilldown_in_map.get((style, colour, cell),  {"qty": 0, "buyer": ""})
         out_data = drilldown_out_map.get((style, colour, cell), {"qty": 0, "buyer": ""})
-        buyer = in_data["buyer"] or out_data["buyer"] or ""
+        buyer = in_data["buyer"] or out_data["buyer"] or style_buyer_map.get((style, colour), "")
         pending_qty = style_colour_pending.get((style, colour), {}).get(cell, 0)
         wip_qty     = style_colour_wip.get((style, colour), {}).get(cell, 0)
         drilldown_by_cell[cell][(style, colour)] = {
@@ -521,4 +522,32 @@ def _get_applicable_cells_map():
     result = defaultdict(set)
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
+def _get_style_buyer_map():
+    """
+    Returns {(style, colour): buyer} from all Sales Orders — used as a
+    fallback so styles that have pending_in / wip but no scan today still
+    show a buyer in the drilldown popup.
+    """
+    rows = frappe.db.sql("""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            so.custom_brand          AS buyer
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor  ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm            ON itm.name = tor.item
+        INNER JOIN `tabSales Order` so      ON so.name = tbc.sales_order
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND so.custom_brand IS NOT NULL
+          AND so.custom_brand != ''
+    """, as_dict=True)
+
+    result = {}
+    for r in rows:
+        key = (r.style or "", r.colour or "")
+        if key not in result:   # first-seen wins; all SOs for a style share the same brand
+            result[key] = r.buyer or ""
     return result
