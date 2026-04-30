@@ -126,6 +126,7 @@ def get_owner_dashboard_data(date=None):
 
     # ── Applicable cells per SKU (from pcflo) ────────────────────────────
     applicable_map  = _get_applicable_cells_map()  # (style,colour,size) → set of cell names
+    outsourced_map  = _get_outsourced_cells_map()  # (style,colour,size) → set of outsourced cell names
     style_buyer_map = _get_style_buyer_map()        # (style,colour) → buyer (cumulative fallback)
 
     # ── Collect all SKUs ──────────────────────────────────────────────────
@@ -178,24 +179,26 @@ def get_owner_dashboard_data(date=None):
             total_daily_in[cell]  += daily_in_map.get((style, colour, size, cell), 0)
             total_daily_out[cell] += daily_out_map.get((style, colour, size, cell), 0)
 
-        # Compute pending_in and wip per cell for this SKU then sum
+        # Compute pending_in and wip per cell for this SKU then sum.
+        # Outsourced cells contribute 0 pending/wip and do NOT advance
+        # prev_cum_out_inhouse — the next in-house cell looks back past them.
+        outsourced = outsourced_map.get(sku, set())
+        prev_cum_out_inhouse = 0   # tracks last in-house cell cum_out
+
         for i, cell in enumerate(CELL_ORDER):
             if i == 0 or cell not in applicable:
                 continue
 
-            # Nearest applicable predecessor
-            prev_cum_out = 0
-            for j in range(i - 1, -1, -1):
-                pred = CELL_ORDER[j]
-                if pred in applicable:
-                    prev_cum_out = sku_cum_out.get(pred, 0)
-                    break
-
             cur_cum_in  = cum_in_map.get((style, colour, size, cell), 0)
             cur_cum_out = sku_cum_out.get(cell, 0)
 
-            total_pending[cell] += max(0, prev_cum_out - cur_cum_in)
-            total_wip[cell]     += max(0, cur_cum_in  - cur_cum_out)
+            if cell in outsourced:
+                # Outsourced: no pending/wip contribution, prev_cum_out_inhouse unchanged
+                pass
+            else:
+                total_pending[cell] += max(0, prev_cum_out_inhouse - cur_cum_in)
+                total_wip[cell]     += max(0, cur_cum_in - cur_cum_out)
+                prev_cum_out_inhouse = cur_cum_out
 
     # ── Build result dict ─────────────────────────────────────────────────
     result = {}
@@ -208,25 +211,27 @@ def get_owner_dashboard_data(date=None):
 
     for sku in all_skus:
         style, colour, size = sku
-        applicable = applicable_map.get(sku, set()) | {"KNITTING"}
+        applicable  = applicable_map.get(sku, set()) | {"KNITTING"}
+        outsourced  = outsourced_map.get(sku, set())
         sku_cum_out = {}
         if "KNITTING" in applicable:
             sku_cum_out["KNITTING"] = knitting_shift_cum.get(sku, 0)
         for cell in CELL_ORDER[1:]:
             sku_cum_out[cell] = cum_out_map.get((style, colour, size, cell), 0)
+
+        prev_cum_out_inhouse = 0   # tracks last in-house cell cum_out
         for i, cell in enumerate(CELL_ORDER):
             if i == 0 or cell not in applicable:
                 continue
-            prev_cum_out = 0
-            for j in range(i - 1, -1, -1):
-                pred = CELL_ORDER[j]
-                if pred in applicable:
-                    prev_cum_out = sku_cum_out.get(pred, 0)
-                    break
             cur_cum_in  = cum_in_map.get((style, colour, size, cell), 0)
             cur_cum_out = sku_cum_out.get(cell, 0)
-            style_colour_pending[(style, colour)][cell] += max(0, prev_cum_out - cur_cum_in)
-            style_colour_wip[(style, colour)][cell]     += max(0, cur_cum_in  - cur_cum_out)
+            if cell in outsourced:
+                # Outsourced: 0 pending/wip, do NOT advance prev_cum_out_inhouse
+                pass
+            else:
+                style_colour_pending[(style, colour)][cell] += max(0, prev_cum_out_inhouse - cur_cum_in)
+                style_colour_wip[(style, colour)][cell]     += max(0, cur_cum_in - cur_cum_out)
+                prev_cum_out_inhouse = cur_cum_out
 
     # Build per-cell drilldown lists from drilldown maps
     # Collect all (style, colour) keys seen across both maps
@@ -550,4 +555,40 @@ def _get_style_buyer_map():
         key = (r.style or "", r.colour or "")
         if key not in result:   # first-seen wins; all SOs for a style share the same brand
             result[key] = r.buyer or ""
+    return result
+
+def _get_outsourced_cells_map():
+    """
+    Returns {(style, colour, size): set(cell_names)} for cells where any
+    operation is marked production_type = 'Outsourced' in tabCut Kit Operations
+    (parentfield = 'custom_operations_list').
+
+    Identical to shopfloor_performance._get_outsourced_cells_map().
+    """
+    rows = frappe.db.sql(f"""
+        SELECT DISTINCT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabCut Kit Operations` cko   ON cko.parent      = tbc.work_order
+                                                AND cko.parentfield = 'custom_operations_list'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+                                                AND (
+                                                    pcflo.first_operation = cko.operation
+                                                    OR pcflo.last_operation = cko.operation
+                                                )
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND cko.production_type = 'Outsourced'
+          AND pc.cell_name IN ({CELL_LIST_SQL})
+    """, as_dict=True)
+
+    result = defaultdict(set)
+    for r in rows:
+        result[(r.style, r.colour, r.size)].add(r.cell_name)
     return result
