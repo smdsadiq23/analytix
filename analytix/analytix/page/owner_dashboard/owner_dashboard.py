@@ -95,7 +95,7 @@ def get_owner_dashboard_data(date=None):
     """
     Returns a dict keyed by cell_name:
         { cell_name: { input, output, pending_in, wip, applicable } }
-    KNITTING also carries: { shift1, shift2 }
+    KNITTING also carries: { shift1, shift2, shift1_drilldown, shift2_drilldown }
 
     All WIP / pending_in values are computed per (style, colour, size) and
     then summed — identical logic to shopfloor_performance.get_dashboard_data.
@@ -259,16 +259,20 @@ def get_owner_dashboard_data(date=None):
 
     for i, cell in enumerate(CELL_ORDER):
         if i == 0:
-            knitting_drilldown = _knitting_drilldown(date)   # ← new helper call
+            # ── KNITTING: separate drilldowns per shift ───────────────────
+            knitting_drilldown_s1 = _knitting_drilldown(date, shift=1)
+            knitting_drilldown_s2 = _knitting_drilldown(date, shift=2)
             result[cell] = {
-                "input":      None,
-                "output":     knitting_shift1 + knitting_shift2,
-                "shift1":     knitting_shift1,
-                "shift2":     knitting_shift2,
-                "pending_in": None,
-                "wip":        None,
-                "applicable": True,
-                "drilldown":  knitting_drilldown,
+                "input":            None,
+                "output":           knitting_shift1 + knitting_shift2,
+                "shift1":           knitting_shift1,
+                "shift2":           knitting_shift2,
+                "pending_in":       None,
+                "wip":              None,
+                "applicable":       True,
+                "drilldown":        knitting_drilldown_s1,   # kept for compatibility
+                "shift1_drilldown": knitting_drilldown_s1,
+                "shift2_drilldown": knitting_drilldown_s2,
             }
             continue
 
@@ -290,13 +294,22 @@ def get_owner_dashboard_data(date=None):
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _knitting_drilldown(date):
+def _knitting_drilldown(date, shift=None):
     """
     Returns per-(style, colour, buyer) KNITTING output for the given date,
-    sorted descending by output_qty. Used by the drilldown popup.
+    optionally filtered to shift 1 (10:00–20:00) or shift 2 (20:00–10:00).
+    shift=None → no time filter (all-time / full-day).
+    Sorted descending by output_qty. Used by the drilldown popup.
     """
     date_cond = "AND DATE(isl.logged_time) = %(date)s" if date else ""
     p = {"date": date} if date else {}
+
+    if shift == 1:
+        shift_cond = "AND TIME(isl.logged_time) >= '10:00:00' AND TIME(isl.logged_time) < '20:00:00'"
+    elif shift == 2:
+        shift_cond = "AND (TIME(isl.logged_time) >= '20:00:00' OR TIME(isl.logged_time) < '10:00:00')"
+    else:
+        shift_cond = ""
 
     rows = frappe.db.sql(f"""
         SELECT
@@ -322,6 +335,7 @@ def _knitting_drilldown(date):
           AND isl.log_status = 'Completed'
           AND isl.operation = pcflo.last_operation
           {date_cond}
+          {shift_cond}
           AND (
               isl.status IN ('Counted', 'Activated', 'Pass')
               OR (isl.status = 'Unlink Link' AND pi.status = 'Unlink Link Scrap')

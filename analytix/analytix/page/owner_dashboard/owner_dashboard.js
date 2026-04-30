@@ -130,7 +130,7 @@ function _closeOdModal() {
 var _timer       = null;
 var _chartInst   = null;
 var _lastData    = null;   // raw API response — kept for drilldown popups
-var _sectionKeys = [];     // maps bar index → { key, label } for click drilldown
+var _sectionKeys = [];     // maps bar index → { key, label, shift? } for click drilldown
 
 // ── Timer helpers ─────────────────────────────────────────────────────────────
 // Always clear before setting so re-navigation never stacks two intervals.
@@ -374,7 +374,8 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 				if (!metricType) return;
 				var info = _sectionKeys[barIdx];
 				if (!info || !info.key) return;
-				_showOdDrilldown(info.label, info.key, metricType);
+				// Pass shift (1, 2, or null) so the popup can pick the right drilldown list
+				_showOdDrilldown(info.label, info.key, metricType, info.shift || null);
 			},
 			plugins: {
 				legend: { display: false },
@@ -429,14 +430,15 @@ function _drawChart(labels, inputVals, outputVals, pendingVals, wipVals) {
 		},
 	});
 
-	// Build _sectionKeys after creating chart — mirrors label array order
-	// KNITTING Shift 1, KNITTING Shift 2, then each other section
+	// ── Build _sectionKeys after creating chart — mirrors label array order ──
+	// KNITTING Shift 1 and Shift 2 carry their shift number so the drilldown
+	// popup can pick shift1_drilldown vs shift2_drilldown from the API response.
 	_sectionKeys = [];
-	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (1st Shift)" });
-	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (2nd Shift)" });
+	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (1st Shift)", shift: 1 });
+	_sectionKeys.push({ key: "KNITTING", label: "KNITTING (2nd Shift)", shift: 2 });
 	OD_SECTIONS.forEach(function (section) {
 		if (section === "KNITTING") return;
-		_sectionKeys.push({ key: OD_SECTION_KEY_MAP[section], label: section });
+		_sectionKeys.push({ key: OD_SECTION_KEY_MAP[section], label: section, shift: null });
 	});
 }
 
@@ -458,26 +460,42 @@ function _odN(v) {
 }
 
 // ── Drilldown popup ───────────────────────────────────────────────────────────
-function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
+function _showOdDrilldown(sectionLabel, sectionKey, metricType, shift) {
 	if (!_lastData || !sectionKey) return;
 
-	// Toggle: clicking same metric+section closes the popup
+	// Toggle: clicking same metric+section+shift closes the popup
 	var $existing = $("#od-modal-overlay");
 	if ($existing.length &&
-		$existing.data("active-key") === sectionKey &&
-		$existing.data("active-metric") === metricType) {
+		$existing.data("active-key")    === sectionKey &&
+		$existing.data("active-metric") === metricType &&
+		$existing.data("active-shift")  === shift) {
 		_closeOdModal();
 		return;
 	}
 	$existing.remove();
 
-	var cellData  = _lastData[sectionKey] || {};
-	var drilldown = cellData.drilldown    || [];
+	var cellData = _lastData[sectionKey] || {};
+
+	// ── Pick the correct drilldown list ───────────────────────────────────
+	// For KNITTING bars, use the shift-specific list returned by the backend.
+	// For every other cell, use the shared drilldown array.
+	var drilldown;
+	if (sectionKey === "KNITTING" && shift) {
+		drilldown = (shift === 1 ? cellData.shift1_drilldown : cellData.shift2_drilldown) || [];
+	} else {
+		drilldown = cellData.drilldown || [];
+	}
 
 	// ── Per-metric config ─────────────────────────────────────────────────
+	// For KNITTING Output, sumTotal must reflect the individual shift total,
+	// not the combined output stored in cellData.output.
+	var knittingOutputTotal = (sectionKey === "KNITTING" && shift)
+		? (shift === 1 ? cellData.shift1 : cellData.shift2) || 0
+		: cellData.output || 0;
+
 	var METRIC = {
 		"input":      { label: "Input",          qtyField: "input_qty",   thBadge: "od-popup-th-cyan",   valCls: "od-popup-val-cyan",   sumCls: "od-popup-summary-cyan",   sumTotal: cellData.input      || 0 },
-		"output":     { label: "Output",          qtyField: "output_qty",  thBadge: "od-popup-th-green",  valCls: "od-popup-val-green",  sumCls: "od-popup-summary-green",  sumTotal: cellData.output     || 0 },
+		"output":     { label: "Output",          qtyField: "output_qty",  thBadge: "od-popup-th-green",  valCls: "od-popup-val-green",  sumCls: "od-popup-summary-green",  sumTotal: knittingOutputTotal },
 		"pending_in": { label: "Ready for Input", qtyField: "pending_qty", thBadge: "od-popup-th-red",    valCls: "od-popup-val-red",    sumCls: "od-popup-summary-red",    sumTotal: cellData.pending_in || 0 },
 		"wip":        { label: "WIP",             qtyField: "wip_qty",     thBadge: "od-popup-th-purple", valCls: "od-popup-val-purple", sumCls: "od-popup-summary-purple", sumTotal: cellData.wip        || 0 },
 	};
@@ -485,9 +503,6 @@ function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
 	var cfg = METRIC[metricType];
 	if (!cfg) return;
 
-	// For pending_in / wip the drilldown data comes from the Python
-	// per-style breakdown — for now show input breakdown as the closest proxy
-	// (same style list that contributed to those totals).
 	var rows = drilldown.filter(function(r) { return r[cfg.qtyField] > 0; });
 	rows.sort(function(a, b) { return b[cfg.qtyField] - a[cfg.qtyField]; });
 
@@ -550,6 +565,7 @@ function _showOdDrilldown(sectionLabel, sectionKey, metricType) {
 
 	$overlay.data("active-key",    sectionKey);
 	$overlay.data("active-metric", metricType);
+	$overlay.data("active-shift",  shift);
 	$("body").append($overlay);
 
 	$overlay.on("click", function(e) {
