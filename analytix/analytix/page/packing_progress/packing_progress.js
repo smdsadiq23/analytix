@@ -36,6 +36,35 @@ frappe.pages["packing-progress"].on_page_load = function (wrapper) {
 					<div id="ppd-date">---</div>
 				</div>
 			</div>
+
+			<div class="ppd-filters">
+				<div class="ppd-filter-group">
+					<label class="ppd-filter-label">BUYER</label>
+					<select class="ppd-filter-select" id="ppd-filter-buyer">
+						<option value="">All Buyers</option>
+					</select>
+				</div>
+				<div class="ppd-filter-group">
+					<label class="ppd-filter-label">SEASON</label>
+					<select class="ppd-filter-select" id="ppd-filter-season">
+						<option value="">All Seasons</option>
+					</select>
+				</div>
+				<div class="ppd-filter-group">
+					<label class="ppd-filter-label">STYLE</label>
+					<select class="ppd-filter-select" id="ppd-filter-style">
+						<option value="">All Styles</option>
+					</select>
+				</div>
+				<button class="ppd-filter-clear" id="ppd-filter-clear" title="Clear all filters">
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+					Clear
+				</button>
+				<span class="ppd-filter-count" id="ppd-filter-count"></span>
+			</div>
+
 			<div class="ppd-scroll">
 				<table class="ppd-table">
 					<thead>
@@ -81,6 +110,14 @@ frappe.pages["packing-progress"].on_page_load = function (wrapper) {
 		</div>
 	`);
 
+	// Filter change listeners
+	$(wrapper).on("change", "#ppd-filter-buyer, #ppd-filter-season, #ppd-filter-style", function () {
+		_ppd_applyFilters();
+	});
+	$(wrapper).on("click", "#ppd-filter-clear", function () {
+		_ppd_clearFilters();
+	});
+
 	_ppd_startClock();
 	_ppd_load();
 	_ppd_timer = setInterval(function () { _ppd_load(); }, 60000);
@@ -101,7 +138,8 @@ frappe.pages["packing-progress"].on_page_hide = function () {
 	if (_ppd_timer) { clearInterval(_ppd_timer); _ppd_timer = null; }
 };
 
-var _ppd_timer = null;
+var _ppd_timer   = null;
+var _ppd_allRows = [];   // master copy of all rows from last server response
 
 // Full cell list in pipeline order
 const PPD_OPS = [
@@ -135,7 +173,9 @@ function _ppd_load() {
 		freeze: false,
 		callback: function (r) {
 			if (r.exc) { _ppd_setState("&#9888; Failed to load data. Check server logs."); return; }
-			_ppd_render(r.message || []);
+			_ppd_allRows = r.message || [];
+			_ppd_populateFilters();
+			_ppd_applyFilters();
 			var n = new Date(), h = n.getHours(), m = String(n.getMinutes()).padStart(2, "0");
 			var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
 			$("#ppd-updated").text("Last updated: " + h + ":" + m + " " + ap);
@@ -143,17 +183,72 @@ function _ppd_load() {
 	});
 }
 
-/**
- * _ppd_isNullCell
- * Returns true if a cell should be treated as N/A for this style —
- * i.e. it has no scans and is not outsourced.
- *
- * Purely data-driven — no cell names hardcoded:
- *   - Outsourced cells are never null (they render as "OS").
- *   - no_in cells (flagged server-side for cells with no IN operation
- *     by design) are null only when out === 0.
- *   - Normal cells are null when both in === 0 and out === 0.
- */
+// ── Filter helpers ────────────────────────────────────────────────────────────
+
+function _ppd_populateFilters() {
+	var buyers  = _ppd_uniqueSorted(_ppd_allRows.map(function (r) { return r.buyer  || ""; }));
+	var seasons = _ppd_uniqueSorted(_ppd_allRows.map(function (r) { return r.season || ""; }));
+	var styles  = _ppd_uniqueSorted(_ppd_allRows.map(function (r) { return r.style  || ""; }));
+
+	_ppd_repopulateSelect("#ppd-filter-buyer",  buyers,  "All Buyers");
+	_ppd_repopulateSelect("#ppd-filter-season", seasons, "All Seasons");
+	_ppd_repopulateSelect("#ppd-filter-style",  styles,  "All Styles");
+}
+
+function _ppd_repopulateSelect(selector, values, placeholder) {
+	var $sel    = $(selector);
+	var current = $sel.val();
+	var html    = '<option value="">' + placeholder + '</option>';
+	values.forEach(function (v) {
+		if (!v) return;
+		var sel = (v === current) ? ' selected' : '';
+		html += '<option value="' + _ppd_e(v) + '"' + sel + '>' + _ppd_e(v) + '</option>';
+	});
+	$sel.html(html);
+}
+
+function _ppd_applyFilters() {
+	var buyer  = $("#ppd-filter-buyer").val()  || "";
+	var season = $("#ppd-filter-season").val() || "";
+	var style  = $("#ppd-filter-style").val()  || "";
+
+	var filtered = _ppd_allRows.filter(function (r) {
+		if (buyer  && (r.buyer  || "") !== buyer)  return false;
+		if (season && (r.season || "") !== season) return false;
+		if (style  && (r.style  || "") !== style)  return false;
+		return true;
+	});
+
+	var total = _ppd_allRows.length;
+	var shown = filtered.length;
+	if (buyer || season || style) {
+		$("#ppd-filter-count").text(shown + " of " + total + " rows").addClass("ppd-filter-count-active");
+		$("#ppd-filter-clear").addClass("ppd-filter-clear-active");
+	} else {
+		$("#ppd-filter-count").text(total + " rows").removeClass("ppd-filter-count-active");
+		$("#ppd-filter-clear").removeClass("ppd-filter-clear-active");
+	}
+
+	_ppd_render(filtered);
+}
+
+function _ppd_clearFilters() {
+	$("#ppd-filter-buyer").val("");
+	$("#ppd-filter-season").val("");
+	$("#ppd-filter-style").val("");
+	_ppd_applyFilters();
+}
+
+function _ppd_uniqueSorted(arr) {
+	var seen = {}, out = [];
+	arr.forEach(function (v) {
+		if (v && !seen[v]) { seen[v] = true; out.push(v); }
+	});
+	return out.sort(function (a, b) { return a.localeCompare(b); });
+}
+
+// ── Cell helpers ──────────────────────────────────────────────────────────────
+
 function _ppd_isNullCell(c) {
 	if (c["is_outsourced"]) return false;
 	var out = parseInt(c["out"] || 0);
@@ -162,36 +257,25 @@ function _ppd_isNullCell(c) {
 	return inn === 0 && out === 0;
 }
 
-/**
- * _ppd_getPrevOut
- * Walks backwards from idx-1 to find the OUT qty of the nearest upstream
- * cell that is both in-house (not outsourced) and applicable (not null/N/A).
- *
- * This is the key to correct pending calculation when OS or N/A cells sit
- * between two in-house cells — e.g. EMBROIDERY=OS between SEWING and
- * PRODUCTION means PRODUCTION's pending should reference SEWING's OUT,
- * not EMBROIDERY's OUT (which is 0).
- *
- * Fully dynamic — driven by is_outsourced / no_in / in / out flags from
- * the server. No cell names are referenced here.
- */
 function _ppd_getPrevOut(cellData, idx, plannedQty) {
 	if (idx === 0) return plannedQty;
 	for (var i = idx - 1; i >= 0; i--) {
 		var prevCell = cellData[PPD_OPS[i].key] || {};
-		// Skip outsourced cells — not part of in-house flow
 		if (prevCell["is_outsourced"]) continue;
-		// Skip N/A cells — no meaningful OUT for this style
 		if (_ppd_isNullCell(prevCell)) continue;
-		// Nearest valid upstream in-house cell found
 		return parseInt(prevCell["out"] || 0);
 	}
-	// No valid predecessor — use plannedQty as origin
 	return plannedQty;
 }
 
+// ── Render ────────────────────────────────────────────────────────────────────
+
 function _ppd_render(rows) {
-	if (!rows.length) { _ppd_setState("No styles currently in packing."); return; }
+	if (!rows.length) {
+		var hasFilter = $("#ppd-filter-buyer").val() || $("#ppd-filter-season").val() || $("#ppd-filter-style").val();
+		_ppd_setState(hasFilter ? "No rows match the selected filters." : "No styles currently in packing.");
+		return;
+	}
 
 	var html = "";
 	rows.forEach(function (r) {
@@ -199,34 +283,13 @@ function _ppd_render(rows) {
 		var orderQty   = parseInt(r.order_qty)  || 0;
 		var plannedQty = parseInt(r.planned_qty) || 0;
 
-		// ── Pending qty per cell ──────────────────────────────────────────
-		//
-		// Four states per cell:
-		//
-		//   "OS"    — outsourced cell (is_outsourced = true)
-		//             → muted "OS" badge, NOT counted in totalPending
-		//             Checked FIRST before any other guard.
-		//
-		//   null    — not applicable for this style (see _ppd_isNullCell)
-		//             → dim "—", NOT counted in totalPending
-		//
-		//   number  — in-house applicable cell
-		//             → pending = nearest upstream in-house OUT - this OUT
-		//                (_ppd_getPrevOut walks back past OS/null cells)
-		//             → counted in totalPending
-		//
 		var totalPending = 0;
 		var opPendings = PPD_OPS.map(function (op, idx) {
 			var c = cellData[op.key] || {};
 
-			// 1. Outsourced — render as OS, excluded from pending chain
 			if (c["is_outsourced"]) return "OS";
-
-			// 2. Not applicable — no data for this style
 			if (_ppd_isNullCell(c)) return null;
 
-			// 3. In-house applicable — compute pending dynamically.
-			//    Walk back to nearest non-OS, non-null predecessor for prevOut.
 			var prevOut = _ppd_getPrevOut(cellData, idx, plannedQty);
 			var out     = parseInt(c["out"] || 0);
 			var pending = Math.max(0, prevOut - out);
@@ -234,15 +297,11 @@ function _ppd_render(rows) {
 			return pending;
 		});
 
-		// ── REJ QTY ──────────────────────────────────────────────────────
-		var rejQty = parseInt(r.rej_qty || 0);
-
-		// ── Packed progress: PACKING OUT / order_qty × 100 ───────────────
+		var rejQty     = parseInt(r.rej_qty || 0);
 		var packingOut = parseInt(((cellData["PACKING"] || {})["out"]) || 0);
 		var packedPct  = orderQty ? Math.round((packingOut / orderQty) * 100) : 0;
-		var pkClass = packedPct >= 100 ? "pk-done" : packedPct >= 50 ? "pk-mid" : "pk-low";
+		var pkClass    = packedPct >= 100 ? "pk-done" : packedPct >= 50 ? "pk-mid" : "pk-low";
 
-		// SVG circle r=18, circumference = 2π×18 ≈ 113.1
 		var circ    = 113.1;
 		var ringPct = Math.min(packedPct, 100);
 		var offset  = (circ - (ringPct / 100) * circ).toFixed(1);
@@ -256,7 +315,6 @@ function _ppd_render(rows) {
 		html += '<td class="td-qty">'      + _ppd_n(r.order_qty)   + "</td>";
 		html += '<td class="td-qty">'      + _ppd_n(r.planned_qty) + "</td>";
 
-		// ── 11 pending columns ────────────────────────────────────────────
 		opPendings.forEach(function (pending) {
 			if (pending === null) {
 				html += '<td class="td-op"><span class="op-na">&#8212;</span></td>';
@@ -269,18 +327,15 @@ function _ppd_render(rows) {
 			}
 		});
 
-		// ── TOTAL pending (in-house cells only) ───────────────────────────
 		html += '<td class="td-total"><span class="total-val">'
 			+ (totalPending === 0 ? "&#8212;" : _ppd_n(totalPending))
 			+ "</span></td>";
 
-		// ── REJ QTY ──────────────────────────────────────────────────────
 		var rejCls = rejQty === 0 ? "rej-val rej-zero" : "rej-val";
 		html += '<td class="td-rej"><span class="' + rejCls + '">'
 			+ (rejQty === 0 ? "&#8212;" : _ppd_n(rejQty))
 			+ "</span></td>";
 
-		// ── Packed progress circle ────────────────────────────────────────
 		html += '<td class="td-packed">';
 		html += '<div class="packed-wrap">';
 		html += '<svg class="packed-svg" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">';
