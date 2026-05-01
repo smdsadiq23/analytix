@@ -34,6 +34,35 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 					<div id="tvd-date">---</div>
 				</div>
 			</div>
+
+			<div class="tvd-filters">
+				<div class="tvd-filter-group">
+					<label class="tvd-filter-label">BUYER</label>
+					<select class="tvd-filter-select" id="tvd-filter-buyer">
+						<option value="">All Buyers</option>
+					</select>
+				</div>
+				<div class="tvd-filter-group">
+					<label class="tvd-filter-label">SEASON</label>
+					<select class="tvd-filter-select" id="tvd-filter-season">
+						<option value="">All Seasons</option>
+					</select>
+				</div>
+				<div class="tvd-filter-group">
+					<label class="tvd-filter-label">STYLE</label>
+					<select class="tvd-filter-select" id="tvd-filter-style">
+						<option value="">All Styles</option>
+					</select>
+				</div>
+				<button class="tvd-filter-clear" id="tvd-filter-clear" title="Clear all filters">
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+					Clear
+				</button>
+				<span class="tvd-filter-count" id="tvd-filter-count"></span>
+			</div>
+
 			<div class="tvd-scroll">
 				<table class="tvd-table">
 					<thead>
@@ -78,10 +107,17 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 		</div>
 	`);
 
+	// Filter change listeners
+	$(wrapper).on("change", "#tvd-filter-buyer, #tvd-filter-season, #tvd-filter-style", function () {
+		_applyFilters();
+	});
+	$(wrapper).on("click", "#tvd-filter-clear", function () {
+		_clearFilters();
+	});
+
 	_startClock();
 	_load();
-	// _resetAutoScroll();
-	_timer = setInterval(function() { _load(); /* _resetAutoScroll(); */}, 60000);
+	_timer = setInterval(function() { _load(); }, 60000);
 };
 
 frappe.pages["production-dashboard"].on_page_show = function (wrapper) {
@@ -97,10 +133,10 @@ frappe.pages["production-dashboard"].on_page_hide = function () {
 	$(".layout-main-section-wrapper").css({ "padding": "", "margin": "" });
 	$(".layout-main-section").css({ "padding": "", "margin": "", "max-width": "" });
 	if (_timer) { clearInterval(_timer); _timer = null; }
-	// _stopAutoScroll();
 };
 
-var _timer = null;
+var _timer   = null;
+var _allRows = [];   // master copy of all rows from last server response
 
 const CELLS = ["KNITTING","MENDING","WASHING","CUTTING","LINKING","SEWING","EMBROIDERY","PRODUCTION","PRESSING","FINAL CHECK","PACKING"];
 
@@ -129,7 +165,9 @@ function _load() {
 		freeze: false,
 		callback: function (r) {
 			if (r.exc) { _setState("&#9888; Failed to load data. Check server logs."); return; }
-			_render(r.message || []);
+			_allRows = r.message || [];
+			_populateFilters();
+			_applyFilters();
 			var n = new Date(), h = n.getHours(), m = String(n.getMinutes()).padStart(2, "0");
 			var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12;
 			$("#tvd-updated").text("Last updated: " + h + ":" + m + " " + ap);
@@ -137,8 +175,79 @@ function _load() {
 	});
 }
 
+// ── Filter helpers ────────────────────────────────────────────────────────────
+
+function _populateFilters() {
+	var buyers   = _uniqueSorted(_allRows.map(function (r) { return r.buyer  || ""; }));
+	var seasons  = _uniqueSorted(_allRows.map(function (r) { return r.season || ""; }));
+	var styles   = _uniqueSorted(_allRows.map(function (r) { return r.style  || ""; }));
+
+	_repopulateSelect("#tvd-filter-buyer",  buyers,  "All Buyers");
+	_repopulateSelect("#tvd-filter-season", seasons, "All Seasons");
+	_repopulateSelect("#tvd-filter-style",  styles,  "All Styles");
+}
+
+function _repopulateSelect(selector, values, placeholder) {
+	var $sel   = $(selector);
+	var current = $sel.val();
+	var html   = '<option value="">' + placeholder + '</option>';
+	values.forEach(function (v) {
+		if (!v) return;
+		var sel = (v === current) ? ' selected' : '';
+		html += '<option value="' + _e(v) + '"' + sel + '>' + _e(v) + '</option>';
+	});
+	$sel.html(html);
+}
+
+function _applyFilters() {
+	var buyer  = $("#tvd-filter-buyer").val()  || "";
+	var season = $("#tvd-filter-season").val() || "";
+	var style  = $("#tvd-filter-style").val()  || "";
+
+	var filtered = _allRows.filter(function (r) {
+		if (buyer  && (r.buyer  || "") !== buyer)  return false;
+		if (season && (r.season || "") !== season) return false;
+		if (style  && (r.style  || "") !== style)  return false;
+		return true;
+	});
+
+	// Update the row count badge
+	var total = _allRows.length;
+	var shown = filtered.length;
+	if (buyer || season || style) {
+		$("#tvd-filter-count").text(shown + " of " + total + " rows").addClass("tvd-filter-count-active");
+		$("#tvd-filter-clear").addClass("tvd-filter-clear-active");
+	} else {
+		$("#tvd-filter-count").text(total + " rows").removeClass("tvd-filter-count-active");
+		$("#tvd-filter-clear").removeClass("tvd-filter-clear-active");
+	}
+
+	_render(filtered);
+}
+
+function _clearFilters() {
+	$("#tvd-filter-buyer").val("");
+	$("#tvd-filter-season").val("");
+	$("#tvd-filter-style").val("");
+	_applyFilters();
+}
+
+function _uniqueSorted(arr) {
+	var seen = {}, out = [];
+	arr.forEach(function (v) {
+		if (v && !seen[v]) { seen[v] = true; out.push(v); }
+	});
+	return out.sort(function (a, b) { return a.localeCompare(b); });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
 function _render(rows) {
-	if (!rows.length) { _setState("No production data found."); return; }
+	if (!rows.length) {
+		var hasFilter = $("#tvd-filter-buyer").val() || $("#tvd-filter-season").val() || $("#tvd-filter-style").val();
+		_setState(hasFilter ? "No rows match the selected filters." : "No production data found.");
+		return;
+	}
 	var html = "";
 	rows.forEach(function (r) {
 		html += '<tr class="tvd-row">';
@@ -178,7 +287,6 @@ function _render(rows) {
 		html += '<td class="td-lead">' + ldVal + "</td></tr>";
 	});
 	$("#tvd-tbody").html(html);
-	// _resetAutoScroll();
 
 	// Style cell click → size-wise popup
 	$("#tvd-tbody").off("click.tvdStyle").on("click.tvdStyle", ".td-style-clickable", function () {
@@ -263,7 +371,6 @@ function _showStyleSizewise(style, colour) {
 						</svg>
 					</button>
 				</div>
-				<!-- ▼ meta strip is a flex sibling of body — NOT inside it -->
 				<div class="pd-sizewise-meta pd-sizewise-meta-loading">
 					<span style="color:#64748b;font-size:12px;">Loading&hellip;</span>
 				</div>
@@ -290,7 +397,6 @@ function _showStyleSizewise(style, colour) {
 		callback: function (r) {
 			var d = r.message;
 			if (!d) {
-				// Clear loading states on both zones
 				$("#tvd-sizewise-overlay .pd-sizewise-meta").html('<span style="color:#64748b;font-size:12px;">No data found.</span>');
 				$("#tvd-sizewise-overlay .pd-sizewise-body").removeClass("pd-sizewise-loading").html('<p class="pd-detail-empty">No data found.</p>');
 				return;
@@ -304,7 +410,6 @@ function _renderSizewisePopup(d) {
 	var sizes = d.sizes || [];
 	var cells = d.cells || [];
 
-	// ── Meta strip — injected into the frozen zone above .pd-sizewise-body ──
 	var metaHtml = `
 		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">BUYER</span><span class="pd-sw-meta-val">${_e(d.buyer)}</span></span>
 		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">SEASON</span><span class="pd-sw-meta-val">${_e(d.season)}</span></span>
@@ -313,19 +418,16 @@ function _renderSizewisePopup(d) {
 		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">ORDER QTY</span><span class="pd-sw-meta-val">${_n(d.order_qty)}</span></span>
 		<span class="pd-sw-meta-item"><span class="pd-sw-meta-lbl">PLANNED QTY</span><span class="pd-sw-meta-val">${_n(d.planned_qty)}</span></span>`;
 
-	// ── Table header ──────────────────────────────────────────────────────
 	var thead = '<tr class="pd-sw-thead-row"><th class="pd-sw-th pd-sw-th-section">SECTION</th>';
 	sizes.forEach(function (sz) { thead += '<th class="pd-sw-th pd-sw-th-size">' + _e(sz) + "</th>"; });
 	thead += '<th class="pd-sw-th pd-sw-th-wip">WIP</th>';
 	thead += '<th class="pd-sw-th pd-sw-th-completed">COMPLETED QTY</th>';
 	thead += '<th class="pd-sw-th pd-sw-th-balance">COMPLETED %</th></tr>';
 
-	// ── Table body ────────────────────────────────────────────────────────
 	var tbody = "";
 	cells.forEach(function (cell) {
 		var isOutsourced = !!cell.is_outsourced;
 
-		// ── IN row ────────────────────────────────────────────────────────
 		var inTotDeviation = cell.total_in - d.order_qty;
 		var inDevStr  = inTotDeviation >= 0 ? "+" + _n(inTotDeviation) : _n(inTotDeviation);
 		var inBalCls  = cell.in_balance_pct >= 100 ? "pd-sw-bal-green" : cell.in_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
@@ -338,7 +440,6 @@ function _renderSizewisePopup(d) {
 			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
 			tbody += '<td class="pd-sw-td"><div class="pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + "%</span></div></td>";
 		});
-		// WIP column: outsourced → show "—" with a muted title; in-house → existing logic
 		if (isOutsourced) {
 			tbody += '<td class="pd-sw-td pd-sw-wip"><span class="pd-sw-wip-zero pd-sw-outsourced-wip" title="Outsourced process — WIP not tracked">—</span></td>';
 		} else {
@@ -348,7 +449,6 @@ function _renderSizewisePopup(d) {
 		tbody += '<td class="pd-sw-td pd-sw-balance"><span class="pd-sw-bal ' + inBalCls + '">' + cell.in_balance_pct + "%</span></td>";
 		tbody += "</tr>";
 
-		// ── OUT row ───────────────────────────────────────────────────────
 		var outTotDeviation = cell.total_out - d.order_qty;
 		var outDevStr  = outTotDeviation >= 0 ? "+" + _n(outTotDeviation) : _n(outTotDeviation);
 		var outBalCls  = cell.out_balance_pct >= 100 ? "pd-sw-bal-green" : cell.out_balance_pct >= 95 ? "pd-sw-bal-yellow" : "pd-sw-bal-red";
@@ -361,7 +461,6 @@ function _renderSizewisePopup(d) {
 			var pc = s.pct >= 100 ? "pd-sw-pct-green" : s.pct >= 95 ? "pd-sw-pct-yellow" : "pd-sw-pct-red";
 			tbody += '<td class="pd-sw-td"><div class="pd-sw-size-cell"><span class="pd-sw-qty">' + _n(s.qty) + '</span><span class="pd-sw-pct ' + pc + '">' + s.pct + "%</span></div></td>";
 		});
-		// WIP column: outsourced → "—"; in-house → wip_actual
 		if (isOutsourced) {
 			tbody += '<td class="pd-sw-td pd-sw-wip"><span class="pd-sw-wip-zero pd-sw-outsourced-wip" title="Outsourced process — WIP not tracked">—</span></td>';
 		} else {
@@ -372,15 +471,11 @@ function _renderSizewisePopup(d) {
 		tbody += "</tr>";
 	});
 
-	// ── Update title ──────────────────────────────────────────────────────
 	$("#tvd-sizewise-overlay .pd-popup-title").text("Size-Wise: " + d.style);
-
-	// ── Inject meta into the frozen strip (flex sibling above body) ───────
 	$("#tvd-sizewise-overlay .pd-sizewise-meta")
 		.removeClass("pd-sizewise-meta-loading")
 		.html(metaHtml);
 
-	// ── Inject table into the scroll body only ────────────────────────────
 	var tableHtml = `
 		<div class="pd-sw-table-wrap">
 			<table class="pd-sw-table">

@@ -43,7 +43,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 16px;
+		margin-bottom: 12px;
 		flex-shrink: 0;
 	}
 	.tvd-brand { display: flex; align-items: center; gap: 12px; }
@@ -71,6 +71,107 @@
 		font-size: 0.76rem;
 		color: #8b949e;
 		margin-top: 2px;
+	}
+
+	/* ── Filter bar ──────────────────────────────────────────────────── */
+	.tvd-filters {
+		display: flex;
+		align-items: flex-end;
+		gap: 12px;
+		flex-shrink: 0;
+		margin-bottom: 12px;
+		padding: 10px 14px;
+		background: #161b22;
+		border: 1px solid #21262d;
+		border-radius: 8px;
+		flex-wrap: wrap;
+	}
+
+	.tvd-filter-group {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 150px;
+	}
+
+	.tvd-filter-label {
+		font-size: 0.58rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #8b949e;
+		line-height: 1;
+	}
+
+	.tvd-filter-select {
+		appearance: none;
+		-webkit-appearance: none;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #c9d1d9;
+		font-size: 0.75rem;
+		font-family: inherit;
+		padding: 5px 28px 5px 10px;
+		cursor: pointer;
+		outline: none;
+		transition: border-color 0.15s, box-shadow 0.15s;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 8px center;
+	}
+	.tvd-filter-select:hover {
+		border-color: #58a6ff44;
+	}
+	.tvd-filter-select:focus {
+		border-color: #58a6ff;
+		box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.12);
+	}
+	.tvd-filter-select option {
+		background: #161b22;
+		color: #c9d1d9;
+	}
+
+	/* Clear button — muted until filters are active */
+	.tvd-filter-clear {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 5px 12px;
+		font-size: 0.72rem;
+		font-family: inherit;
+		font-weight: 600;
+		border-radius: 6px;
+		border: 1px solid #30363d;
+		background: transparent;
+		color: #6e7681;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+		align-self: flex-end;
+		white-space: nowrap;
+	}
+	.tvd-filter-clear:hover {
+		background: rgba(239, 68, 68, 0.1);
+		color: #f87171;
+		border-color: rgba(239, 68, 68, 0.35);
+	}
+	.tvd-filter-clear.tvd-filter-clear-active {
+		color: #f87171;
+		border-color: rgba(239, 68, 68, 0.45);
+		background: rgba(239, 68, 68, 0.08);
+	}
+
+	/* Row count badge */
+	.tvd-filter-count {
+		font-size: 0.68rem;
+		color: #6e7681;
+		margin-left: auto;
+		align-self: flex-end;
+		white-space: nowrap;
+	}
+	.tvd-filter-count-active {
+		color: #00d4aa;
+		font-weight: 600;
 	}
 
 	/* ── Table scroll wrapper ────────────────────────────────────────── */
@@ -336,16 +437,6 @@
 
 	/* ═══════════════════════════════════════════════════════════════════
 	   SIZE-WISE POPUP
-
-	   Layout hierarchy (flex column):
-	     .pd-sizewise-box              ← flex column, NO overflow
-	       .pd-sizewise-header         ← frozen, flex-shrink:0
-	       .pd-sizewise-meta           ← FROZEN meta strip, flex-shrink:0  ← KEY FIX
-	       .pd-sizewise-body           ← flex:1, overflow:auto — only this scrolls
-	         .pd-sw-table-wrap         ← no overflow (don't trap sticky)
-	           .pd-sw-table
-	             th.pd-sw-th-section   ← sticky left:0
-	             td.pd-sw-section      ← sticky left:0
 	═══════════════════════════════════════════════════════════════════ */
 
 	.pd-sizewise-overlay {
@@ -364,7 +455,6 @@
 		to   { opacity: 1; }
 	}
 
-	/* NO overflow here — overflow:hidden would trap sticky children */
 	.pd-sizewise-box {
 		background: #0f172a;
 		border: 1px solid rgba(255, 255, 255, 0.1);
@@ -395,17 +485,16 @@
 	}
 	.pd-sizewise-title-wrap { display: flex; align-items: center; gap: 10px; }
 
-	/* ── FROZEN meta strip — sits between header and scroll body ─────── */
 	.pd-sizewise-meta {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 8px 24px;
 		padding: 14px 22px;
-		flex-shrink: 0;                                    /* never shrinks */
-		background: #0f172a;                               /* match box bg  */
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08); /* visual sep   */
+		flex-shrink: 0;
+		background: #0f172a;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 		position: relative;
-		z-index: 9;                                        /* above table content */
+		z-index: 9;
 	}
 
 	.pd-sw-meta-item { display: flex; flex-direction: column; }
@@ -423,7 +512,6 @@
 		margin-top: 2px;
 	}
 
-	/* THE one scroll container — only the table scrolls */
 	.pd-sizewise-body {
 		flex: 1;
 		min-height: 0;
@@ -440,7 +528,6 @@
 		padding: 40px;
 	}
 
-	/* NO overflow-x here — must not create a new scroll context */
 	.pd-sw-table-wrap {
 		padding-bottom: 22px;
 	}
@@ -472,7 +559,6 @@
 		text-align: center;
 	}
 
-	/* ── Frozen SECTION header ─────────────────────────────────────────────────── */
 	.pd-sw-th-section {
 		text-align: left;
 		min-width: 150px;
@@ -506,7 +592,6 @@
 		text-align: center;
 	}
 
-	/* ── Frozen SECTION body cells ─────────────────────────────────────────────── */
 	.pd-sw-section {
 		text-align: left;
 		color: #cbd5e1;
