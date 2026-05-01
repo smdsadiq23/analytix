@@ -132,6 +132,30 @@ html, body {
     color: #c9d1d9;
 }
 
+/* Date input */
+.ppd-filter-date {
+    appearance: none;
+    -webkit-appearance: none;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.75rem;
+    font-family: inherit;
+    padding: 5px 10px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    color-scheme: dark;
+}
+.ppd-filter-date:hover {
+    border-color: #58a6ff44;
+}
+.ppd-filter-date:focus {
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.12);
+}
+
 /* Clear button */
 .ppd-filter-clear {
     display: flex;

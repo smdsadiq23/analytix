@@ -54,6 +54,10 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 						<option value="">All Styles</option>
 					</select>
 				</div>
+				<div class="tvd-filter-group">
+					<label class="tvd-filter-label">DELIVERY DATE</label>
+					<input type="date" class="tvd-filter-date" id="tvd-filter-delivery">
+				</div>
 				<button class="tvd-filter-clear" id="tvd-filter-clear" title="Clear all filters">
 					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 						<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -108,7 +112,7 @@ frappe.pages["production-dashboard"].on_page_load = function (wrapper) {
 	`);
 
 	// Filter change listeners
-	$(wrapper).on("change", "#tvd-filter-buyer, #tvd-filter-season, #tvd-filter-style", function () {
+	$(wrapper).on("change", "#tvd-filter-buyer, #tvd-filter-season, #tvd-filter-style, #tvd-filter-delivery", function () {
 		_applyFilters();
 	});
 	$(wrapper).on("click", "#tvd-filter-clear", function () {
@@ -200,21 +204,22 @@ function _repopulateSelect(selector, values, placeholder) {
 }
 
 function _applyFilters() {
-	var buyer  = $("#tvd-filter-buyer").val()  || "";
-	var season = $("#tvd-filter-season").val() || "";
-	var style  = $("#tvd-filter-style").val()  || "";
+	var buyer    = $("#tvd-filter-buyer").val()    || "";
+	var season   = $("#tvd-filter-season").val()   || "";
+	var style    = $("#tvd-filter-style").val()    || "";
+	var delivery = $("#tvd-filter-delivery").val() || "";   // yyyy-mm-dd from input
 
 	var filtered = _allRows.filter(function (r) {
-		if (buyer  && (r.buyer  || "") !== buyer)  return false;
-		if (season && (r.season || "") !== season) return false;
-		if (style  && (r.style  || "") !== style)  return false;
+		if (buyer    && (r.buyer  || "") !== buyer)  return false;
+		if (season   && (r.season || "") !== season) return false;
+		if (style    && (r.style  || "") !== style)  return false;
+		if (delivery && _isoToDisplay(delivery) !== (r.delivery_date || "")) return false;
 		return true;
 	});
 
-	// Update the row count badge
 	var total = _allRows.length;
 	var shown = filtered.length;
-	if (buyer || season || style) {
+	if (buyer || season || style || delivery) {
 		$("#tvd-filter-count").text(shown + " of " + total + " rows").addClass("tvd-filter-count-active");
 		$("#tvd-filter-clear").addClass("tvd-filter-clear-active");
 	} else {
@@ -229,7 +234,16 @@ function _clearFilters() {
 	$("#tvd-filter-buyer").val("");
 	$("#tvd-filter-season").val("");
 	$("#tvd-filter-style").val("");
+	$("#tvd-filter-delivery").val("");
 	_applyFilters();
+}
+
+// Convert input value "yyyy-mm-dd" → display format "dd-mm-yyyy" used by the server
+function _isoToDisplay(iso) {
+	if (!iso) return "";
+	var p = iso.split("-");
+	if (p.length !== 3) return iso;
+	return p[2] + "-" + p[1] + "-" + p[0];
 }
 
 function _uniqueSorted(arr) {
