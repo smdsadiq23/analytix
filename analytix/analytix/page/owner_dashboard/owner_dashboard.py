@@ -27,8 +27,10 @@
 # ========
 # Compute per (style, colour, size) — exactly as shopfloor_performance does —
 # then SUM.  The SQL queries return per-SKU rows; Python applies the same
-# applicable_cells + predecessor walk + max(0,...) clamping per SKU, then
-# aggregates.  This matches the shopfloor to the unit.
+# route-aware logic per SKU (using actual cell sequence from tabCut Kit
+# Operations ordered by idx), then aggregates.  This matches the shopfloor
+# to the unit and correctly handles non-standard routes such as
+# CUTTING → EMBROIDERY → LINKING where EMBROIDERY precedes LINKING.
 
 import frappe
 from collections import defaultdict
@@ -97,8 +99,11 @@ def get_owner_dashboard_data(date=None):
         { cell_name: { input, output, pending_in, wip, applicable } }
     KNITTING also carries: { shift1, shift2, shift1_drilldown, shift2_drilldown }
 
-    All WIP / pending_in values are computed per (style, colour, size) and
-    then summed — identical logic to shopfloor_performance.get_dashboard_data.
+    All WIP / pending_in values are computed per (style, colour, size) using
+    the actual cell route derived from tabCut Kit Operations (ordered by idx)
+    — identical to shopfloor_performance.get_dashboard_data — then summed.
+    This correctly handles non-standard routes such as CUTTING → EMBROIDERY
+    → LINKING where EMBROIDERY precedes LINKING.
     """
     if not date:
         date = _date.today().isoformat()
@@ -120,14 +125,19 @@ def get_owner_dashboard_data(date=None):
     # ── KNITTING shifts ───────────────────────────────────────────────────
     knitting_shift1     = _knitting_shift(date, shift=1)
     knitting_shift2     = _knitting_shift(date, shift=2)
-    knitting_shift1_cum = _knitting_shift(None, shift=1)
-    knitting_shift2_cum = _knitting_shift(None, shift=2)
     knitting_shift_cum  = _knitting_shift_sku_map(None)  # cumulative per SKU
 
     # ── Applicable cells per SKU (from pcflo) ────────────────────────────
     applicable_map  = _get_applicable_cells_map()  # (style,colour,size) → set of cell names
     outsourced_map  = _get_outsourced_cells_map()  # (style,colour,size) → set of outsourced cell names
     style_buyer_map = _get_style_buyer_map()        # (style,colour) → buyer (cumulative fallback)
+
+    # ── Actual per-SKU cell sequence (from tabCut Kit Operations idx) ─────
+    # This replaces the hardcoded CELL_ORDER predecessor-walk + patching.
+    # For each SKU the route is the true factory sequence, so e.g.
+    # CUTTING → EMBROIDERY → LINKING is handled correctly without
+    # needing to patch non-applicable cells.
+    cell_sequence_map = _get_cell_sequence_map()   # (style,colour,size) → [cell, ...]
 
     # ── Collect all SKUs ──────────────────────────────────────────────────
     all_skus = set()
@@ -150,11 +160,27 @@ def get_owner_dashboard_data(date=None):
 
         # Applicable cells for this SKU (KNITTING always included)
         applicable = applicable_map.get(sku, set()) | {"KNITTING"}
+        outsourced = outsourced_map.get(sku, set())
 
-        # KNITTING cumulative output for this SKU (from shift maps)
+        # Actual cell route for this SKU — falls back to CELL_ORDER members
+        # that are applicable if no Cut Kit Operations data exists.
+        # KNITTING is always prepended.
+        route = cell_sequence_map.get(sku, [])
+        if not route:
+            # Fallback: use CELL_ORDER filtered to applicable cells
+            route = [c for c in CELL_ORDER if c in applicable]
+        else:
+            # Ensure KNITTING is first
+            if route[0] != "KNITTING":
+                route = ["KNITTING"] + [c for c in route if c != "KNITTING"]
+            # Keep only applicable cells (route may list cells not in applicable
+            # if pcflo data is sparse)
+            route = [c for c in route if c in applicable]
+
+        # KNITTING cumulative output for this SKU (from shift map)
         knitting_cum_sku = knitting_shift_cum.get(sku, 0)
 
-        # Build per-cell cum_out for this SKU, then patch non-applicable cells
+        # Build per-cell cum_out for this SKU
         sku_cum_out = {}
         for cell in CELL_ORDER:
             if cell == "KNITTING":
@@ -162,82 +188,80 @@ def get_owner_dashboard_data(date=None):
             else:
                 sku_cum_out[cell] = cum_out_map.get((style, colour, size, cell), 0)
 
-        # Patch non-applicable cells (mirrors shopfloor_performance patching)
-        for i, cell in enumerate(CELL_ORDER):
-            if i == 0 or cell in applicable:
-                continue
-            for j in range(i - 1, -1, -1):
-                pred = CELL_ORDER[j]
-                if pred in applicable or j == 0:
-                    sku_cum_out[cell] = sku_cum_out.get(pred, 0)
-                    break
-
-        # Accumulate daily in / out
+        # Accumulate daily in / out (unchanged — still keyed by cell name)
         for cell in CELL_ORDER:
             if cell == "KNITTING":
                 continue
             total_daily_in[cell]  += daily_in_map.get((style, colour, size, cell), 0)
             total_daily_out[cell] += daily_out_map.get((style, colour, size, cell), 0)
 
-        # Compute pending_in and wip per cell for this SKU then sum.
-        # Outsourced cells contribute 0 pending/wip and do NOT advance
-        # prev_cum_out_inhouse — the next in-house cell looks back past them.
-        outsourced = outsourced_map.get(sku, set())
-        prev_cum_out_inhouse = 0   # tracks last in-house cell cum_out
+        # Walk the ACTUAL route for pending_in / wip.
+        # prev_cum_out_inhouse tracks the last in-house cell's cum_out so
+        # that outsourced cells are skipped in the chain (same as shopfloor).
+        prev_cum_out_inhouse = 0
 
-        for i, cell in enumerate(CELL_ORDER):
-            if i == 0 or cell not in applicable:
+        for i, cell in enumerate(route):
+            if i == 0:
+                # KNITTING — seed prev_cum_out_inhouse, no pending/wip computed
+                prev_cum_out_inhouse = sku_cum_out.get(cell, 0)
                 continue
 
             cur_cum_in  = cum_in_map.get((style, colour, size, cell), 0)
             cur_cum_out = sku_cum_out.get(cell, 0)
 
             if cell in outsourced:
-                # Outsourced: no pending/wip contribution, prev_cum_out_inhouse unchanged
+                # Outsourced: no pending/wip contribution, prev unchanged
                 pass
             else:
                 total_pending[cell] += max(0, prev_cum_out_inhouse - cur_cum_in)
                 total_wip[cell]     += max(0, cur_cum_in - cur_cum_out)
                 prev_cum_out_inhouse = cur_cum_out
 
-    # ── Build result dict ─────────────────────────────────────────────────
-    result = {}
-
-    # ── Per-style pending_in and wip (computed alongside totals above) ────
-    # We need a second pass through all_skus to capture per-(style,colour,cell)
-    # pending/wip so the drilldown popup can show them.
+    # ── Per-style pending_in and wip (second pass for drilldown popup) ────
     style_colour_pending = defaultdict(lambda: defaultdict(int))  # (style,colour) → cell → qty
     style_colour_wip     = defaultdict(lambda: defaultdict(int))
 
     for sku in all_skus:
         style, colour, size = sku
-        applicable  = applicable_map.get(sku, set()) | {"KNITTING"}
-        outsourced  = outsourced_map.get(sku, set())
-        sku_cum_out = {}
-        if "KNITTING" in applicable:
-            sku_cum_out["KNITTING"] = knitting_shift_cum.get(sku, 0)
-        for cell in CELL_ORDER[1:]:
-            sku_cum_out[cell] = cum_out_map.get((style, colour, size, cell), 0)
+        applicable = applicable_map.get(sku, set()) | {"KNITTING"}
+        outsourced = outsourced_map.get(sku, set())
 
-        prev_cum_out_inhouse = 0   # tracks last in-house cell cum_out
-        for i, cell in enumerate(CELL_ORDER):
-            if i == 0 or cell not in applicable:
+        route = cell_sequence_map.get(sku, [])
+        if not route:
+            route = [c for c in CELL_ORDER if c in applicable]
+        else:
+            if route[0] != "KNITTING":
+                route = ["KNITTING"] + [c for c in route if c != "KNITTING"]
+            route = [c for c in route if c in applicable]
+
+        knitting_cum_sku = knitting_shift_cum.get(sku, 0)
+        sku_cum_out = {}
+        for cell in CELL_ORDER:
+            if cell == "KNITTING":
+                sku_cum_out[cell] = knitting_cum_sku
+            else:
+                sku_cum_out[cell] = cum_out_map.get((style, colour, size, cell), 0)
+
+        prev_cum_out_inhouse = 0
+
+        for i, cell in enumerate(route):
+            if i == 0:
+                prev_cum_out_inhouse = sku_cum_out.get(cell, 0)
                 continue
+
             cur_cum_in  = cum_in_map.get((style, colour, size, cell), 0)
             cur_cum_out = sku_cum_out.get(cell, 0)
+
             if cell in outsourced:
-                # Outsourced: 0 pending/wip, do NOT advance prev_cum_out_inhouse
                 pass
             else:
                 style_colour_pending[(style, colour)][cell] += max(0, prev_cum_out_inhouse - cur_cum_in)
                 style_colour_wip[(style, colour)][cell]     += max(0, cur_cum_in - cur_cum_out)
                 prev_cum_out_inhouse = cur_cum_out
 
-    # Build per-cell drilldown lists from drilldown maps
-    # Collect all (style, colour) keys seen across both maps
+    # ── Build per-cell drilldown lists ────────────────────────────────────
     all_style_colour_cells = set(drilldown_in_map.keys()) | set(drilldown_out_map.keys())
 
-    # Also include styles that have pending/wip even if no daily scan today
     for (style, colour), cell_dict in style_colour_pending.items():
         for cell in cell_dict:
             all_style_colour_cells.add((style, colour, cell))
@@ -262,6 +286,9 @@ def get_owner_dashboard_data(date=None):
             "pending_qty": pending_qty,
             "wip_qty":     wip_qty,
         }
+
+    # ── Build result dict ─────────────────────────────────────────────────
+    result = {}
 
     for i, cell in enumerate(CELL_ORDER):
         if i == 0:
@@ -362,6 +389,7 @@ def _knitting_drilldown(date, shift=None):
         }
         for r in rows
     ]
+
 
 def _sku_cell_map(op_type, date_cond, params):
     """
@@ -557,6 +585,7 @@ def _get_style_buyer_map():
             result[key] = r.buyer or ""
     return result
 
+
 def _get_outsourced_cells_map():
     """
     Returns {(style, colour, size): set(cell_names)} for cells where any
@@ -591,4 +620,54 @@ def _get_outsourced_cells_map():
     result = defaultdict(set)
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
+    return result
+
+
+def _get_cell_sequence_map():
+    """
+    Returns {(style, colour, size): [cell_name, ...]} where the list is the
+    actual ordered sequence of physical cells for that SKU, derived from
+    tabCut Kit Operations ordered by idx.
+
+    Multiple operations belonging to the same physical cell collapse to a
+    single entry (order-preserving dedup).  This is the key fix: instead of
+    walking the hardcoded CELL_ORDER and patching non-applicable cells,
+    get_owner_dashboard_data now uses the true per-SKU route so that
+    non-standard sequences such as CUTTING → EMBROIDERY → LINKING are
+    handled correctly.
+
+    Identical to shopfloor_performance._get_cell_sequence_map().
+    """
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name,
+            MIN(cko.idx)             AS min_idx
+        FROM `tabTracking Order Bundle Configuration` tbc
+        INNER JOIN `tabTracking Order` tor       ON tor.name = tbc.parent
+        INNER JOIN `tabItem` itm                 ON itm.name = tor.item
+        INNER JOIN `tabCut Kit Operations` cko   ON cko.parent      = tbc.work_order
+                                                AND cko.parentfield = 'custom_operations_list'
+        INNER JOIN `tabPhysical Cell First and Last Operation` pcflo
+                                                 ON pcflo.parent = tbc.work_order
+                                                AND (
+                                                    pcflo.first_operation = cko.operation
+                                                    OR pcflo.last_operation = cko.operation
+                                                )
+        INNER JOIN `tabPhysical Cell` pc         ON pc.name = pcflo.physical_cell
+        WHERE tbc.parentfield = 'bundle_configurations'
+          AND pc.cell_name IN ({CELL_LIST_SQL})
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+        ORDER BY itm.custom_style_master, itm.custom_colour_name, tbc.size, min_idx
+    """, as_dict=True)
+
+    result = {}
+    for r in rows:
+        key = (r.style, r.colour, r.size)
+        if key not in result:
+            result[key] = []
+        if r.cell_name not in result[key]:
+            result[key].append(r.cell_name)
     return result
