@@ -55,6 +55,7 @@ def get_packing_progress_data():
     cell_out_map         = _get_cell_op_map(op_type="last")
     outsourced_cells_map = _get_outsourced_cells_map()
     logged_time_map      = _get_min_logged_time_map()
+    rejection_map        = _get_rejection_map()
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
@@ -62,6 +63,7 @@ def get_packing_progress_data():
         "planned_qty":      0,
         "delivery_date":    None,
         "min_logged_time":  None,
+        "rej_qty":          0,
         "cell_in":          defaultdict(int),
         "cell_out":         defaultdict(int),
         "outsourced_cells": set(),
@@ -81,6 +83,10 @@ def get_packing_progress_data():
             agg[key]["min_logged_time"] = lt
 
         agg[key]["outsourced_cells"] |= outsourced_cells_map.get((style, colour, size), set())
+
+        # Sum rejections across all cells for this (style, colour, size)
+        for cell in CELL_ORDER:
+            agg[key]["rej_qty"] += rejection_map.get((style, colour, size, cell), 0)
 
         for cell in CELL_ORDER:
             agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
@@ -141,6 +147,7 @@ def get_packing_progress_data():
             "delivery_date":   delivery_date,
             "order_qty":       order_qty,
             "planned_qty":     planned_qty,
+            "rej_qty":         b["rej_qty"],
             "cells":           cells,
             "first_scan_date": first_scan_date,
         })
@@ -284,3 +291,46 @@ def _get_outsourced_cells_map():
     for r in rows:
         result[(r.style, r.colour, r.size)].add(r.cell_name)
     return result
+
+
+def _get_rejection_map():
+    """
+    Returns cumulative (all-time) rejection counts per
+    (style, colour, size, cell_name).
+
+    Rejected statuses: QC Rework, QC Reject, SP Rework, SP Reject.
+    No log_status / operation filter — rejection scans may not share the
+    same operation path as normal production scans.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master  AS style,
+            itm.custom_colour_name   AS colour,
+            tbc.size                 AS size,
+            pc.cell_name             AS cell_name,
+            COUNT(*)                 AS rejection_count
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi
+            ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc
+            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc
+            ON tc.name = pi.component AND tc.is_main = 1
+        WHERE isl.log_status = 'Completed'
+          AND isl.status IN ('QC Rework', 'QC Reject', 'SP Rework', 'SP Reject')
+          AND pc.cell_name IN ({cell_list})
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+    """, as_dict=True)
+
+    return {(r.style, r.colour, r.size, r.cell_name): int(r.rejection_count) for r in rows}
