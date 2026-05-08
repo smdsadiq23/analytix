@@ -38,7 +38,7 @@ def get_dashboard_data(date=None):
     cell_maps       = _get_cell_all_periods(date)
     knitting_maps   = _get_knitting_all_periods(date)
     cell_date_maps  = _get_cell_date_maps()
-    rejection_map   = _get_rejection_map(date)
+    rejection_maps  = _get_rejection_map(date)   # now returns {"daily": ..., "cum": ...}
     knitting_logged_time_map = _get_knitting_first_logged_time_map()
     logged_time_map          = _get_min_logged_time_map()
 
@@ -65,6 +65,10 @@ def get_dashboard_data(date=None):
     cell_out_logged_date_map      = cell_date_maps["first_out"]
     cell_out_last_logged_date_map = cell_date_maps["last_out"]
 
+    # Unpack rejection maps (daily and cumulative)
+    rejection_map     = rejection_maps["daily"]
+    rejection_cum_map = rejection_maps["cum"]
+
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
         "order_qty":                   0,
@@ -78,6 +82,7 @@ def get_dashboard_data(date=None):
         "cell_out_cum":                defaultdict(int),
         "cell_in_cum":                 defaultdict(int),
         "cell_rejection":              defaultdict(int),
+        "cell_rejection_cum":          defaultdict(int),
         "cell_in_logged_date":         {},
         "cell_out_logged_date":        {},
         "cell_out_last_logged_date":   {},
@@ -91,6 +96,7 @@ def get_dashboard_data(date=None):
         "knitting_shift1_cum":         0,
         "knitting_shift2_cum":         0,
         "knitting_rejection":          0,
+        "knitting_rejection_cum":      0,
         "applicable_cells":            set(),
         "outsourced_cells":            set(),
         "cell_sequence":               [],    # ordered list of cells per actual route
@@ -128,13 +134,14 @@ def get_dashboard_data(date=None):
             agg[key]["knitting_first_logged"] = klt
 
         for cell in CELL_ORDER:
-            agg[key]["cell_in"][cell]        += cell_in_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_out"][cell]       += cell_out_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_out_mtd"][cell]   += cell_out_mtd_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_out_ytd"][cell]   += cell_out_ytd_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_out_cum"][cell]   += cell_out_cum_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_in_cum"][cell]    += cell_in_cum_map.get((style, colour, size, cell), 0)
-            agg[key]["cell_rejection"][cell] += rejection_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_in"][cell]            += cell_in_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out"][cell]           += cell_out_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out_mtd"][cell]       += cell_out_mtd_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out_ytd"][cell]       += cell_out_ytd_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_out_cum"][cell]       += cell_out_cum_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_in_cum"][cell]        += cell_in_cum_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_rejection"][cell]     += rejection_map.get((style, colour, size, cell), 0)
+            agg[key]["cell_rejection_cum"][cell] += rejection_cum_map.get((style, colour, size, cell), 0)
 
             in_d = cell_in_logged_date_map.get((style, colour, size, cell))
             if in_d:
@@ -163,7 +170,8 @@ def get_dashboard_data(date=None):
         agg[key]["knitting_shift1_cum"] += knitting_shift1_cum_map.get((style, colour, size), 0)
         agg[key]["knitting_shift2_cum"] += knitting_shift2_cum_map.get((style, colour, size), 0)
         # Knitting rejection = KNITTING cell rejection (already in cell_rejection)
-        agg[key]["knitting_rejection"]  += rejection_map.get((style, colour, size, "KNITTING"), 0)
+        agg[key]["knitting_rejection"]     += rejection_map.get((style, colour, size, "KNITTING"), 0)
+        agg[key]["knitting_rejection_cum"] += rejection_cum_map.get((style, colour, size, "KNITTING"), 0)
 
     # ── Build result rows ─────────────────────────────────────────────────
     result = []
@@ -213,14 +221,15 @@ def get_dashboard_data(date=None):
         prev_out_cum = 0
 
         for i, cell in enumerate(route):
-            cell_in      = b["cell_in"].get(cell, 0)
-            cell_out     = b["cell_out"].get(cell, 0)
-            cell_out_mtd = b["cell_out_mtd"].get(cell, 0)
-            cell_out_ytd = b["cell_out_ytd"].get(cell, 0)
-            cell_out_cum = knitting_cum if cell == "KNITTING" else b["cell_out_cum"].get(cell, 0)
-            cell_in_cum  = b["cell_in_cum"].get(cell, 0)
-            cell_rej     = b["cell_rejection"].get(cell, 0)
-            pct          = round((cell_out / order_qty) * 100) if order_qty else 0
+            cell_in          = b["cell_in"].get(cell, 0)
+            cell_out         = b["cell_out"].get(cell, 0)
+            cell_out_mtd     = b["cell_out_mtd"].get(cell, 0)
+            cell_out_ytd     = b["cell_out_ytd"].get(cell, 0)
+            cell_out_cum     = knitting_cum if cell == "KNITTING" else b["cell_out_cum"].get(cell, 0)
+            cell_in_cum      = b["cell_in_cum"].get(cell, 0)
+            cell_rej         = b["cell_rejection"].get(cell, 0)
+            cell_rej_cum     = b["cell_rejection_cum"].get(cell, 0)
+            pct              = round((cell_out / order_qty) * 100) if order_qty else 0
 
             is_outsourced = cell in outsourced_cells
 
@@ -271,6 +280,7 @@ def get_dashboard_data(date=None):
                 "applicable":    (i == 0) or (cell in applicable_cells),
                 "is_outsourced": is_outsourced,
                 "rejection":     cell_rej,
+                "rejection_cum": cell_rej_cum,
             }
 
         # Ensure all CELL_ORDER cells exist in the dict
@@ -281,7 +291,7 @@ def get_dashboard_data(date=None):
                     "pending_in": None, "actual_wip": None,
                     "mtd": 0, "ytd": 0, "wip": None, "pct": 0,
                     "days": None, "applicable": False, "is_outsourced": False,
-                    "rejection": 0,
+                    "rejection": 0, "rejection_cum": 0,
                 }
 
         # Patch cum_out for non-applicable cells
@@ -347,7 +357,8 @@ def get_dashboard_data(date=None):
             "knitting_shift1_cum": b["knitting_shift1_cum"],
             "knitting_shift2_cum": b["knitting_shift2_cum"],
             "knitting_wastage":    0,
-            "knitting_rejection":  b["knitting_rejection"],
+            "knitting_rejection":      b["knitting_rejection"],
+            "knitting_rejection_cum":  b["knitting_rejection_cum"],
         })
 
     return result
@@ -690,11 +701,11 @@ def _get_cell_date_maps():
 
 def _get_rejection_map(date):
     """
-    Returns daily rejection counts per (style, colour, size, cell_name)
-    for the selected date.
+    Returns rejection counts per (style, colour, size, cell_name) in two buckets:
+      "daily" — scans on `date` only
+      "cum"   — all-time cumulative (no date filter)
 
     Rejected statuses: QC Rework, QC Reject, SP Rework, SP Reject.
-    Uses logged_time (consistent with all other period helpers).
     No log_status / operation filter — rejection scans may not share the
     same operation path as normal production scans.
     """
@@ -706,7 +717,15 @@ def _get_rejection_map(date):
             itm.custom_colour_name   AS colour,
             tbc.size                 AS size,
             pc.cell_name             AS cell_name,
-            COUNT(*)                 AS rejection_count
+
+            -- daily: only the selected date
+            COUNT(CASE WHEN DATE(isl.logged_time) = %(date)s THEN 1 END)
+                AS daily_rejection_count,
+
+            -- cumulative: all time
+            COUNT(*)
+                AS cum_rejection_count
+
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi
             ON pi.name = isl.production_item
@@ -724,17 +743,19 @@ def _get_rejection_map(date):
         INNER JOIN `tabTracking Component` tc
             ON tc.name = pi.component AND tc.is_main = 1
         WHERE isl.log_status = 'Completed'
-          AND DATE(isl.logged_time) = %(date)s
           AND isl.status IN ('QC Rework', 'QC Reject', 'SP Rework', 'SP Reject')
           AND pc.cell_name IN ({cell_list})
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
     """, {"date": date}, as_dict=True)
 
-    result = {}
+    daily = {}
+    cum   = {}
     for r in rows:
-        k = (r.style, r.colour, r.size, r.cell_name)
-        result[k] = int(r.rejection_count or 0)
-    return result
+        k        = (r.style, r.colour, r.size, r.cell_name)
+        daily[k] = int(r.daily_rejection_count or 0)
+        cum[k]   = int(r.cum_rejection_count   or 0)
+
+    return {"daily": daily, "cum": cum}
 
 
 # ── Unchanged helpers ─────────────────────────────────────────────────────────
