@@ -227,14 +227,14 @@ function _aggregateTotals(rows) {
 		SECTIONS.forEach(function(section) {
 			var key = SECTION_KEY_MAP[section];
 			var c = cells[key] || {};
-			totals[key].input   += (c["in"]      || 0);
-			totals[key].output  += (c["out"]     || 0);
-			totals[key].cum_out += (c["cum_out"] || 0);
-			totals[key].mtd     += (c["mtd"]     || 0);
-			totals[key].ytd     += (c["ytd"]     || 0);
+			totals[key].input     += (c["in"]        || 0);
+			totals[key].output    += (c["out"]       || 0);
+			totals[key].cum_out   += (c["cum_out"]   || 0);
+			totals[key].mtd       += (c["mtd"]       || 0);
+			totals[key].ytd       += (c["ytd"]       || 0);
+			totals[key].rejection += (c["rejection"] || 0);
 
 			// Sum WIP for all styles — outsourced styles already return 0
-			// from Python so they contribute nothing without special casing.
 			if (c["pending_in"] != null) {
 				totals[key].wip += c["pending_in"];
 			}
@@ -244,16 +244,17 @@ function _aggregateTotals(rows) {
 		});
 	});
 
-	// Knitting: aggregate shifts (daily, MTD, YTD)
-	totals["KNITTING"].shift1     = 0;
-	totals["KNITTING"].shift2     = 0;
-	totals["KNITTING"].shift1_mtd = 0;
-	totals["KNITTING"].shift2_mtd = 0;
-	totals["KNITTING"].shift1_ytd = 0;
-	totals["KNITTING"].shift2_ytd = 0;
-	totals["KNITTING"].shift1_cum = 0;
-	totals["KNITTING"].shift2_cum = 0;
-	totals["KNITTING"].wastage    = 0;
+	// Knitting: aggregate shifts (daily, MTD, YTD) and rejection
+	totals["KNITTING"].shift1       = 0;
+	totals["KNITTING"].shift2       = 0;
+	totals["KNITTING"].shift1_mtd   = 0;
+	totals["KNITTING"].shift2_mtd   = 0;
+	totals["KNITTING"].shift1_ytd   = 0;
+	totals["KNITTING"].shift2_ytd   = 0;
+	totals["KNITTING"].shift1_cum   = 0;
+	totals["KNITTING"].shift2_cum   = 0;
+	totals["KNITTING"].wastage      = 0;
+	totals["KNITTING"].rejection    = 0;  // reset; will be summed from knitting_rejection
 
 	rows.forEach(function(r) {
 		totals["KNITTING"].shift1     += (r.knitting_shift1     || 0);
@@ -265,6 +266,7 @@ function _aggregateTotals(rows) {
 		totals["KNITTING"].shift1_cum += (r.knitting_shift1_cum || 0);
 		totals["KNITTING"].shift2_cum += (r.knitting_shift2_cum || 0);
 		totals["KNITTING"].wastage    += (r.knitting_wastage    || 0);
+		totals["KNITTING"].rejection  += (r.knitting_rejection  || 0);
 	});
 
 	totals["KNITTING"].output  = totals["KNITTING"].shift1 + totals["KNITTING"].shift2;
@@ -439,24 +441,27 @@ function _showDrilldown(sectionLabel, sectionKey) {
 		var cell      = cells[sectionKey] || {};
 		var pendingIn = cell["pending_in"] != null ? cell["pending_in"] : 0;
 		var actualWip = cell["actual_wip"] != null ? cell["actual_wip"] : 0;
+		var rejection = cell["rejection"]  != null ? cell["rejection"]  : 0;
 		return {
 			style:        r.style  || "",
 			colour:       r.colour || "",
 			buyer:        r.buyer  || "",
 			pendingIn:    pendingIn,
 			actualWip:    actualWip,
+			rejection:    rejection,
 			isOutsourced: !!cell["is_outsourced"],
 		};
 	}).filter(function(r) {
-		// Show rows with WIP/pending, outsourced rows, filtering out truly zero in-house rows
-		return r.isOutsourced || r.pendingIn > 0 || r.actualWip > 0;
+		// Show rows with WIP/pending/rejection, or outsourced rows
+		return r.isOutsourced || r.pendingIn > 0 || r.actualWip > 0 || r.rejection > 0;
 	});
 
 	styleRows.sort(function(a, b) { return (b.actualWip || 0) - (a.actualWip || 0); });
 
 	// Totals only from in-house styles
-	var totalPending = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.pendingIn || 0) : 0); }, 0);
-	var totalWip     = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.actualWip || 0) : 0); }, 0);
+	var totalPending   = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.pendingIn  || 0) : 0); }, 0);
+	var totalWip       = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.actualWip  || 0) : 0); }, 0);
+	var totalRejection = styleRows.reduce(function(s, r) { return s + (!r.isOutsourced ? (r.rejection  || 0) : 0); }, 0);
 
 	var tableHtml;
 	if (!styleRows.length) {
@@ -468,19 +473,21 @@ function _showDrilldown(sectionLabel, sectionKey) {
 					<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
 					<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
 					<td class="pd-popup-td pd-popup-buyer">${_e(r.buyer)}</td>
-					<td class="pd-popup-td pd-popup-num pd-popup-val-zero" colspan="2">
+					<td class="pd-popup-td pd-popup-num pd-popup-val-zero" colspan="3">
 						<span class="pd-outsourced-tag" title="Outsourced — WIP not tracked">Outsourced</span>
 					</td>
 				</tr>`;
 			}
-			var piCls  = r.pendingIn > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
-			var wipCls = r.actualWip > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
+			var piCls  = r.pendingIn  > 0 ? "pd-popup-val-amber"  : "pd-popup-val-zero";
+			var wipCls = r.actualWip  > 0 ? "pd-popup-val-orange" : "pd-popup-val-zero";
+			var rejCls = r.rejection  > 0 ? "pd-popup-val-red"    : "pd-popup-val-zero";
 			return `<tr>
 				<td class="pd-popup-td pd-popup-style">${_e(r.style)}</td>
 				<td class="pd-popup-td pd-popup-colour">${_e(r.colour)}</td>
 				<td class="pd-popup-td pd-popup-buyer">${_e(r.buyer)}</td>
 				<td class="pd-popup-td pd-popup-num ${piCls}">${_n(r.pendingIn)}</td>
 				<td class="pd-popup-td pd-popup-num ${wipCls}">${_n(r.actualWip)}</td>
+				<td class="pd-popup-td pd-popup-num ${rejCls}">${_n(r.rejection)}</td>
 			</tr>`;
 		}).join("");
 
@@ -500,6 +507,10 @@ function _showDrilldown(sectionLabel, sectionKey) {
 								<span class="pd-popup-th-badge pd-popup-th-orange">Actual WIP</span>
 								<div class="pd-popup-th-sub">Curr IN − Curr OUT</div>
 							</th>
+							<th class="pd-popup-th pd-popup-num">
+								<span class="pd-popup-th-badge pd-popup-th-red">Rejection</span>
+								<div class="pd-popup-th-sub">Today's date</div>
+							</th>
 						</tr>
 					</thead>
 					<tbody>${tbody}</tbody>
@@ -516,6 +527,10 @@ function _showDrilldown(sectionLabel, sectionKey) {
 			<div class="pd-popup-summary-item pd-popup-summary-orange">
 				<div class="pd-popup-summary-val">${_n(totalWip)}</div>
 				<div class="pd-popup-summary-lbl">Total Actual WIP</div>
+			</div>
+			<div class="pd-popup-summary-item pd-popup-summary-red">
+				<div class="pd-popup-summary-val">${_n(totalRejection)}</div>
+				<div class="pd-popup-summary-lbl">Total Rejection</div>
 			</div>
 		</div>`;
 
