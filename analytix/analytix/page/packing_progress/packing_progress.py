@@ -295,32 +295,34 @@ def _get_outsourced_cells_map():
 
 def _get_rejection_map():
     """
-    Returns cumulative (all-time) rejection counts per
-    (style, colour, size, cell_name).
+    Returns cumulative rejection counts per (style, colour, size, cell_name).
 
-    Rejected statuses: QC Rework, QC Reject, SP Rework, SP Reject.
-    No log_status / operation filter — rejection scans may not share the
-    same operation path as normal production scans.
+    Uses pi.bundle_configuration to join tbc directly (same pattern as the
+    reference rejection query) and sums pi.quantity so we count actual
+    garment units, not scan-log rows.
+
+    Rejected statuses: QC Reject, SP Reject.
+    QC Rework / SP Rework are rework loops where pieces re-enter the line —
+    including them would double-count and inflate the figure. Only permanent
+    rejects are counted here, consistent with the reference dashboard query.
     """
     cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
 
     rows = frappe.db.sql(f"""
         SELECT
-            itm.custom_style_master  AS style,
-            itm.custom_colour_name   AS colour,
-            tbc.size                 AS size,
-            pc.cell_name             AS cell_name,
-            COUNT(*)                 AS rejection_count
+            itm.custom_style_master       AS style,
+            itm.custom_colour_name        AS colour,
+            tbc.size                      AS size,
+            pc.cell_name                  AS cell_name,
+            COALESCE(SUM(pi.quantity), 0) AS rejection_count
         FROM `tabItem Scan Log` isl
         INNER JOIN `tabProduction Item` pi
             ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor
             ON tor.name = pi.tracking_order
-        INNER JOIN (
-            SELECT DISTINCT parent, sales_order, work_order, size
-            FROM `tabTracking Order Bundle Configuration`
-            WHERE parentfield = 'bundle_configurations'
-        ) tbc ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc
+            ON tbc.name   = pi.bundle_configuration
+            AND tbc.parent = tor.name
         INNER JOIN `tabItem` itm
             ON itm.name = tor.item
         INNER JOIN `tabPhysical Cell` pc
@@ -328,9 +330,13 @@ def _get_rejection_map():
         INNER JOIN `tabTracking Component` tc
             ON tc.name = pi.component AND tc.is_main = 1
         WHERE isl.log_status = 'Completed'
-          AND isl.status IN ('QC Rework', 'QC Reject', 'SP Rework', 'SP Reject')
+          AND isl.status IN ('QC Reject', 'SP Reject')
           AND pc.cell_name IN ({cell_list})
-        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
+        GROUP BY
+            itm.custom_style_master,
+            itm.custom_colour_name,
+            tbc.size,
+            pc.cell_name
     """, as_dict=True)
 
     return {(r.style, r.colour, r.size, r.cell_name): int(r.rejection_count) for r in rows}
