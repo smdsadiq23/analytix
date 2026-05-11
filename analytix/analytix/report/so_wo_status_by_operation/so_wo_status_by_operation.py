@@ -62,7 +62,7 @@ def get_summary_so(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','SP Reject')
+                    WHEN isl.status IN ('QC Rejected','SP Rejected')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -73,7 +73,7 @@ def get_summary_so(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = %(op)s
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Rejected','SP Rejected')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
             #   AND tbc.activation_status = 'Completed' 
               AND tbc.sales_order IS NOT NULL
@@ -136,7 +136,7 @@ def get_summary_wo(filters):
                     THEN pi.quantity ELSE 0 
                 END) AS completed_units,
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','SP Reject')
+                    WHEN isl.status IN ('QC Rejected','SP Rejected')
                     THEN 1
                 END) AS rejected_units
             FROM `tabTracking Order Bundle Configuration` tbc
@@ -147,7 +147,7 @@ def get_summary_wo(filters):
                 ON isl.production_item = pi.name 
                 AND isl.operation = %(op)s
                 AND isl.log_status = 'Completed'
-                AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
+                AND isl.status IN ('Counted','Activated','Pass','QC Rejected','SP Rejected')
             WHERE tbc.parentfield = 'component_bundle_configurations' 
             #   AND tbc.activation_status = 'Completed' 
               AND tbc.work_order IS NOT NULL
@@ -280,7 +280,7 @@ def get_detail_so(so_name):
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name
             AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
+            AND isl.status IN ('Counted','Activated','Pass','QC Rejected','SP Rejected')
         WHERE tbc.sales_order = %s
           AND tbc.parentfield = 'component_bundle_configurations' 
         #   AND tbc.activation_status = 'Completed'
@@ -296,7 +296,7 @@ def get_detail_so(so_name):
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
-        elif log.status in ('QC Reject', 'SP Reject'):
+        elif log.status in ('QC Rejected', 'SP Rejected'):
             op_size_data[key]["rejected"] += 1
 
     metrics_by_op = []
@@ -463,7 +463,7 @@ def get_detail_wo(wo_name):
         INNER JOIN `tabItem Scan Log` isl 
             ON isl.production_item = pi.name
             AND isl.log_status = 'Completed'
-            AND isl.status IN ('Counted','Activated','Pass','QC Reject','SP Reject')
+            AND isl.status IN ('Counted','Activated','Pass','QC Rejected','SP Rejected')
         WHERE tbc.work_order = %s
           AND tbc.parentfield = 'component_bundle_configurations' 
         #   AND tbc.activation_status = 'Completed'
@@ -479,7 +479,7 @@ def get_detail_wo(wo_name):
         key = (log.operation, log.size or "")
         if log.status in ('Counted', 'Activated', 'Pass'):
             op_size_data[key]["completed"] += log.pi_qty or 0
-        elif log.status in ('QC Reject', 'SP Reject'):
+        elif log.status in ('QC Rejected', 'SP Rejected'):
             op_size_data[key]["rejected"] += 1
 
     metrics_by_op = []

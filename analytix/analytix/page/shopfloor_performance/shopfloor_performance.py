@@ -693,7 +693,7 @@ def _get_rejection_map(date):
     Returns daily rejection counts per (style, colour, size, cell_name)
     for the selected date.
 
-    Rejected statuses: QC Rework, QC Reject, SP Rework, SP Reject.
+    Rejected statuses: QC Rework, QC Rejected, SP Rework, SP Rejected.
     Uses logged_time (consistent with all other period helpers).
     No log_status / operation filter — rejection scans may not share the
     same operation path as normal production scans.
@@ -725,7 +725,7 @@ def _get_rejection_map(date):
             ON tc.name = pi.component AND tc.is_main = 1
         WHERE isl.log_status = 'Completed'
           AND DATE(isl.logged_time) = %(date)s
-          AND isl.status IN ('QC Rework', 'QC Reject', 'SP Rework', 'SP Reject')
+          AND isl.status IN ('QC Rework', 'QC Rejected', 'SP Rework', 'SP Rejected')
           AND pc.cell_name IN ({cell_list})
         GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size, pc.cell_name
     """, {"date": date}, as_dict=True)

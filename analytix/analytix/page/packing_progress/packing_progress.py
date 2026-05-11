@@ -42,7 +42,7 @@ def get_packing_progress_data():
       in            — cumulative qty that completed the first operation of the cell
                       (always 0 for no_in cells — only OUT matters for those)
       out           — cumulative qty that completed the last operation of the cell
-      rej           — cumulative rejection qty for this cell (QC Reject + SP Reject)
+      rej           — cumulative rejection qty for this cell (QC Rejected + SP Rejected)
                       subtracted from pending so rejected units don't inflate counts
       is_outsourced — True if this cell is outsourced for this style
       no_in         — True if this cell has no IN operation by design
@@ -308,7 +308,7 @@ def _get_rejection_map():
     reference rejection query) and sums pi.quantity so we count actual
     garment units, not scan-log rows.
 
-    Rejected statuses: QC Reject, SP Reject.
+    Rejected statuses: QC Rejected, SP Rejected.
     QC Rework / SP Rework are rework loops where pieces re-enter the line —
     including them would double-count and inflate the figure. Only permanent
     rejects are counted here, consistent with the reference dashboard query.
@@ -337,7 +337,7 @@ def _get_rejection_map():
         INNER JOIN `tabTracking Component` tc
             ON tc.name = pi.component AND tc.is_main = 1
         WHERE isl.log_status = 'Completed'
-          AND isl.status IN ('QC Reject', 'SP Reject')
+          AND isl.status IN ('QC Rejected', 'SP Rejected')
           AND pc.cell_name IN ({cell_list})
         GROUP BY
             itm.custom_style_master,

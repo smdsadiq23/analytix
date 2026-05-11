@@ -69,12 +69,12 @@ def get_defective_data(filters):
             tbc.work_order,
             COALESCE(soi.item_code, woi.production_item) AS fty_prod_id,
             COUNT(CASE 
-                WHEN isl.status IN ('QC Rework','QC Reject','SP Rework','SP Reject') 
+                WHEN isl.status IN ('QC Rework','QC Rejected','SP Rework','SP Rejected') 
                 THEN 1 END) AS defective_units,
             COUNT(*) AS scanned_units,
             ROUND(
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Rework','QC Reject','SP Rework','SP Reject') 
+                    WHEN isl.status IN ('QC Rework','QC Rejected','SP Rework','SP Rejected') 
                     THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2
             ) AS defective_unit_percentage
         FROM `tabItem Scan Log` isl
@@ -125,12 +125,12 @@ def get_rejected_data(filters):
             tbc.work_order,
             COALESCE(soi.item_code, woi.production_item) AS fty_prod_id,
             COUNT(CASE 
-                WHEN isl.status IN ('QC Reject','SP Reject') 
+                WHEN isl.status IN ('QC Rejected','SP Rejected') 
                 THEN 1 END) AS rejected_units,
             COUNT(*) AS scanned_units,
             ROUND(
                 COUNT(CASE 
-                    WHEN isl.status IN ('QC Reject','SP Reject') 
+                    WHEN isl.status IN ('QC Rejected','SP Rejected') 
                     THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2
             ) AS rejected_unit_percentage
         FROM `tabItem Scan Log` isl
