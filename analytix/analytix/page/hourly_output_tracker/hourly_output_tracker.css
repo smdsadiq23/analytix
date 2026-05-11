@@ -321,6 +321,7 @@ html, body {
 	gap: 10px;
 	flex: 1 1 0;
 	align-content: flex-start;
+	margin-top: 28px;
 	margin-bottom: 8px;
 	min-height: 0;
 }
@@ -336,9 +337,24 @@ html, body {
 	flex-direction: column;
 	gap: 3px;
 	transition: border-color 0.15s;
+	position: relative;
 }
 .hot-tile:hover {
 	border-color: #30363d;
+}
+.hot-tile::before,
+.hot-tile::after,
+.hot-tile *::before,
+.hot-tile *::after {
+	display: none !important;
+	content: none !important;
+}
+.hot-tile-name,
+.hot-tile-actual,
+.hot-tile-meta,
+.hot-tile-target,
+.hot-tile-variance {
+	display: revert;
 }
 
 .hot-tile-name {

@@ -36,7 +36,7 @@ CELL_TO_DISPLAY["FINAL CHECKING"] = "Final Checking"
 # Overtime  = scans during hour >= 19 (7 PM onwards)
 TIME_SLOTS = [
     "09:00", "10:00", "11:00", "12:00", "13:00",
-    "15:00", "16:00", "17:00", "18:00", "19:00",
+    "15:00", "16:00", "17:00", "18:00", "19:00", "20:00",
 ]
 OVERTIME_SLOT = "overtime"
 
@@ -53,6 +53,7 @@ _HOUR_TO_SLOT = {
     16: "17:00",
     17: "18:00",
     18: "19:00",
+    19: "20:00",
 }
 
 
@@ -150,6 +151,6 @@ def _hour_to_slot(hour: int) -> str:
     """Map a logged_time hour (0-23) to its display slot key."""
     if hour in _HOUR_TO_SLOT:
         return _HOUR_TO_SLOT[hour]
-    if hour >= 19:
+    if hour >= 20:
         return OVERTIME_SLOT
     return "09:00"
