@@ -252,6 +252,15 @@ function _render(msg) {
 		tbody += '<tr class="' + rowClass + '"><td class="hot-td-timeslot">' + label + "</td>" + cells + "</tr>";
 	});
 
+	// ── Section total row ─────────────────────────────────────────────────
+	var totalCells = SECTIONS.map(function (sec) {
+		var t = section_totals[sec] || 0;
+		return '<td class="hot-td hot-td-total">' +
+			(t > 0 ? '<span class="hot-total-val">' + t + "</span>" : '<span class="hot-total-zero">—</span>') +
+			"</td>";
+	}).join("");
+	tbody += '<tr class="hot-row-section-total"><td class="hot-td-timeslot hot-section-total-label">SECTION TOTAL</td>' + totalCells + "</tr>";
+
 	$("#hot-tbody").html(tbody);
 
 	// Overall total

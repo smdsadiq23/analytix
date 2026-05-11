@@ -151,7 +151,7 @@ html, body {
 
 /* ── Table scroll wrapper ────────────────────────────────────────── */
 .hot-scroll {
-	flex: 0 1 auto;
+	flex: 1 1 0;
 	width: 100% !important;
 	overflow-x: auto;
 	overflow-y: auto;
