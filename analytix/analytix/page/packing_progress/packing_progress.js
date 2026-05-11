@@ -307,7 +307,8 @@ function _ppd_render(rows) {
 
 			var prevOut = _ppd_getPrevOut(cellData, idx, plannedQty);
 			var out     = parseInt(c["out"] || 0);
-			var pending = Math.max(0, prevOut - out);
+			var rej     = parseInt(c["rej"] || 0);          // per-cell rejections
+			var pending = Math.max(0, prevOut - out - rej); // subtract rejected units
 			totalPending += pending;
 			return pending;
 		});

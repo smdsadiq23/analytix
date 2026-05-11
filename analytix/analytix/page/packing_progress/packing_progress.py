@@ -42,6 +42,8 @@ def get_packing_progress_data():
       in            — cumulative qty that completed the first operation of the cell
                       (always 0 for no_in cells — only OUT matters for those)
       out           — cumulative qty that completed the last operation of the cell
+      rej           — cumulative rejection qty for this cell (QC Reject + SP Reject)
+                      subtracted from pending so rejected units don't inflate counts
       is_outsourced — True if this cell is outsourced for this style
       no_in         — True if this cell has no IN operation by design
                       (KNITTING, PRODUCTION, FINAL CHECK) so the JS pending
@@ -66,6 +68,7 @@ def get_packing_progress_data():
         "rej_qty":          0,
         "cell_in":          defaultdict(int),
         "cell_out":         defaultdict(int),
+        "cell_rej":         defaultdict(int),   # per-cell rejection totals
         "outsourced_cells": set(),
     })
 
@@ -85,8 +88,11 @@ def get_packing_progress_data():
         agg[key]["outsourced_cells"] |= outsourced_cells_map.get((style, colour, size), set())
 
         # Sum rejections across all cells for this (style, colour, size)
+        # and also track per-cell so JS can subtract from pending
         for cell in CELL_ORDER:
-            agg[key]["rej_qty"] += rejection_map.get((style, colour, size, cell), 0)
+            rej = rejection_map.get((style, colour, size, cell), 0)
+            agg[key]["rej_qty"]        += rej
+            agg[key]["cell_rej"][cell] += rej
 
         for cell in CELL_ORDER:
             agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
@@ -127,6 +133,7 @@ def get_packing_progress_data():
             cells[cell] = {
                 "in":            b["cell_in"].get(cell, 0),
                 "out":           b["cell_out"].get(cell, 0),
+                "rej":           b["cell_rej"].get(cell, 0),   # per-cell rejections
                 "is_outsourced": cell in outsourced_cells,
                 "no_in":         cell in NO_IN_CELLS,
             }
@@ -339,4 +346,4 @@ def _get_rejection_map():
             pc.cell_name
     """, as_dict=True)
 
-    return {(r.style, r.colour, r.size, r.cell_name): int(r.rejection_count) for r in rows}
+    return {(r.style, r.colour, r.size, r.cell_name): int(r.rejection_count or 0) for r in rows}
