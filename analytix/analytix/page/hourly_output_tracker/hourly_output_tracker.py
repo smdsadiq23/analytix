@@ -19,14 +19,21 @@ SECTIONS = [
     "Packing",
 ]
 
-# Uppercase cell_name values as stored in tabPhysical Cell
-CELL_NAMES_UPPER = [s.upper() for s in SECTIONS]
+# Map: display name -> actual cell_name stored in tabPhysical Cell (uppercase)
+# Most sections match their uppercased display name; the exceptions are listed here.
+DISPLAY_TO_CELL = {
+    "Production Out": "PRODUCTION",
+    "Final Checking": "FINAL CHECK",
+}
+# For all others, fall back to display.upper()
+def _display_to_cell(display):
+    return DISPLAY_TO_CELL.get(display, display.upper())
 
-# Map DB cell_name (uppercase) -> display name (Title Case)
-CELL_TO_DISPLAY = {s.upper(): s for s in SECTIONS}
-# Override the ones that differ
-CELL_TO_DISPLAY["PRODUCTION OUT"] = "Production Out"
-CELL_TO_DISPLAY["FINAL CHECKING"] = "Final Checking"
+# Uppercase DB cell_name values used in the SQL IN clause
+CELL_NAMES_UPPER = [_display_to_cell(s) for s in SECTIONS]
+
+# Map: DB cell_name (uppercase) -> display name (Title Case)
+CELL_TO_DISPLAY = {_display_to_cell(s): s for s in SECTIONS}
 
 # Time slots — each label = end of the 1-hour window:
 #   "09:00" = scans during 08:00-08:59  (first hour: 8 AM to 9 AM)
