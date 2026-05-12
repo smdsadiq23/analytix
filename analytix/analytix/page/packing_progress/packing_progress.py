@@ -124,7 +124,7 @@ def get_packing_progress_data():
             continue
 
         # ── Filter 2: skip styles that are fully packed ───────────────────
-        if packing_out >= planned_qty:
+        if (packing_out + b["rej_qty"]) >= planned_qty:
             continue
 
         # ── Build per-cell data ───────────────────────────────────────────
