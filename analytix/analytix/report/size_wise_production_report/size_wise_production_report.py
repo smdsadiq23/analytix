@@ -1,5 +1,6 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
+# size_wise_production_report.py
 
 import frappe
 from frappe.utils import formatdate
@@ -29,6 +30,7 @@ def get_columns():
         {"label": "Completed Qty",          "fieldname": "completed_qty",           "fieldtype": "Int",     "width": 130},
         {"label": "Balance Qty",            "fieldname": "balance_qty",             "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",            "fieldname": "completed_percent",       "fieldtype": "Data",    "width": 120},
+        {"label": "Rejection",              "fieldname": "rejection",               "fieldtype": "Int",     "width": 110},
     ]
 
 
@@ -133,15 +135,66 @@ def get_production_data(filters):
     return frappe.db.sql(query, params, as_dict=True)
 
 
+def get_rejection_map(filters):
+    """
+    Total rejected quantity per (department, style, colour, size),
+    where isl.status IN ('QC Rejected', 'SP Rejected').
+    No date scoping — cumulative rejections for the order.
+    """
+    conditions = []
+    params     = {}
+
+    if filters.get("buyer"):
+        conditions.append("so.custom_brand = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    if filters.get("department"):
+        conditions.append("pc.name = %(department)s")
+        params["department"] = filters["department"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            pc.cell_name                                AS department,
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            COALESCE(SUM(pi.quantity), 0)               AS rejection
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.status IN ('QC Rejected', 'SP Rejected')
+            AND {where}
+        GROUP BY pc.cell_name, itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, params, as_dict=True)
+
+    return {(r.department, r.style, r.colour, r.size): int(r.rejection) for r in rows}
+
+
 def get_data(filters):
     order_map       = get_order_map(filters)
     if not order_map:
         return []
 
     production_logs = get_production_data(filters)
+    rejection_map   = get_rejection_map(filters)
 
     # ── Index production logs by (style, colour, size) → [list of dept rows] ──
-    # A single size can have output across multiple departments.
     prod_index = {}
     for log in production_logs:
         key = (log.style, log.colour, log.size)
@@ -176,6 +229,7 @@ def get_data(filters):
                 "completed_qty":      0,
                 "balance_qty":        planned_qty,
                 "completed_percent":  "0.0%",
+                "rejection":          0,
             })
         else:
             # ── One row per department that has scanned this size ──────────
@@ -183,6 +237,9 @@ def get_data(filters):
                 completed_qty = int(log.completed_qty)
                 balance_qty   = planned_qty - completed_qty
                 completed_pct = round((completed_qty / order_qty) * 100, 1) if order_qty > 0 else 0.0
+
+                rej_key   = (log.department, key[0], key[1], key[2])
+                rejection = rejection_map.get(rej_key, 0)
 
                 result.append({
                     "delivery_date":      delivery_date,
@@ -198,6 +255,7 @@ def get_data(filters):
                     "completed_qty":      completed_qty,
                     "balance_qty":        balance_qty,
                     "completed_percent":  f"{completed_pct:.1f}%",
+                    "rejection":          rejection,
                 })
 
     # ── Sort by delivery date descending, None/empty last ─────────────────

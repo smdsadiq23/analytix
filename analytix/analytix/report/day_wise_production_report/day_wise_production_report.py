@@ -1,5 +1,6 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
+# day_wise_production_report.py
 
 import frappe
 from frappe.utils import formatdate
@@ -31,6 +32,7 @@ def get_columns():
         {"label": "Cumulative Completed",   "fieldname": "cumulative_completed_qty","fieldtype": "Int",     "width": 160},
         {"label": "Balance Qty",            "fieldname": "balance_qty",             "fieldtype": "Int",     "width": 110},
         {"label": "Completed %",            "fieldname": "completed_percent",       "fieldtype": "Data",    "width": 120},
+        {"label": "Rejection",              "fieldname": "rejection",               "fieldtype": "Int",     "width": 110},
     ]
 
 
@@ -200,6 +202,61 @@ def get_cumulative_data(filters):
     return {(r.department, r.style, r.colour, r.size): int(r.cumulative_completed_qty) for r in rows}
 
 
+def get_rejection_map(filters):
+    """
+    Total rejected quantity per (department, style, colour, size),
+    where isl.status IN ('QC Rejected', 'SP Rejected').
+    Scoped up to and including the selected date if provided.
+    """
+    conditions = []
+    params     = {}
+
+    if filters.get("date"):
+        conditions.append("DATE(isl.logged_time) <= %(date)s")
+        params["date"] = filters["date"]
+
+    if filters.get("buyer"):
+        conditions.append("so.custom_brand = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    if filters.get("department"):
+        conditions.append("pc.name = %(department)s")
+        params["department"] = filters["department"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            pc.cell_name                                AS department,
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            COALESCE(SUM(pi.quantity), 0)               AS rejection
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.status IN ('QC Rejected', 'SP Rejected')
+            AND {where}
+        GROUP BY pc.cell_name, itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, params, as_dict=True)
+
+    return {(r.department, r.style, r.colour, r.size): int(r.rejection) for r in rows}
+
+
 def get_data(filters):
     order_map       = get_order_map(filters)
     if not order_map:
@@ -207,6 +264,7 @@ def get_data(filters):
 
     production_logs = get_production_data(filters)
     cumulative_map  = get_cumulative_data(filters)
+    rejection_map   = get_rejection_map(filters)
 
     result = []
 
@@ -231,6 +289,8 @@ def get_data(filters):
         completed_percent     = round((cumulative_completed_qty / order_qty) * 100, 1) if order_qty > 0 else 0.0
         completed_percent_str = f"{completed_percent:.1f}%"
 
+        rejection = rejection_map.get(cum_key, 0)
+
         delivery_date = ""
         if order_info.delivery_date:
             delivery_date = formatdate(order_info.delivery_date, "dd-mm-yyyy")
@@ -251,6 +311,7 @@ def get_data(filters):
             "cumulative_completed_qty": cumulative_completed_qty,
             "balance_qty":              balance_qty,
             "completed_percent":        completed_percent_str,
+            "rejection":                rejection,
         })
 
     # ── Sort by delivery date descending, None/empty last ─────────────────
@@ -265,6 +326,7 @@ def get_data(filters):
     #     total_today      = sum(r["completed_qty"]            for r in result)
     #     total_cumulative = sum(r["cumulative_completed_qty"] for r in result)
     #     total_balance    = sum(r["balance_qty"]              for r in result)
+    #     total_rejection  = sum(r["rejection"]                for r in result)
     #     total_completed  = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
     #     result.append({
@@ -282,6 +344,7 @@ def get_data(filters):
     #         "cumulative_completed_qty": total_cumulative,
     #         "balance_qty":              total_balance,
     #         "completed_percent":        f"{total_completed:.1f}%",
+    #         "rejection":                total_rejection,
     #     })
 
     return result

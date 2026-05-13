@@ -1,5 +1,6 @@
 # Copyright (c) 2026, CognitionX Logic India Private Limited and contributors
 # For license information, please see license.txt
+# style_wise_production_report.py
 
 import frappe
 from collections import defaultdict
@@ -28,6 +29,7 @@ def get_columns():
         {"label": "Cumulative Output",  "fieldname": "cumulative_qty",      "fieldtype": "Int",     "width": 140},
         {"label": "Completed %",        "fieldname": "completed_pct",       "fieldtype": "Data",    "width": 110},
         {"label": "Balance Qty",        "fieldname": "balance_qty",         "fieldtype": "Int",     "width": 110},
+        {"label": "Rejection",          "fieldname": "rejection",           "fieldtype": "Int",     "width": 110},
     ]
 
 
@@ -179,6 +181,56 @@ def get_cumulative_map(filters):
     return {(r.style, r.colour, r.size): int(r.cumulative_qty) for r in rows}
 
 
+def get_rejection_map(filters):
+    """
+    Total rejected quantity per (style, colour, size),
+    where isl.status IN ('QC Rejected', 'SP Rejected').
+    Scoped up to and including the selected date if provided.
+    """
+    conditions = []
+    params     = {}
+
+    if filters.get("date"):
+        conditions.append("DATE(isl.logged_time) <= %(date)s")
+        params["date"] = filters["date"]
+
+    if filters.get("buyer"):
+        conditions.append("so.custom_brand = %(buyer)s")
+        params["buyer"] = filters["buyer"]
+
+    if filters.get("style"):
+        conditions.append("itm.custom_style_master = %(style)s")
+        params["style"] = filters["style"]
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master                     AS style,
+            itm.custom_colour_name                      AS colour,
+            tbc.size                                    AS size,
+            COALESCE(SUM(pi.quantity), 0)               AS rejection
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi          ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor          ON tor.name = pi.tracking_order
+        INNER JOIN (
+            SELECT DISTINCT parent, sales_order, work_order, size
+            FROM `tabTracking Order Bundle Configuration`
+            WHERE parentfield = 'bundle_configurations'
+        ) tbc
+            ON tbc.parent = tor.name AND tbc.size = pi.size
+        INNER JOIN `tabItem` itm                    ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc       ON tc.name = pi.component AND tc.is_main = 1
+        INNER JOIN `tabSales Order` so              ON so.name = tbc.sales_order
+        WHERE isl.status IN ('QC Rejected', 'SP Rejected')
+            AND {where}
+        GROUP BY itm.custom_style_master, itm.custom_colour_name, tbc.size
+    """, params, as_dict=True)
+
+    return {(r.style, r.colour, r.size): int(r.rejection) for r in rows}
+
+
 def get_data(filters):
     order_map      = get_order_map(filters)
     if not order_map:
@@ -186,6 +238,7 @@ def get_data(filters):
 
     daily_map      = get_daily_map(filters)
     cumulative_map = get_cumulative_map(filters)
+    rejection_map  = get_rejection_map(filters)
 
     # ── Aggregate at (buyer, season, style, colour) level ─────────────────
     agg = defaultdict(lambda: {
@@ -193,6 +246,7 @@ def get_data(filters):
         "planned_qty":    0,
         "today_output":   0,
         "cumulative_qty": 0,
+        "rejection":      0,
         "delivery_date":  None,
     })
 
@@ -202,6 +256,7 @@ def get_data(filters):
         agg[key]["planned_qty"]    += int(info.planned_qty or 0)
         agg[key]["today_output"]   += daily_map.get((style, colour, size), 0)
         agg[key]["cumulative_qty"] += cumulative_map.get((style, colour, size), 0)
+        agg[key]["rejection"]      += rejection_map.get((style, colour, size), 0)
 
         d = info.delivery_date
         if d and (agg[key]["delivery_date"] is None or d > agg[key]["delivery_date"]):
@@ -219,12 +274,13 @@ def get_data(filters):
         planned_qty    = b["planned_qty"]
         today_output   = b["today_output"]
         cumulative_qty = b["cumulative_qty"]
+        rejection      = b["rejection"]
 
         # Completed % = (Cumulative / Order Qty) × 100
         completed_pct     = round((cumulative_qty / order_qty) * 100, 1) if order_qty else 0.0
         completed_pct_str = f"{completed_pct:.1f}%"
 
-        # Balance = Planned Qty − Cumulative (positive = work remaining = red)
+        # Balance = Planned Qty − Cumulative (positive = work remaining)
         balance_qty = planned_qty - cumulative_qty
 
         delivery_date = ""
@@ -243,6 +299,7 @@ def get_data(filters):
             "cumulative_qty": cumulative_qty,
             "completed_pct":  completed_pct_str,
             "balance_qty":    balance_qty,
+            "rejection":      rejection,
         })
 
     # # ── TOTAL / AVERAGE row ────────────────────────────────────────────────
@@ -252,6 +309,7 @@ def get_data(filters):
     #     total_today      = sum(r["today_output"]    for r in result)
     #     total_cumulative = sum(r["cumulative_qty"]  for r in result)
     #     total_balance    = sum(r["balance_qty"]     for r in result)
+    #     total_rejection  = sum(r["rejection"]       for r in result)
     #     total_pct        = round((total_cumulative / total_order) * 100, 1) if total_order else 0.0
 
     #     result.append({
@@ -267,6 +325,7 @@ def get_data(filters):
     #         "cumulative_qty": total_cumulative,
     #         "completed_pct":  f"{total_pct:.1f}%",
     #         "balance_qty":    total_balance,
+    #         "rejection":      total_rejection,
     #     })
 
     return result
