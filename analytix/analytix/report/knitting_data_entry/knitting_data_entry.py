@@ -117,21 +117,37 @@ def get_columns():
 
 
 def get_raw_data(filters=None):
-    """
-    Lean SQL — fetches only raw scalar fields.
-    No expressions, no CASE, no arithmetic in SQL.
-    Filters:
-      - process_date        : DATE(isl.logged_time) — defaults to today
-      - operator_not_filled : 1/True → only rows where custom_operator is blank
-    """
+    # Optimised SQL — key changes vs original:
+    #
+    # 1. Range condition on logged_time instead of DATE(logged_time)
+    #    → MySQL can now use an index on isl.logged_time (avoids full table scan)
+    #
+    # 2. pc.cell_name = 'KNITTING' moved into the JOIN ON clause
+    #    → filters the Physical Cell table at join time, not after
+    #
+    # 3. All heavy isl filters sit on the driving table; combined with a
+    #    composite index they are very fast.
+    #
+    # Recommended one-time indexes (run once via bench console or a patch):
+    #
+    #   ALTER TABLE `tabItem Scan Log`
+    #   ADD INDEX IF NOT EXISTS idx_isl_knitting
+    #       (operation, log_status, status, logged_time, physical_cell);
+    #
+    #   ALTER TABLE `tabPhysical Cell`
+    #   ADD INDEX IF NOT EXISTS idx_pc_cell_name (cell_name);
     filters = filters or {}
 
+    process_date = filters.get("process_date") or frappe.utils.today()
+
+    # ── Build WHERE conditions ────────────────────────────────────────────────
     conditions = [
-        "pc.cell_name = 'KNITTING'",
         "isl.operation = 'KNITTING OUT'",
         "isl.log_status = 'Completed'",
         "isl.status IN ('Counted', 'Pass')",
-        "DATE(isl.logged_time) = %(process_date)s",
+        # Range condition — lets MySQL use an index on logged_time
+        "isl.logged_time >= %(date_start)s",
+        "isl.logged_time <  %(date_end)s",
     ]
 
     if filters.get("operator_not_filled"):
@@ -144,22 +160,27 @@ def get_raw_data(filters=None):
     return frappe.db.sql(
         f"""
         SELECT
-            isl.name                                    AS isl_name,
-            DATE(isl.logged_time)                       AS process_date,
+            isl.name                                     AS isl_name,
+            DATE(isl.logged_time)                        AS process_date,
             TIME_FORMAT(isl.logged_time, '%%H:%%i:%%s') AS process_time,
-            tt.tag_number                               AS rfid_tag,
-            so.custom_brand                             AS buyer,
-            itm.custom_style_master                     AS style,
-            itm.custom_colour_name                      AS colour,
-            tbc.size                                    AS size,
-            pi.quantity                                 AS rfid_qty,
-            isl.custom_actual_quantity                  AS custom_actual_quantity,
-            isl.custom_operator                         AS custom_operator,
+            tt.tag_number                                AS rfid_tag,
+            so.custom_brand                              AS buyer,
+            itm.custom_style_master                      AS style,
+            itm.custom_colour_name                       AS colour,
+            tbc.size                                     AS size,
+            pi.quantity                                  AS rfid_qty,
+            isl.custom_actual_quantity                   AS custom_actual_quantity,
+            isl.custom_operator                          AS custom_operator,
             COALESCE(emp.employee_name, isl.custom_operator) AS operator_name,
-            isl.custom_actual_weight                    AS custom_actual_weight,
-            wol.custom_planned_weight                   AS unit_planned_weight,
-            wol.custom_weight_tolerance                 AS unit_weight_tolerance
+            isl.custom_actual_weight                     AS custom_actual_weight,
+            wol.custom_planned_weight                    AS unit_planned_weight,
+            wol.custom_weight_tolerance                  AS unit_weight_tolerance
         FROM `tabItem Scan Log` isl
+        -- Filter Physical Cell at join time (not in WHERE) so MySQL
+        -- can skip non-KNITTING rows before evaluating the remaining joins
+        INNER JOIN `tabPhysical Cell` pc
+            ON  pc.name      = isl.physical_cell
+            AND pc.cell_name = 'KNITTING'
         INNER JOIN `tabProduction Item` pi
             ON pi.name = isl.production_item
         INNER JOIN `tabTracking Order` tor
@@ -169,42 +190,47 @@ def get_raw_data(filters=None):
         INNER JOIN `tabTracking Tag` tt
             ON tt.name = pitm.tracking_tag
         INNER JOIN `tabTracking Order Bundle Configuration` tbc
-            ON tbc.parent = tor.name AND tbc.name = pi.bundle_configuration
+            ON  tbc.parent = tor.name
+            AND tbc.name   = pi.bundle_configuration
         INNER JOIN `tabItem` itm
             ON itm.name = tor.item
         INNER JOIN `tabBOM` bom
-            ON bom.item = itm.name AND bom.is_default = 1
-        INNER JOIN `tabPhysical Cell` pc
-            ON pc.name = isl.physical_cell
+            ON  bom.item       = itm.name
+            AND bom.is_default = 1
         INNER JOIN `tabTracking Component` tc
-            ON tc.name = pi.component AND tc.is_main = 1
+            ON  tc.name    = pi.component
+            AND tc.is_main = 1
         INNER JOIN `tabSales Order` so
             ON so.name = tbc.sales_order
         INNER JOIN `tabWork Order Line Item` wol
-            ON wol.parent = tbc.work_order AND wol.size = tbc.size
+            ON  wol.parent = tbc.work_order
+            AND wol.size   = tbc.size
         LEFT JOIN `tabEmployee` emp
             ON emp.name = isl.custom_operator
         WHERE {where_clause}
         ORDER BY isl.logged_time DESC
         """,
-        {"process_date": filters.get("process_date") or frappe.utils.today()},
+        {
+            "date_start": f"{process_date} 00:00:00",
+            "date_end":   f"{process_date} 23:59:59.999999",
+        },
         as_dict=True,
     )
 
 
 def get_data(filters=None):
-    rows = get_raw_data(filters)
+    rows   = get_raw_data(filters)
     result = []
 
     for row in rows:
-        qty               = row.rfid_qty or 0
-        unit_plnd         = row.unit_planned_weight or 0
-        unit_tol          = row.unit_weight_tolerance or 0
-        actual_weight     = row.custom_actual_weight
+        qty              = row.rfid_qty or 0
+        unit_plnd        = row.unit_planned_weight or 0
+        unit_tol         = row.unit_weight_tolerance or 0
+        actual_weight    = row.custom_actual_weight
 
-        plnd_weight       = round(qty * unit_plnd, 3)
-        weight_tolerance  = round(qty * unit_tol, 3)
-        variance          = round(actual_weight - plnd_weight, 3) if actual_weight is not None else None
+        plnd_weight      = round(qty * unit_plnd, 3)
+        weight_tolerance = round(qty * unit_tol,  3)
+        variance         = round(actual_weight - plnd_weight, 3) if actual_weight is not None else None
 
         result.append({
             "isl_name":               row.isl_name,
