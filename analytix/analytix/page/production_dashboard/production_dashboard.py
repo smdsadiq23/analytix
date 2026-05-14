@@ -50,6 +50,7 @@ def get_dashboard_data():
     knitting_logged_time_map = _get_knitting_first_logged_time_map()
     logged_time_map          = _get_min_logged_time_map()
     outsourced_cells_map     = _get_outsourced_cells_map()
+    rejection_map            = _get_rejection_map()
 
     # ── Aggregate at (buyer, season, style, colour) across all sizes ──────
     agg = defaultdict(lambda: {
@@ -57,6 +58,7 @@ def get_dashboard_data():
         "planned_qty":                 0,
         "delivery_date":               None,
         "min_logged_time":             None,
+        "rej_qty":                     0,
         "cell_in":                     defaultdict(int),
         "cell_out":                    defaultdict(int),
         "cell_in_logged_date":         {},
@@ -84,6 +86,10 @@ def get_dashboard_data():
             agg[key]["knitting_first_logged"] = klt
 
         agg[key]["outsourced_cells"] |= outsourced_cells_map.get((style, colour, size), set())
+
+        # Sum rejections across all cells for this (style, colour, size)
+        for cell in CELL_ORDER:
+            agg[key]["rej_qty"] += rejection_map.get((style, colour, size, cell), 0)
 
         for cell in CELL_ORDER:
             agg[key]["cell_in"][cell]  += cell_in_map.get((style, colour, size, cell), 0)
@@ -183,11 +189,8 @@ def get_dashboard_data():
 
         completion_pct = round((packing_out / order_qty) * 100, 1) if order_qty else 0.0
 
-        delivery_date = ""
-        if b["delivery_date"]:
-            delivery_date = formatdate(b["delivery_date"], "dd-mm-yyyy")
-
-        if completion_pct >= 105:
+        # Hide styles where packing out + total rejections >= planned qty
+        if (packing_out + b["rej_qty"]) >= planned_qty:
             continue
 
         if cells["KNITTING"]["in"] == 0:
@@ -484,6 +487,51 @@ def _get_outsourced_cells_map():
     return result
 
 
+def _get_rejection_map():
+    """
+    Returns cumulative rejection counts per (style, colour, size, cell_name).
+
+    Rejected statuses: QC Rejected, SP Rejected.
+    QC Rework / SP Rework are rework loops where pieces re-enter the line —
+    including them would double-count and inflate the figure. Only permanent
+    rejects are counted here.
+    """
+    cell_list = ", ".join([f"'{c}'" for c in CELL_ORDER])
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            itm.custom_style_master       AS style,
+            itm.custom_colour_name        AS colour,
+            tbc.size                      AS size,
+            pc.cell_name                  AS cell_name,
+            COALESCE(SUM(pi.quantity), 0) AS rejection_count
+        FROM `tabItem Scan Log` isl
+        INNER JOIN `tabProduction Item` pi
+            ON pi.name = isl.production_item
+        INNER JOIN `tabTracking Order` tor
+            ON tor.name = pi.tracking_order
+        INNER JOIN `tabTracking Order Bundle Configuration` tbc
+            ON tbc.name   = pi.bundle_configuration
+            AND tbc.parent = tor.name
+        INNER JOIN `tabItem` itm
+            ON itm.name = tor.item
+        INNER JOIN `tabPhysical Cell` pc
+            ON pc.name = isl.physical_cell
+        INNER JOIN `tabTracking Component` tc
+            ON tc.name = pi.component AND tc.is_main = 1
+        WHERE isl.log_status = 'Completed'
+          AND isl.status IN ('QC Rejected', 'SP Rejected')
+          AND pc.cell_name IN ({cell_list})
+        GROUP BY
+            itm.custom_style_master,
+            itm.custom_colour_name,
+            tbc.size,
+            pc.cell_name
+    """, as_dict=True)
+
+    return {(r.style, r.colour, r.size, r.cell_name): int(r.rejection_count or 0) for r in rows}
+
+
 def _get_cell_sequence_map():
     """
     Returns {(style, colour, size) → [cell_name, ...]} where the list is the
@@ -682,15 +730,6 @@ def get_style_sizewise_data(style, colour):
                 scan_map[key]["out"] += int(r.qty)
 
     # ── Build per-cell rows using actual route order ───────────────────────
-    #
-    # We iterate over `route` (actual per-style sequence from Cut Kit
-    # Operations idx) so that non-standard routes like:
-    #   CUTTING → EMBROIDERY → LINKING
-    # correctly attribute EMBROIDERY's pending_in to CUTTING OUT,
-    # and LINKING's wip_pending to EMBROIDERY OUT — not CUTTING OUT.
-    #
-    # prev_total_out tracks the OUT of the last IN-HOUSE cell only.
-    # Outsourced cells neither consume nor advance prev_total_out.
     prev_total_out = 0
     cell_rows = []
 
