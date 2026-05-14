@@ -2,6 +2,12 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Knitting Data Entry"] = {
+    // ── Disable prepared-report caching entirely ──────────────────────────────
+    // Without this, Frappe queues the report as a background job, caches the
+    // result, and then shows "This report was generated N minutes ago" with a
+    // "Generate New Report" button every time the cached copy is stale.
+    is_prepared_report: false,
+
     filters: [
         {
             fieldname:  "process_date",
@@ -96,6 +102,13 @@ frappe.query_reports["Knitting Data Entry"] = {
 
         _injectStyles();
 
+        // ── Hide the stale-report banner if it ever appears ──────────────────
+        // Belt-and-suspenders alongside is_prepared_report: false above.
+        _hidePreparedBanner();
+        $(report.page.wrapper).on("page:after-refresh", () => {
+            setTimeout(_hidePreparedBanner, 300);
+        });
+
         if (!window._kdeListenerAttached) {
             window._kdeListenerAttached = true;
 
@@ -108,6 +121,16 @@ frappe.query_reports["Knitting Data Entry"] = {
         }
     },
 };
+
+// ── Hide the prepared-report stale banner ─────────────────────────────────────
+function _hidePreparedBanner() {
+    document.querySelectorAll(".prepared-report-banner").forEach(el => {
+        el.style.display = "none";
+    });
+    document.querySelectorAll(".btn-generate-new-report").forEach(el => {
+        el.style.display = "none";
+    });
+}
 
 // ── Variance cell HTML ────────────────────────────────────────────────────────
 function _varianceHTML(value, islName) {
@@ -320,6 +343,9 @@ function _injectStyles() {
         .kde-var-empty { color: #aaa; }
         .kde-var-zero  { background: #f0f0f0; color: #555; }
         .kde-var-diff  { background: #fff0f0; color: #d32f2f; }
+        /* Hide Frappe's prepared-report stale banner permanently */
+        .prepared-report-banner,
+        .btn-generate-new-report { display: none !important; }
     `;
     document.head.appendChild(s);
 }
