@@ -201,7 +201,7 @@ def get_dashboard_data():
             "buyer":          buyer,
             "colour":         colour,
             "season":         season,
-            "delivery_date":  delivery_date,
+            "delivery_date":  b["delivery_date"],
             "order_qty":      order_qty,
             "planned_qty":    planned_qty,
             "cells":          cells,
