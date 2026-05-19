@@ -22,40 +22,44 @@ frappe.query_reports["Size wise Production Report"] = {
         }
     ],
 
+    // ── Formatter ────────────────────────────────────────────────────────────
+    // Kept lean: avoid per-cell string parsing where the value is already a
+    // number (Frappe passes the raw value for Int columns, not a string).
     formatter(value, row, column, data, default_formatter) {
-        let html = default_formatter(value, row, column, data);
-        if (!data || value === null || value === undefined) return html;
-
-        const isTotalRow = data.department === "TOTAL / AVERAGE";
-
-        // ── Total row: bold everything ─────────────────────────────────────
-        if (isTotalRow) {
-            return `<span style="font-weight:700;">${value ?? ""}</span>`;
+        if (!data || value === null || value === undefined) {
+            return default_formatter(value, row, column, data);
         }
 
-        // ── Balance Qty: green if <= 0 (on/ahead of plan), red if > 0 (behind)
-        // Balance = Planned Qty − Completed Qty, so positive means work still remaining
-        if (column.fieldname === "balance_qty") {
-            const num = parseInt(value);
-            if (num === 0) return `<span style="color:#2e7d32; font-weight:500;">${value}</span>`;
+        // Total/average summary row — bold everything
+        if (data.department === "TOTAL / AVERAGE") {
+            return `<span style="font-weight:700">${value ?? ""}</span>`;
+        }
+
+        const fn = column.fieldname;
+
+        // Balance Qty — Int column, value is already numeric
+        if (fn === "balance_qty") {
+            const num = Number(value);
+            if (num === 0) return `<span style="color:#2e7d32;font-weight:500">${value}</span>`;
             const color = num > 0 ? "#d32f2f" : "#2e7d32";
-            return `<span style="color:${color}; font-weight:500;">${value}</span>`;
+            return `<span style="color:${color};font-weight:500">${value}</span>`;
         }
 
-        // ── Completed %: red → orange → blue → green ──────────────────────
-        if (column.fieldname === "completed_percent") {
-            const num = parseFloat(String(value).replace("%", ""));
+        // Completed % — stored as "75.0%" string; parse once
+        if (fn === "completed_percent") {
+            const num = parseFloat(value);   // "75.0%" → 75
             let color = "#d32f2f";
-            if (num >= 100)     color = "#2e7d32";
-            else if (num >= 75) color = "#1565c0";
-            else if (num >= 50) color = "#e65100";
-            return `<span style="color:${color}; font-weight:500;">${value}</span>`;
+            if      (num >= 100) color = "#2e7d32";
+            else if (num >= 75)  color = "#1565c0";
+            else if (num >= 50)  color = "#e65100";
+            return `<span style="color:${color};font-weight:500">${value}</span>`;
         }
 
-        return html;
+        return default_formatter(value, row, column, data);
     },
 
-    onload: function(report) {
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    onload(report) {
         if (typeof CX !== "undefined" && CX.mountBreadcrumb) {
             CX.mountBreadcrumb({
                 wrapper: report.page.wrapper || report.page.$wrapper,
