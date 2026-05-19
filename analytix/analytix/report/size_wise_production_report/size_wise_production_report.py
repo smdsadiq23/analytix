@@ -259,7 +259,10 @@ def get_data(filters):
                 })
 
     # ── Sort by delivery date descending, None/empty last ─────────────────
-    result.sort(key=lambda r: (r["_delivery_date_raw"] or "0000-00-00"), reverse=True)
+    result.sort(
+        key=lambda r: str(r["_delivery_date_raw"] or "0000-00-00"),
+        reverse=True,
+    )
     for r in result:
         r.pop("_delivery_date_raw", None)
 
