@@ -265,7 +265,11 @@ def get_data(filters):
     # ── Build result rows ──────────────────────────────────────────────────
     result = []
 
-    sorted_keys = sorted(agg.keys(), key=lambda k: (agg[k]["delivery_date"] or "0000-00-00"), reverse=True)
+    sorted_keys = sorted(
+        agg.keys(),
+        key=lambda k: agg[k]["delivery_date"].isoformat() if agg[k]["delivery_date"] else "0000-00-00",
+        reverse=True,
+    )
 
     for buyer, season, style, colour in sorted_keys:
         b = agg[(buyer, season, style, colour)]
